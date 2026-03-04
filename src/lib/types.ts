@@ -22,6 +22,9 @@ export interface TacticalRead {
   result: 'success' | 'partial' | 'fail' | null
   confidence: number
   match_checkin_id: string | null
+  round_number?: number
+  weapons_bought?: string[]
+  tactical_intent?: string
 }
 
 export interface MatchDebrief {

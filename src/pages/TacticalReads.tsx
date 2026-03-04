@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { BookOpen, ChevronDown, ChevronUp } from 'lucide-react'
 import ScoreSlider from '../components/ui/ScoreSlider'
 import { supabase } from '../lib/supabase'
-import { MAPS } from '../lib/constants'
+import { MAPS, WEAPONS, TACTICAL_INTENTS } from '../lib/constants'
 import type { TacticalRead } from '../lib/types'
 
 type Side = 'attack' | 'defense'
@@ -10,6 +10,7 @@ type RoundType = 'pistol' | 'eco' | 'force' | 'full_buy'
 type Result = 'success' | 'partial' | 'fail'
 
 const CHECKIN_ID_KEY = 'val-master-last-checkin-id'
+const WEAPON_CATEGORIES = Object.keys(WEAPONS) as (keyof typeof WEAPONS)[]
 
 export default function TacticalReads() {
   const [reads, setReads] = useState<TacticalRead[]>([])
@@ -18,9 +19,12 @@ export default function TacticalReads() {
   const [error, setError] = useState<string | null>(null)
 
   // Form state
+  const [roundNumber, setRoundNumber] = useState('')
   const [map, setMap] = useState<string>(MAPS[0])
   const [side, setSide] = useState<Side>('attack')
   const [roundType, setRoundType] = useState<RoundType>('full_buy')
+  const [weaponsBought, setWeaponsBought] = useState<string[]>([])
+  const [tacticalIntent, setTacticalIntent] = useState<string | null>(null)
   const [readDescription, setReadDescription] = useState('')
   const [counterAction, setCounterAction] = useState('')
   const [confidence, setConfidence] = useState(3)
@@ -40,7 +44,16 @@ export default function TacticalReads() {
 
   useEffect(() => { fetchReads() }, [fetchReads])
 
+  const toggleWeapon = (name: string) => {
+    setWeaponsBought((prev) =>
+      prev.includes(name) ? prev.filter((w) => w !== name) : [...prev, name]
+    )
+  }
+
   const resetForm = () => {
+    setRoundNumber('')
+    setWeaponsBought([])
+    setTacticalIntent(null)
     setReadDescription('')
     setCounterAction('')
     setConfidence(3)
@@ -52,6 +65,8 @@ export default function TacticalReads() {
     setSubmitting(true)
     setError(null)
 
+    const parsed = parseInt(roundNumber, 10)
+
     const { error: dbError } = await supabase.from('tactical_reads').insert({
       map,
       side,
@@ -61,6 +76,9 @@ export default function TacticalReads() {
       confidence,
       result,
       match_checkin_id: checkinId || null,
+      round_number: parsed >= 1 && parsed <= 25 ? parsed : null,
+      weapons_bought: weaponsBought.length > 0 ? weaponsBought : null,
+      tactical_intent: tacticalIntent,
     })
 
     if (dbError) {
@@ -102,6 +120,20 @@ export default function TacticalReads() {
             Track what you read and how you countered.
           </p>
         </div>
+
+        {/* Round Number */}
+        <label className="block space-y-2">
+          <span className="text-[10px] font-bold uppercase tracking-wider text-text-muted">Round #</span>
+          <input
+            type="number"
+            min={1}
+            max={25}
+            value={roundNumber}
+            onChange={(e) => setRoundNumber(e.target.value)}
+            placeholder="e.g. 12"
+            className="w-full bg-bg-elevated border border-bg-elevated rounded-lg px-3 py-2.5 text-text-primary text-sm font-stats placeholder:text-text-muted focus:outline-none focus:border-val-cyan/50 transition-colors"
+          />
+        </label>
 
         {/* Map */}
         <label className="block space-y-2">
@@ -159,6 +191,57 @@ export default function TacticalReads() {
                 }`}
               >
                 {label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Weapons Bought */}
+        <div className="space-y-3">
+          <span className="text-[10px] font-bold uppercase tracking-wider text-text-muted">
+            Weapons Bought This Round
+          </span>
+          {WEAPON_CATEGORIES.map((cat) => (
+            <div key={cat} className="space-y-1.5">
+              <span className="text-[10px] uppercase tracking-wider text-text-muted/60">
+                {cat}
+              </span>
+              <div className="flex flex-wrap gap-1.5">
+                {WEAPONS[cat].map((w) => (
+                  <button
+                    key={w.name}
+                    onClick={() => toggleWeapon(w.name)}
+                    className={`px-2 py-1 rounded text-[11px] font-medium transition-all border ${
+                      weaponsBought.includes(w.name)
+                        ? 'bg-bg-elevated text-val-cyan border-val-cyan/40'
+                        : 'bg-bg-elevated/50 text-text-muted border-transparent hover:border-bg-elevated'
+                    }`}
+                  >
+                    {w.name} <span className="text-text-muted/50">[{w.cost}]</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Tactical Intent */}
+        <div className="space-y-2">
+          <span className="text-[10px] font-bold uppercase tracking-wider text-text-muted">
+            Tactical Intent
+          </span>
+          <div className="flex flex-wrap gap-2">
+            {TACTICAL_INTENTS.map((intent) => (
+              <button
+                key={intent}
+                onClick={() => setTacticalIntent(tacticalIntent === intent ? null : intent)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-heading font-bold tracking-wide transition-all border ${
+                  tacticalIntent === intent
+                    ? 'bg-val-red/15 text-val-red border-val-red/40'
+                    : 'bg-bg-elevated text-text-muted border-transparent hover:border-bg-elevated'
+                }`}
+              >
+                {intent}
               </button>
             ))}
           </div>
@@ -270,6 +353,11 @@ export default function TacticalReads() {
                     <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase border ${sideBadge(read.side)}`}>
                       {read.side}
                     </span>
+                    {read.round_number != null && (
+                      <span className="px-2 py-0.5 rounded text-[10px] font-bold font-stats bg-val-yellow/15 text-val-yellow">
+                        R{read.round_number}
+                      </span>
+                    )}
                     <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-bg-elevated text-text-muted">
                       {read.round_type.replace('_', ' ')}
                     </span>
@@ -282,6 +370,25 @@ export default function TacticalReads() {
                       {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                     </span>
                   </div>
+
+                  {/* Weapons chips */}
+                  {read.weapons_bought && read.weapons_bought.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-2">
+                      {read.weapons_bought.map((w) => (
+                        <span key={w} className="px-1.5 py-0.5 rounded text-[9px] font-medium bg-bg-elevated text-text-muted">
+                          {w}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Tactical intent */}
+                  {read.tactical_intent && (
+                    <span className="inline-block mt-2 px-2 py-0.5 rounded text-[10px] font-bold bg-val-red/10 text-val-red">
+                      {read.tactical_intent}
+                    </span>
+                  )}
+
                   <p className={`text-sm text-text-secondary mt-2 ${expanded ? '' : 'line-clamp-1'}`}>
                     {read.read_description}
                   </p>
