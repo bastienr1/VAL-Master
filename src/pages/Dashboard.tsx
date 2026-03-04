@@ -54,6 +54,8 @@ export default function Dashboard() {
   const wins = debriefs.filter((d) => d.result === 'win').length
   const losses = debriefs.filter((d) => d.result === 'loss').length
   const winrate = debriefs.length > 0 ? wins / debriefs.length : 1
+  // match_quality not yet stored in DB — treat as 0 per spec
+  const avgQuality = 0
 
   const resultBadge = (result: MatchDebrief['result']) => {
     const styles: Record<string, string> = {
@@ -178,6 +180,14 @@ export default function Dashboard() {
               </p>
             </div>
           )}
+          {avgQuality < 3 && (
+            <div className="flex items-start gap-3 bg-val-cyan/5 border border-val-cyan/20 rounded-lg p-4">
+              <Zap size={16} className="text-val-cyan mt-0.5 shrink-0" />
+              <p className="text-sm text-val-cyan">
+                Quality has been low — consider shortening your session or taking a break.
+              </p>
+            </div>
+          )}
         </div>
       )}
 
@@ -205,20 +215,38 @@ export default function Dashboard() {
                   <span className="font-stats text-xs text-text-secondary">
                     {d.rounds_won}–{d.rounds_lost}
                   </span>
+                  {d.mvp_play && (
+                    <span className="text-sm ml-auto">{d.mvp_play}</span>
+                  )}
                 </div>
 
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-text-muted">{d.next_focus}</span>
+                {/* Stars */}
+                <div className="flex gap-0.5">
+                  {[1, 2, 3, 4, 5].map((star) => (
+                    <Star
+                      key={star}
+                      size={14}
+                      className={star <= 0 ? 'text-val-yellow fill-val-yellow' : 'text-bg-elevated'}
+                    />
+                  ))}
                 </div>
 
-                {/* Stars from mvp_play emoji or based on key_lesson presence */}
-                {d.mvp_play && (
-                  <span className="text-lg">{d.mvp_play}</span>
+                {/* Theme chip */}
+                {d.next_focus && (
+                  <span className="inline-block px-2 py-0.5 rounded-full text-[10px] font-medium bg-val-cyan/10 text-val-cyan border border-val-cyan/20">
+                    {d.next_focus.split(',')[0]}
+                  </span>
                 )}
 
                 <p className="text-sm text-text-secondary line-clamp-2">
                   {d.key_lesson}
                 </p>
+
+                {d.next_focus && (
+                  <p className="text-[10px] text-text-muted">
+                    Next focus: {d.next_focus}
+                  </p>
+                )}
 
                 <p className="text-[10px] text-text-muted">
                   {new Date(d.created_at).toLocaleDateString(undefined, {
