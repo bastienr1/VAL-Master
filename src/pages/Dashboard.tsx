@@ -7,14 +7,38 @@ import type { MatchCheckin, MatchDebrief } from '../lib/types'
 const WEEKLY_GOAL_KEY = 'val-master-weekly-goal'
 const CHECKIN_ID_KEY = 'val-master-last-checkin-id'
 
+const MAP_SLUGS: Record<string, string> = {
+  'Abyss': 'abyss',
+  'Ascent': 'ascent',
+  'Bind': 'bind',
+  'Breeze': 'breeze',
+  'Corrode': 'corrode',
+  'Fracture': 'fracture',
+  'Haven': 'haven',
+  'Icebox': 'icebox',
+  'Lotus': 'lotus',
+  'Pearl': 'pearl',
+  'Split': 'split',
+  'Sunset': 'sunset',
+}
+
+function agentSlug(name: string) {
+  return name.toLowerCase().replace(/\//g, '-').replace(/\s+/g, '-')
+}
+
+type DebriefWithCheckin = MatchDebrief & {
+  match_checkins: Pick<MatchCheckin, 'map' | 'agent_pick'> | null
+}
+
 export default function Dashboard() {
   const [checkin, setCheckin] = useState<MatchCheckin | null>(null)
-  const [debriefs, setDebriefs] = useState<MatchDebrief[]>([])
+  const [debriefs, setDebriefs] = useState<DebriefWithCheckin[]>([])
   const [weeklyGoal, setWeeklyGoal] = useState(
     () => localStorage.getItem(WEEKLY_GOAL_KEY) ?? ''
   )
   const [editingGoal, setEditingGoal] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [failedImages, setFailedImages] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     async function load() {
@@ -30,12 +54,11 @@ export default function Dashboard() {
           : Promise.resolve({ data: null }),
         supabase
           .from('match_debriefs')
-          .select('*')
+          .select('*, match_checkins(map, agent_pick)')
           .order('created_at', { ascending: false })
-          .limit(5),
+          .limit(8),
       ])
 
-      // Only show checkin if created within last 6 hours
       if (checkinRes.data) {
         const created = new Date(checkinRes.data.created_at).getTime()
         const sixHoursAgo = Date.now() - 6 * 60 * 60 * 1000
@@ -44,7 +67,7 @@ export default function Dashboard() {
         }
       }
 
-      if (debriefRes.data) setDebriefs(debriefRes.data)
+      if (debriefRes.data) setDebriefs(debriefRes.data as DebriefWithCheckin[])
       setLoading(false)
     }
     load()
@@ -54,7 +77,6 @@ export default function Dashboard() {
   const wins = debriefs.filter((d) => d.result === 'win').length
   const losses = debriefs.filter((d) => d.result === 'loss').length
   const winrate = debriefs.length > 0 ? wins / debriefs.length : 1
-  // match_quality not yet stored in DB — treat as 0 per spec
   const avgQuality = 0
 
   const resultBadge = (result: MatchDebrief['result']) => {
@@ -191,10 +213,10 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Recent Matches */}
+      {/* Session History — Notion Gallery */}
       <div className="space-y-4">
-        <h2 className="font-heading text-xl font-bold text-text-primary">
-          Recent Matches
+        <h2 className="font-heading text-xl font-bold text-text-primary uppercase tracking-wider">
+          Session History
         </h2>
 
         {debriefs.length === 0 ? (
@@ -202,62 +224,113 @@ export default function Dashboard() {
             <p className="text-text-muted text-sm">No matches debriefed yet.</p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {debriefs.map((d) => (
-              <div
-                key={d.id}
-                className="bg-bg-card border border-bg-elevated rounded-lg p-4 space-y-3"
-              >
-                <div className="flex items-center gap-2">
-                  <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${resultBadge(d.result)}`}>
-                    {d.result}
-                  </span>
-                  <span className="font-stats text-xs text-text-secondary">
-                    {d.rounds_won}–{d.rounds_lost}
-                  </span>
-                  {d.mvp_play && (
-                    <span className="text-sm ml-auto">{d.mvp_play}</span>
-                  )}
-                </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {debriefs.map((d) => {
+              const mapName = d.match_checkins?.map ?? ''
+              const agentName = d.match_checkins?.agent_pick ?? ''
+              const slug = MAP_SLUGS[mapName] ?? ''
+              const mapImgUrl = slug
+                ? `https://bastienr1.github.io/valorant-assets/maps/${slug}.jpg`
+                : ''
+              const agentImgUrl = agentName
+                ? `https://bastienr1.github.io/valorant-assets/agents/${agentSlug(agentName)}.png`
+                : ''
+              const imgFailed = failedImages.has(d.id)
 
-                {/* Stars */}
-                <div className="flex gap-0.5">
-                  {[1, 2, 3, 4, 5].map((star) => (
-                    <Star
-                      key={star}
-                      size={14}
-                      className={star <= 0 ? 'text-val-yellow fill-val-yellow' : 'text-bg-elevated'}
+              return (
+                <div
+                  key={d.id}
+                  className="rounded-lg overflow-hidden bg-bg-card border border-white/5 hover:border-val-cyan/30 transition-colors"
+                >
+                  {/* Map splash */}
+                  {mapImgUrl && !imgFailed ? (
+                    <img
+                      src={mapImgUrl}
+                      alt={mapName}
+                      className="w-full h-36 object-cover object-center"
+                      onError={() => setFailedImages((prev) => new Set(prev).add(d.id))}
                     />
-                  ))}
+                  ) : (
+                    <div className="w-full h-36 bg-gradient-to-br from-bg-elevated to-bg-primary flex items-center justify-center">
+                      <span className="font-heading text-lg font-bold text-text-muted/50">
+                        {mapName || 'Unknown Map'}
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Card details */}
+                  <div className="p-3 space-y-2">
+                    {/* Map — Agent row */}
+                    <div className="flex items-center gap-2">
+                      <span className="text-val-red text-xs">▼</span>
+                      <span className="font-heading font-bold text-sm text-white">
+                        {mapName || 'Unknown'} — {agentName || 'Unknown'}
+                      </span>
+                    </div>
+
+                    {/* Agent icon + Score + Stars */}
+                    <div className="flex items-center gap-2">
+                      {agentImgUrl && (
+                        <img
+                          src={agentImgUrl}
+                          alt={agentName}
+                          className="w-5 h-5 rounded-full object-cover"
+                          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
+                        />
+                      )}
+                      <span className="font-stats text-xs text-text-secondary">
+                        {d.rounds_won} - {d.rounds_lost}
+                      </span>
+                      <div className="flex gap-0.5 ml-auto">
+                        {[1, 2, 3, 4, 5].map((star) => (
+                          <Star
+                            key={star}
+                            size={12}
+                            className={star <= 0 ? 'text-val-yellow fill-val-yellow' : 'text-text-muted/30'}
+                          />
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Result badge + YouTube */}
+                    <div className="flex items-center gap-2">
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${resultBadge(d.result)}`}>
+                        {d.result}
+                      </span>
+                      {d.mvp_play && (
+                        <span className="text-sm">{d.mvp_play}</span>
+                      )}
+                      {d.youtube_url && (
+                        <a
+                          href={d.youtube_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="ml-auto text-val-red text-xs font-bold hover:brightness-125 transition-all"
+                        >
+                          ▶ VOD
+                        </a>
+                      )}
+                    </div>
+
+                    {/* Key lesson */}
+                    <p className="text-xs text-text-secondary line-clamp-2">
+                      {d.key_lesson}
+                    </p>
+
+                    {/* Date */}
+                    <p className="text-[10px] text-text-muted">
+                      {new Date(d.created_at).toLocaleDateString(undefined, {
+                        month: 'short',
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })}
+                    </p>
+                  </div>
                 </div>
-
-                {/* Theme chip */}
-                {d.next_focus && (
-                  <span className="inline-block px-2 py-0.5 rounded-full text-[10px] font-medium bg-val-cyan/10 text-val-cyan border border-val-cyan/20">
-                    {d.next_focus.split(',')[0]}
-                  </span>
-                )}
-
-                <p className="text-sm text-text-secondary line-clamp-2">
-                  {d.key_lesson}
-                </p>
-
-                {d.next_focus && (
-                  <p className="text-[10px] text-text-muted">
-                    Next focus: {d.next_focus}
-                  </p>
-                )}
-
-                <p className="text-[10px] text-text-muted">
-                  {new Date(d.created_at).toLocaleDateString(undefined, {
-                    month: 'short',
-                    day: 'numeric',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  })}
-                </p>
-              </div>
-            ))}
+              )
+            })}
           </div>
         )}
       </div>

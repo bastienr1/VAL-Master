@@ -62,7 +62,9 @@ export default function CheckIn() {
     }
 
     localStorage.setItem('val-master-last-checkin-id', data.id)
-    navigate('/')
+    localStorage.setItem('val_agent', agentPick)
+    localStorage.setItem('val_map', map)
+    navigate('/tactical')
   }
 
   const STEPS = [

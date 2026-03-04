@@ -18,10 +18,10 @@ export default function TacticalReads() {
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // Form state
-  const [roundNumber, setRoundNumber] = useState('')
-  const [map, setMap] = useState<string>(MAPS[0])
-  const [agent, setAgent] = useState('')
+  // Form state — auto-fill from session
+  const [roundNumber, setRoundNumber] = useState('1')
+  const [map, setMap] = useState<string>(() => localStorage.getItem('val_map') || MAPS[0])
+  const [agent, setAgent] = useState(() => localStorage.getItem('val_agent') || '')
   const [side, setSide] = useState<Side>('attack')
   const [roundType, setRoundType] = useState<RoundType>('full_buy')
   const [weaponsBought, setWeaponsBought] = useState<string[]>([])
@@ -53,8 +53,9 @@ export default function TacticalReads() {
   }
 
   const resetForm = () => {
-    setRoundNumber('')
-    setAgent('')
+    // Increment round, keep map + agent
+    const parsed = parseInt(roundNumber, 10)
+    setRoundNumber(String((parsed >= 1 && parsed <= 24 ? parsed : 0) + 1))
     setWeaponsBought([])
     setWeaponsOpen(false)
     setTacticalIntent(null)

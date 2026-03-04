@@ -24,13 +24,14 @@ export default function Debrief() {
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // Screen 1 — Match Summary
+  // Screen 1 — Match Summary (auto-fill from session)
   const [result, setResult] = useState<Result | null>(null)
-  const [map, setMap] = useState(MAPS[0])
-  const [agentPlayed, setAgentPlayed] = useState(AGENTS[0])
+  const [map, setMap] = useState(() => localStorage.getItem('val_map') || MAPS[0])
+  const [agentPlayed, setAgentPlayed] = useState(() => localStorage.getItem('val_agent') || AGENTS[0])
   const [roundsWon, setRoundsWon] = useState(13)
   const [roundsLost, setRoundsLost] = useState(0)
   const [durationFeel, setDurationFeel] = useState<DurationFeel | null>(null)
+  const [youtubeUrl, setYoutubeUrl] = useState('')
 
   // Screen 2 — Reflection
   const [wentWell, setWentWell] = useState('')
@@ -65,6 +66,7 @@ export default function Debrief() {
       key_lesson: keyTakeaway.trim(),
       next_focus: nextFocus,
       mvp_play: emojiReaction,
+      youtube_url: youtubeUrl.trim() || null,
     })
 
     if (dbError) {
@@ -73,6 +75,10 @@ export default function Debrief() {
       return
     }
 
+    // Clear session data
+    localStorage.removeItem('val_agent')
+    localStorage.removeItem('val_map')
+    localStorage.removeItem(CHECKIN_ID_KEY)
     navigate(queueAgain ? '/checkin' : '/')
   }
 
@@ -223,6 +229,20 @@ export default function Debrief() {
               ))}
             </div>
           </div>
+
+          {/* YouTube VOD */}
+          <label className="block space-y-2">
+            <span className="text-sm text-text-secondary">
+              YouTube VOD Link <span className="text-text-muted">(optional)</span>
+            </span>
+            <input
+              type="text"
+              value={youtubeUrl}
+              onChange={(e) => setYoutubeUrl(e.target.value)}
+              placeholder="https://youtube.com/watch?v=..."
+              className="w-full bg-bg-elevated border border-bg-elevated rounded-lg px-3 py-2.5 text-text-primary text-sm placeholder:text-text-muted focus:outline-none focus:border-val-cyan/50 transition-colors"
+            />
+          </label>
 
           <button
             onClick={() => setStep(1)}
@@ -456,7 +476,7 @@ export default function Debrief() {
               disabled={!canSubmit || submitting}
               className="flex-1 py-3 rounded-lg bg-val-red text-white font-heading font-bold text-sm tracking-wide hover:brightness-110 transition-all flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
             >
-              {submitting ? 'Saving…' : 'Save Debrief'}
+              {submitting ? 'Saving…' : 'Save Debrief & Session'}
             </button>
           </div>
         </div>

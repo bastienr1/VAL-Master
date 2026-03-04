@@ -41,4 +41,5 @@ export interface MatchDebrief {
   key_lesson: string
   next_focus: string
   mvp_play: string | null
+  youtube_url?: string
 }
