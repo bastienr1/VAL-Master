@@ -24,6 +24,7 @@ export default function TacticalReads() {
   const [side, setSide] = useState<Side>('attack')
   const [roundType, setRoundType] = useState<RoundType>('full_buy')
   const [weaponsBought, setWeaponsBought] = useState<string[]>([])
+  const [weaponsOpen, setWeaponsOpen] = useState(false)
   const [tacticalIntent, setTacticalIntent] = useState<string | null>(null)
   const [readDescription, setReadDescription] = useState('')
   const [counterAction, setCounterAction] = useState('')
@@ -53,6 +54,7 @@ export default function TacticalReads() {
   const resetForm = () => {
     setRoundNumber('')
     setWeaponsBought([])
+    setWeaponsOpen(false)
     setTacticalIntent(null)
     setReadDescription('')
     setCounterAction('')
@@ -197,32 +199,51 @@ export default function TacticalReads() {
         </div>
 
         {/* Weapons Bought */}
-        <div className="space-y-3">
-          <span className="text-[10px] font-bold uppercase tracking-wider text-text-muted">
-            Weapons Bought This Round
-          </span>
-          {WEAPON_CATEGORIES.map((cat) => (
-            <div key={cat} className="space-y-1.5">
-              <span className="text-[10px] uppercase tracking-wider text-text-muted/60">
-                {cat}
-              </span>
-              <div className="flex flex-wrap gap-1.5">
-                {WEAPONS[cat].map((w) => (
-                  <button
-                    key={w.name}
-                    onClick={() => toggleWeapon(w.name)}
-                    className={`px-2 py-1 rounded text-[11px] font-medium transition-all border ${
-                      weaponsBought.includes(w.name)
-                        ? 'bg-bg-elevated text-val-cyan border-val-cyan/40'
-                        : 'bg-bg-elevated/50 text-text-muted border-transparent hover:border-bg-elevated'
-                    }`}
-                  >
-                    {w.name} <span className="text-text-muted/50">[{w.cost}]</span>
-                  </button>
-                ))}
-              </div>
+        <div>
+          <button
+            type="button"
+            onClick={() => setWeaponsOpen(!weaponsOpen)}
+            className={`w-full flex items-center justify-between cursor-pointer pb-2 ${weaponsOpen ? 'border-b border-bg-elevated mb-3' : ''}`}
+          >
+            <span className="text-[10px] font-bold uppercase tracking-wider text-text-muted flex items-center gap-1.5 min-w-0">
+              Weapons Bought This Round
+              {!weaponsOpen && weaponsBought.length > 0 && (
+                <span className="text-xs font-stats text-val-cyan truncate max-w-[180px]">
+                  · {weaponsBought.join(', ')}
+                </span>
+              )}
+            </span>
+            {weaponsOpen
+              ? <ChevronUp size={14} className="text-text-muted shrink-0" />
+              : <ChevronDown size={14} className="text-text-muted shrink-0" />
+            }
+          </button>
+          {weaponsOpen && (
+            <div className="space-y-3">
+              {WEAPON_CATEGORIES.map((cat) => (
+                <div key={cat} className="space-y-1.5">
+                  <span className="text-[10px] uppercase tracking-wider text-text-muted/60">
+                    {cat}
+                  </span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {WEAPONS[cat].map((w) => (
+                      <button
+                        key={w.name}
+                        onClick={() => toggleWeapon(w.name)}
+                        className={`px-2 py-1 rounded text-[11px] font-medium transition-all border ${
+                          weaponsBought.includes(w.name)
+                            ? 'bg-bg-elevated text-val-cyan border-val-cyan/40'
+                            : 'bg-bg-elevated/50 text-text-muted border-transparent hover:border-bg-elevated'
+                        }`}
+                      >
+                        {w.name} <span className="text-text-muted/50">[{w.cost}]</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
             </div>
-          ))}
+          )}
         </div>
 
         {/* Tactical Intent */}
