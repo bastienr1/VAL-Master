@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { BookOpen, ChevronDown, ChevronUp } from 'lucide-react'
 import ScoreSlider from '../components/ui/ScoreSlider'
 import { supabase } from '../lib/supabase'
-import { MAPS, WEAPONS, TACTICAL_INTENTS } from '../lib/constants'
+import { MAPS, AGENTS, WEAPONS, TACTICAL_INTENTS } from '../lib/constants'
 import type { TacticalRead } from '../lib/types'
 
 type Side = 'attack' | 'defense'
@@ -21,6 +21,7 @@ export default function TacticalReads() {
   // Form state
   const [roundNumber, setRoundNumber] = useState('')
   const [map, setMap] = useState<string>(MAPS[0])
+  const [agent, setAgent] = useState('')
   const [side, setSide] = useState<Side>('attack')
   const [roundType, setRoundType] = useState<RoundType>('full_buy')
   const [weaponsBought, setWeaponsBought] = useState<string[]>([])
@@ -53,6 +54,7 @@ export default function TacticalReads() {
 
   const resetForm = () => {
     setRoundNumber('')
+    setAgent('')
     setWeaponsBought([])
     setWeaponsOpen(false)
     setTacticalIntent(null)
@@ -78,6 +80,7 @@ export default function TacticalReads() {
       confidence,
       result,
       match_checkin_id: checkinId || null,
+      agent: agent || null,
       round_number: parsed >= 1 && parsed <= 25 ? parsed : null,
       weapons_bought: weaponsBought.length > 0 ? weaponsBought : null,
       tactical_intent: tacticalIntent,
@@ -137,19 +140,34 @@ export default function TacticalReads() {
           />
         </label>
 
-        {/* Map */}
-        <label className="block space-y-2">
-          <span className="text-sm text-text-secondary">Map</span>
-          <select
-            value={map}
-            onChange={(e) => setMap(e.target.value)}
-            className="w-full bg-bg-elevated border border-bg-elevated rounded-lg px-3 py-2.5 text-text-primary text-sm focus:outline-none focus:border-val-cyan/50 transition-colors"
-          >
-            {MAPS.map((m) => (
-              <option key={m} value={m}>{m}</option>
-            ))}
-          </select>
-        </label>
+        {/* Map & Agent */}
+        <div className="grid grid-cols-2 gap-3">
+          <label className="block space-y-2">
+            <span className="text-sm text-text-secondary">Map</span>
+            <select
+              value={map}
+              onChange={(e) => setMap(e.target.value)}
+              className="w-full bg-bg-elevated border border-bg-elevated rounded-lg px-3 py-2.5 text-text-primary text-sm focus:outline-none focus:border-val-cyan/50 transition-colors"
+            >
+              {MAPS.map((m) => (
+                <option key={m} value={m}>{m}</option>
+              ))}
+            </select>
+          </label>
+          <label className="block space-y-2">
+            <span className="text-sm text-text-secondary">Agent</span>
+            <select
+              value={agent}
+              onChange={(e) => setAgent(e.target.value)}
+              className="w-full bg-bg-elevated border border-bg-elevated rounded-lg px-3 py-2.5 text-text-primary text-sm focus:outline-none focus:border-val-cyan/50 transition-colors"
+            >
+              <option value="">Select Agent</option>
+              {AGENTS.map((a) => (
+                <option key={a} value={a}>{a}</option>
+              ))}
+            </select>
+          </label>
+        </div>
 
         {/* Side */}
         <div className="space-y-2">
@@ -371,6 +389,11 @@ export default function TacticalReads() {
                     <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-bg-elevated text-text-secondary">
                       {read.map}
                     </span>
+                    {read.agent && (
+                      <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-bg-elevated text-text-secondary">
+                        {read.agent}
+                      </span>
+                    )}
                     <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase border ${sideBadge(read.side)}`}>
                       {read.side}
                     </span>
