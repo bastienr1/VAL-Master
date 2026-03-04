@@ -3,17 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { ChevronRight, ChevronLeft, Crosshair, Brain, Target } from 'lucide-react'
 import ScoreSlider from '../components/ui/ScoreSlider'
 import { supabase } from '../lib/supabase'
-
-const AGENTS = [
-  'Jett', 'Reyna', 'Raze', 'Sage', 'Sova', 'Omen', 'Brimstone', 'Viper',
-  'Cypher', 'Killjoy', 'Fade', 'Chamber', 'Neon', 'Harbor', 'Gekko',
-  'Deadlock', 'Iso', 'Clove', 'Vyse', 'Tejo', 'Waylay',
-]
-
-const MAPS = [
-  'Abyss', 'Ascent', 'Bind', 'Breeze', 'Fracture', 'Haven',
-  'Icebox', 'Lotus', 'Pearl', 'Split', 'Sunset',
-]
+import { AGENTS, MAPS } from '../lib/constants'
 
 const WEEKLY_GOAL_KEY = 'val-master-weekly-goal'
 
@@ -50,16 +40,20 @@ export default function CheckIn() {
       localStorage.setItem(WEEKLY_GOAL_KEY, weeklyGoal.trim())
     }
 
-    const { error: dbError } = await supabase.from('match_checkins').insert({
-      mental_score: mentalScore,
-      physical_score: physicalScore,
-      focus_level: focusLevel,
-      tilt_risk: tiltRisk,
-      agent_pick: agentPick,
-      map,
-      goal: goal.trim(),
-      notes: notes.trim() || null,
-    })
+    const { data, error: dbError } = await supabase
+      .from('match_checkins')
+      .insert({
+        mental_score: mentalScore,
+        physical_score: physicalScore,
+        focus_level: focusLevel,
+        tilt_risk: tiltRisk,
+        agent_pick: agentPick,
+        map,
+        goal: goal.trim(),
+        notes: notes.trim() || null,
+      })
+      .select()
+      .single()
 
     if (dbError) {
       setError(dbError.message)
@@ -67,6 +61,7 @@ export default function CheckIn() {
       return
     }
 
+    localStorage.setItem('val-master-last-checkin-id', data.id)
     navigate('/')
   }
 
@@ -133,7 +128,7 @@ export default function CheckIn() {
             onChange={setFocusLevel}
           />
           <ScoreSlider
-            label="How close to tilt are you? (5 = calm)"
+            label="How calm are you?"
             value={tiltRisk}
             onChange={setTiltRisk}
             color="var(--color-val-yellow)"
