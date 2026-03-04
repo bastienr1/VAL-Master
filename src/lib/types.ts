@@ -1,0 +1,40 @@
+export interface MatchCheckin {
+  id: string
+  created_at: string
+  mental_score: number
+  physical_score: number
+  focus_level: number
+  tilt_risk: number
+  goal: string
+  agent_pick: string
+  map: string
+  notes: string | null
+}
+
+export interface TacticalRead {
+  id: string
+  created_at: string
+  map: string
+  side: 'attack' | 'defense'
+  round_type: 'pistol' | 'eco' | 'force' | 'full_buy'
+  read_description: string
+  counter_action: string
+  result: 'success' | 'partial' | 'fail' | null
+  confidence: number
+  match_checkin_id: string | null
+}
+
+export interface MatchDebrief {
+  id: string
+  created_at: string
+  match_checkin_id: string | null
+  result: 'win' | 'loss' | 'draw'
+  rounds_won: number
+  rounds_lost: number
+  goal_met: boolean
+  peak_moment: string
+  tilt_moment: string | null
+  key_lesson: string
+  next_focus: string
+  mvp_play: string | null
+}
