@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { Star, AlertTriangle, Zap, Crosshair, FileText } from 'lucide-react'
 import { supabase } from '../lib/supabase'
-import { getMapSplash } from '../lib/constants'
+import { getMapSplash, getAgentIcon } from '../lib/constants'
 import type { MatchCheckin, MatchDebrief } from '../lib/types'
 
 const WEEKLY_GOAL_KEY = 'val-master-weekly-goal'
@@ -215,6 +215,7 @@ export default function Dashboard() {
               const mapName = d.match_checkins?.map ?? ''
               const agentName = d.match_checkins?.agent_pick ?? ''
               const mapImgUrl = mapName ? getMapSplash(mapName) : ''
+              const agentIconUrl = agentName ? getAgentIcon(agentName) : ''
               const agentImgUrl = agentName
                 ? `https://bastienr1.github.io/valorant-assets/agents/${agentSlug(agentName)}.png`
                 : ''
@@ -235,6 +236,14 @@ export default function Dashboard() {
                         onError={() => setFailedImages((prev) => new Set(prev).add(d.id))}
                       />
                       <div className="absolute inset-0 bg-gradient-to-t from-bg-card via-transparent to-transparent" />
+                      {agentIconUrl && (
+                        <img
+                          src={agentIconUrl}
+                          alt={agentName}
+                          className="absolute bottom-2 left-2 w-8 h-8 rounded-full object-cover ring-1 ring-val-red bg-bg-primary/80"
+                          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
+                        />
+                      )}
                     </div>
                   ) : (
                     <div className="w-full h-36 bg-gradient-to-br from-bg-elevated to-bg-primary flex items-center justify-center">
