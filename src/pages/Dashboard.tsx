@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { Star, AlertTriangle, Zap, Crosshair, FileText } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { getMapSplash, getAgentIcon } from '../lib/constants'
+import SessionDetailModal from '../components/SessionDetailModal'
 import type { MatchCheckin, MatchDebrief } from '../lib/types'
 
 const WEEKLY_GOAL_KEY = 'val-master-weekly-goal'
@@ -25,6 +26,7 @@ export default function Dashboard() {
   const [editingGoal, setEditingGoal] = useState(false)
   const [loading, setLoading] = useState(true)
   const [failedImages, setFailedImages] = useState<Set<string>>(new Set())
+  const [selectedDebrief, setSelectedDebrief] = useState<DebriefWithCheckin | null>(null)
 
   useEffect(() => {
     async function load() {
@@ -224,7 +226,8 @@ export default function Dashboard() {
               return (
                 <div
                   key={d.id}
-                  className="rounded-lg overflow-hidden bg-bg-card border border-white/5 hover:border-val-cyan/30 transition-colors"
+                  className="rounded-lg overflow-hidden bg-bg-card border border-white/5 hover:border-val-cyan/30 transition-colors cursor-pointer"
+                  onClick={() => setSelectedDebrief(d)}
                 >
                   {/* Map splash */}
                   {mapImgUrl && !imgFailed ? (
@@ -329,6 +332,13 @@ export default function Dashboard() {
           </div>
         )}
       </div>
+
+      {selectedDebrief && (
+        <SessionDetailModal
+          debrief={selectedDebrief}
+          onClose={() => setSelectedDebrief(null)}
+        />
+      )}
     </div>
   )
 }
