@@ -2,25 +2,11 @@ import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { Star, AlertTriangle, Zap, Crosshair, FileText } from 'lucide-react'
 import { supabase } from '../lib/supabase'
+import { getMapSplash } from '../lib/constants'
 import type { MatchCheckin, MatchDebrief } from '../lib/types'
 
 const WEEKLY_GOAL_KEY = 'val-master-weekly-goal'
 const CHECKIN_ID_KEY = 'val-master-last-checkin-id'
-
-const MAP_SLUGS: Record<string, string> = {
-  'Abyss': 'abyss',
-  'Ascent': 'ascent',
-  'Bind': 'bind',
-  'Breeze': 'breeze',
-  'Corrode': 'corrode',
-  'Fracture': 'fracture',
-  'Haven': 'haven',
-  'Icebox': 'icebox',
-  'Lotus': 'lotus',
-  'Pearl': 'pearl',
-  'Split': 'split',
-  'Sunset': 'sunset',
-}
 
 function agentSlug(name: string) {
   return name.toLowerCase().replace(/\//g, '-').replace(/\s+/g, '-')
@@ -228,10 +214,7 @@ export default function Dashboard() {
             {debriefs.map((d) => {
               const mapName = d.match_checkins?.map ?? ''
               const agentName = d.match_checkins?.agent_pick ?? ''
-              const slug = MAP_SLUGS[mapName] ?? ''
-              const mapImgUrl = slug
-                ? `https://bastienr1.github.io/valorant-assets/maps/${slug}.jpg`
-                : ''
+              const mapImgUrl = mapName ? getMapSplash(mapName) : ''
               const agentImgUrl = agentName
                 ? `https://bastienr1.github.io/valorant-assets/agents/${agentSlug(agentName)}.png`
                 : ''
@@ -244,12 +227,15 @@ export default function Dashboard() {
                 >
                   {/* Map splash */}
                   {mapImgUrl && !imgFailed ? (
-                    <img
-                      src={mapImgUrl}
-                      alt={mapName}
-                      className="w-full h-36 object-cover object-center"
-                      onError={() => setFailedImages((prev) => new Set(prev).add(d.id))}
-                    />
+                    <div className="relative w-full h-36">
+                      <img
+                        src={mapImgUrl}
+                        alt={mapName}
+                        className="w-full h-full object-cover object-center"
+                        onError={() => setFailedImages((prev) => new Set(prev).add(d.id))}
+                      />
+                      <div className="absolute inset-0 bg-gradient-to-t from-bg-card via-transparent to-transparent" />
+                    </div>
                   ) : (
                     <div className="w-full h-36 bg-gradient-to-br from-bg-elevated to-bg-primary flex items-center justify-center">
                       <span className="font-heading text-lg font-bold text-text-muted/50">
