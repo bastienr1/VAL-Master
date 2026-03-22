@@ -3,8 +3,24 @@ import CheckIn from './pages/CheckIn'
 import Debrief from './pages/Debrief'
 import TacticalReads from './pages/TacticalReads'
 import Dashboard from './pages/Dashboard'
+import Login from './pages/Login'
+import { useSession, signOut } from './lib/auth'
 
 function App() {
+  const { user, loading } = useSession()
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-bg-primary flex items-center justify-center">
+        <div className="w-8 h-8 border-2 border-val-cyan border-t-transparent rounded-full animate-spin" />
+      </div>
+    )
+  }
+
+  if (!user) {
+    return <Login />
+  }
+
   return (
     <BrowserRouter>
       <div className="min-h-screen bg-bg-primary text-text-primary">
@@ -27,6 +43,12 @@ function App() {
                 isActive ? 'text-val-cyan' : 'text-text-secondary hover:text-text-primary transition-colors'
               }>Debrief</NavLink>
             </div>
+            <button
+              onClick={() => signOut()}
+              className="ml-auto text-xs text-val-red font-medium hover:text-val-red/80 transition-colors"
+            >
+              Sign Out
+            </button>
           </div>
         </nav>
         <main className="max-w-7xl mx-auto px-4 py-6">
