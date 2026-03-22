@@ -1,7 +1,8 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
 import { ChevronRight, ChevronLeft, BarChart3, MessageSquare, Star } from 'lucide-react'
 import { supabase } from '../lib/supabase'
+import { useSession } from '../lib/auth'
 import { AGENTS, MAPS } from '../lib/constants'
 
 type Result = 'win' | 'loss' | 'draw'
@@ -20,6 +21,7 @@ const CHECKIN_ID_KEY = 'val-master-last-checkin-id'
 
 export default function Debrief() {
   const navigate = useNavigate()
+  const { user } = useSession()
   const [step, setStep] = useState(0)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -56,6 +58,7 @@ export default function Debrief() {
     const nextFocus = [primaryTheme, secondaryTheme].filter(Boolean).join(', ')
 
     const { error: dbError } = await supabase.from('match_debriefs').insert({
+      user_id: user!.id,
       match_checkin_id: checkinId || null,
       result,
       rounds_won: roundsWon,
@@ -93,6 +96,29 @@ export default function Debrief() {
   ]
 
   const btnBase = 'px-4 py-2 rounded-lg text-sm font-heading font-bold tracking-wide transition-all border'
+
+  const checkinIdExists = !!localStorage.getItem(CHECKIN_ID_KEY)
+
+  if (!checkinIdExists) {
+    return (
+      <div className="max-w-lg mx-auto">
+        <div className="bg-bg-card border border-bg-elevated rounded-xl p-8 text-center space-y-4">
+          <h1 className="font-heading text-2xl font-bold text-val-cyan">
+            No Active Session
+          </h1>
+          <p className="text-sm text-text-secondary">
+            Start a check-in before debriefing a match.
+          </p>
+          <Link
+            to="/checkin"
+            className="inline-block py-3 px-6 rounded-lg bg-val-red text-white font-heading font-bold text-sm tracking-wide hover:brightness-110 transition-all"
+          >
+            Start Check-In
+          </Link>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="max-w-lg mx-auto">

@@ -3,12 +3,14 @@ import { useNavigate } from 'react-router-dom'
 import { ChevronRight, ChevronLeft, Crosshair, Brain, Target } from 'lucide-react'
 import ScoreSlider from '../components/ui/ScoreSlider'
 import { supabase } from '../lib/supabase'
+import { useSession } from '../lib/auth'
 import { AGENTS, MAPS } from '../lib/constants'
 
 const WEEKLY_GOAL_KEY = 'val-master-weekly-goal'
 
 export default function CheckIn() {
   const navigate = useNavigate()
+  const { user } = useSession()
   const [step, setStep] = useState(0)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -43,6 +45,7 @@ export default function CheckIn() {
     const { data, error: dbError } = await supabase
       .from('match_checkins')
       .insert({
+        user_id: user!.id,
         mental_score: mentalScore,
         physical_score: physicalScore,
         focus_level: focusLevel,

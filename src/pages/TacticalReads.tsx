@@ -1,7 +1,9 @@
 import { useState, useEffect, useCallback } from 'react'
+import { Link } from 'react-router-dom'
 import { BookOpen, ChevronDown, ChevronUp } from 'lucide-react'
 import ScoreSlider from '../components/ui/ScoreSlider'
 import { supabase } from '../lib/supabase'
+import { useSession } from '../lib/auth'
 import { MAPS, AGENTS, WEAPONS, TACTICAL_INTENTS } from '../lib/constants'
 import type { TacticalRead } from '../lib/types'
 
@@ -13,6 +15,7 @@ const CHECKIN_ID_KEY = 'val-master-last-checkin-id'
 const WEAPON_CATEGORIES = Object.keys(WEAPONS) as (keyof typeof WEAPONS)[]
 
 export default function TacticalReads() {
+  const { user } = useSession()
   const [reads, setReads] = useState<TacticalRead[]>([])
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
@@ -35,14 +38,15 @@ export default function TacticalReads() {
   const checkinId = localStorage.getItem(CHECKIN_ID_KEY)
 
   const fetchReads = useCallback(async () => {
-    if (!checkinId) return
+    if (!checkinId || !user) return
     const { data } = await supabase
       .from('tactical_reads')
       .select('*')
+      .eq('user_id', user.id)
       .eq('match_checkin_id', checkinId)
       .order('created_at', { ascending: false })
     if (data) setReads(data)
-  }, [checkinId])
+  }, [checkinId, user])
 
   useEffect(() => { fetchReads() }, [fetchReads])
 
@@ -73,6 +77,7 @@ export default function TacticalReads() {
     const parsed = parseInt(roundNumber, 10)
 
     const { error: dbError } = await supabase.from('tactical_reads').insert({
+      user_id: user!.id,
       map,
       side,
       round_type: roundType,
@@ -112,6 +117,27 @@ export default function TacticalReads() {
       fail: 'bg-val-red/15 text-val-red',
     }
     return map[r]
+  }
+
+  if (!checkinId) {
+    return (
+      <div className="max-w-lg mx-auto">
+        <div className="bg-bg-card border border-bg-elevated rounded-xl p-8 text-center space-y-4">
+          <h1 className="font-heading text-2xl font-bold text-val-cyan">
+            No Active Session
+          </h1>
+          <p className="text-sm text-text-secondary">
+            Start a check-in to begin logging tactical reads.
+          </p>
+          <Link
+            to="/checkin"
+            className="inline-block py-3 px-6 rounded-lg bg-val-red text-white font-heading font-bold text-sm tracking-wide hover:brightness-110 transition-all"
+          >
+            Start Check-In
+          </Link>
+        </div>
+      </div>
+    )
   }
 
   return (

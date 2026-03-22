@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { Star, AlertTriangle, Zap, Crosshair, FileText } from 'lucide-react'
 import { supabase } from '../lib/supabase'
+import { useSession } from '../lib/auth'
 import { getMapSplash, getAgentIcon } from '../lib/constants'
 import SessionDetailModal from '../components/SessionDetailModal'
 import type { MatchCheckin, MatchDebrief } from '../lib/types'
@@ -18,6 +19,7 @@ type DebriefWithCheckin = MatchDebrief & {
 }
 
 export default function Dashboard() {
+  const { user } = useSession()
   const [checkin, setCheckin] = useState<MatchCheckin | null>(null)
   const [debriefs, setDebriefs] = useState<DebriefWithCheckin[]>([])
   const [weeklyGoal, setWeeklyGoal] = useState(
@@ -29,6 +31,8 @@ export default function Dashboard() {
   const [selectedDebrief, setSelectedDebrief] = useState<DebriefWithCheckin | null>(null)
 
   useEffect(() => {
+    if (!user) return
+
     async function load() {
       const checkinId = localStorage.getItem(CHECKIN_ID_KEY)
 
@@ -38,11 +42,13 @@ export default function Dashboard() {
               .from('match_checkins')
               .select('*')
               .eq('id', checkinId)
+              .eq('user_id', user!.id)
               .single()
           : Promise.resolve({ data: null }),
         supabase
           .from('match_debriefs')
           .select('*, match_checkins(map, agent_pick)')
+          .eq('user_id', user!.id)
           .order('created_at', { ascending: false })
           .limit(8),
       ])
@@ -59,7 +65,7 @@ export default function Dashboard() {
       setLoading(false)
     }
     load()
-  }, [])
+  }, [user])
 
   // Coaching nudges
   const wins = debriefs.filter((d) => d.result === 'win').length
