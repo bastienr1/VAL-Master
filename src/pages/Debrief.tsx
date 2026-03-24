@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
-import { ChevronRight, ChevronLeft, BarChart3, MessageSquare, Star } from 'lucide-react'
+import { ChevronRight, ChevronLeft, BarChart3, MessageSquare, Star, Loader2, Download } from 'lucide-react'
+import { fetchLastMatch } from '../lib/henrik'
 import { supabase } from '../lib/supabase'
 import { useSession } from '../lib/auth'
 import { AGENTS, MAPS } from '../lib/constants'
@@ -34,6 +35,12 @@ export default function Debrief() {
   const [roundsLost, setRoundsLost] = useState(0)
   const [durationFeel, setDurationFeel] = useState<DurationFeel | null>(null)
   const [youtubeUrl, setYoutubeUrl] = useState('')
+  const [loadingMatch, setLoadingMatch] = useState(false)
+  const [matchLoaded, setMatchLoaded] = useState(false)
+  const [matchStats, setMatchStats] = useState<{
+    acs: number; kills: number; deaths: number; assists: number;
+    headshot_pct: number; kd: number; agent_role: string | null;
+  } | null>(null)
 
   // Screen 2 — Reflection
   const [wentWell, setWentWell] = useState('')
@@ -47,6 +54,35 @@ export default function Debrief() {
   const [stuckToFocus, setStuckToFocus] = useState<StuckToFocus | null>(null)
   const [keyTakeaway, setKeyTakeaway] = useState('')
   const [queueAgain, setQueueAgain] = useState(false)
+
+  const handleLoadMatch = async () => {
+    setLoadingMatch(true)
+    try {
+      const data = await fetchLastMatch()
+      if (data) {
+        const m = data.match
+        setResult(m.result === 'W' ? 'win' : m.result === 'L' ? 'loss' : 'draw')
+        setMap(m.map)
+        setAgentPlayed(m.agent)
+        setRoundsWon(m.rounds_won)
+        setRoundsLost(m.rounds_lost)
+        setMatchStats({
+          acs: m.acs,
+          kills: m.kills,
+          deaths: m.deaths,
+          assists: m.assists,
+          headshot_pct: m.headshot_pct,
+          kd: m.kd,
+          agent_role: m.agent_role,
+        })
+        setMatchLoaded(true)
+      }
+    } catch (err) {
+      console.error('Failed to load match:', err)
+    } finally {
+      setLoadingMatch(false)
+    }
+  }
 
   const handleSubmit = async () => {
     if (!result || !wentWell.trim() || !keyTakeaway.trim() || !primaryTheme) return
@@ -161,6 +197,24 @@ export default function Debrief() {
             </p>
           </div>
 
+          <button
+            onClick={handleLoadMatch}
+            disabled={loadingMatch || matchLoaded}
+            className={`w-full py-2.5 rounded-lg font-heading font-bold text-sm tracking-wide transition-all flex items-center justify-center gap-2 border ${
+              matchLoaded
+                ? 'bg-val-green/10 text-val-green border-val-green/30 cursor-default'
+                : 'bg-val-cyan/10 text-val-cyan border-val-cyan/30 hover:bg-val-cyan/20'
+            } disabled:opacity-50`}
+          >
+            {loadingMatch ? (
+              <><Loader2 size={16} className="animate-spin" /> Fetching match data...</>
+            ) : matchLoaded ? (
+              <><Download size={16} /> Match loaded — override below if needed</>
+            ) : (
+              <><Download size={16} /> Load Last Match</>
+            )}
+          </button>
+
           {/* Result */}
           <div className="space-y-2">
             <span className="text-sm text-text-secondary">Result</span>
@@ -235,6 +289,31 @@ export default function Debrief() {
               />
             </div>
           </div>
+
+          {matchStats && (
+            <div className="grid grid-cols-4 gap-2">
+              <div className="bg-bg-elevated rounded-lg p-2.5 text-center">
+                <p className="text-[10px] text-text-muted uppercase">ACS</p>
+                <p className="font-stats text-lg text-val-cyan">{matchStats.acs}</p>
+              </div>
+              <div className="bg-bg-elevated rounded-lg p-2.5 text-center">
+                <p className="text-[10px] text-text-muted uppercase">K/D/A</p>
+                <p className="font-stats text-sm text-text-primary">
+                  {matchStats.kills}/{matchStats.deaths}/{matchStats.assists}
+                </p>
+              </div>
+              <div className="bg-bg-elevated rounded-lg p-2.5 text-center">
+                <p className="text-[10px] text-text-muted uppercase">K/D</p>
+                <p className={`font-stats text-lg ${matchStats.kd >= 1.0 ? 'text-val-green' : 'text-val-red'}`}>
+                  {matchStats.kd}
+                </p>
+              </div>
+              <div className="bg-bg-elevated rounded-lg p-2.5 text-center">
+                <p className="text-[10px] text-text-muted uppercase">HS%</p>
+                <p className="font-stats text-lg text-val-yellow">{matchStats.headshot_pct}%</p>
+              </div>
+            </div>
+          )}
 
           {/* Duration Feel */}
           <div className="space-y-2">

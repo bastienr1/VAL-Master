@@ -43,3 +43,34 @@ export interface MatchDebrief {
   mvp_play: string | null
   youtube_url?: string
 }
+
+export interface Match {
+  id: string
+  created_at: string
+  user_id: string
+  match_id: string
+  match_date: string
+  map: string
+  agent: string
+  agent_role: string | null
+  mode: string
+  result: 'W' | 'L' | 'draw'
+  score: string
+  rounds_won: number
+  rounds_lost: number
+  rounds_played: number
+  kills: number
+  deaths: number
+  assists: number
+  kd: number
+  acs: number
+  headshot_pct: number
+  headshots: number
+  bodyshots: number
+  legshots: number
+  kpr: number
+  dpr: number
+  raw_score: number
+  match_checkin_id: string | null
+  match_debrief_id: string | null
+}
