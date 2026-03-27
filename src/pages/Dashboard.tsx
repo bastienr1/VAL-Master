@@ -5,7 +5,7 @@ import { supabase } from '../lib/supabase'
 import { useSession } from '../lib/auth'
 import { getMapSplash, getAgentIcon } from '../lib/constants'
 import SessionDetailModal from '../components/SessionDetailModal'
-import type { MatchCheckin, MatchDebrief, Match } from '../lib/types'
+import type { MatchCheckin, MatchDebrief } from '../lib/types'
 
 const WEEKLY_GOAL_KEY = 'val-master-weekly-goal'
 const CHECKIN_ID_KEY = 'val-master-last-checkin-id'
