@@ -5,7 +5,7 @@ import { supabase } from '../lib/supabase'
 import { useSession } from '../lib/auth'
 import { getMapSplash, getAgentIcon } from '../lib/constants'
 import SessionDetailModal from '../components/SessionDetailModal'
-import type { MatchCheckin, MatchDebrief } from '../lib/types'
+import type { MatchCheckin, MatchDebrief, Match } from '../lib/types'
 
 const WEEKLY_GOAL_KEY = 'val-master-weekly-goal'
 const CHECKIN_ID_KEY = 'val-master-last-checkin-id'
@@ -29,6 +29,7 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true)
   const [failedImages, setFailedImages] = useState<Set<string>>(new Set())
   const [selectedDebrief, setSelectedDebrief] = useState<DebriefWithCheckin | null>(null)
+  const [matchMap, setMatchMap] = useState<Map<string, any>>(new Map())
 
   useEffect(() => {
     if (!user) return
@@ -62,6 +63,20 @@ export default function Dashboard() {
       }
 
       if (debriefRes.data) setDebriefs(debriefRes.data as DebriefWithCheckin[])
+
+      // Fetch linked matches for stats display
+      if (debriefRes.data && debriefRes.data.length > 0) {
+        const debriefIds = debriefRes.data.map((d: any) => d.id)
+        const { data: matchData } = await supabase
+          .from('matches')
+          .select('match_debrief_id, acs, kd, headshot_pct, kills, deaths, assists')
+          .eq('user_id', user!.id)
+          .in('match_debrief_id', debriefIds)
+        if (matchData) {
+          setMatchMap(new Map(matchData.map((m: any) => [m.match_debrief_id, m])))
+        }
+      }
+
       setLoading(false)
     }
     load()
@@ -295,6 +310,22 @@ export default function Dashboard() {
                         ))}
                       </div>
                     </div>
+
+                    {(() => {
+                      const matchData = matchMap.get(d.id)
+                      if (!matchData) return null
+                      return (
+                        <div className="flex items-center gap-2 text-[10px]">
+                          <span className="font-stats text-val-cyan">{matchData.acs} ACS</span>
+                          <span className="text-text-muted">·</span>
+                          <span className={`font-stats ${matchData.kd >= 1.0 ? 'text-val-green' : 'text-val-red'}`}>
+                            {matchData.kd} K/D
+                          </span>
+                          <span className="text-text-muted">·</span>
+                          <span className="font-stats text-val-yellow">{matchData.headshot_pct}% HS</span>
+                        </div>
+                      )
+                    })()}
 
                     {/* Result badge + YouTube */}
                     <div className="flex items-center gap-2">

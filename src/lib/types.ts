@@ -63,6 +63,7 @@ export interface Match {
   deaths: number
   assists: number
   kd: number
+  kda: number
   acs: number
   headshot_pct: number
   headshots: number

@@ -89,6 +89,7 @@ export async function fetchRecentMatches(
           deaths,
           assists,
           kd: deaths > 0 ? +(kills / deaths).toFixed(2) : kills,
+          kda: deaths > 0 ? +((kills + assists) / deaths).toFixed(2) : kills + assists,
           acs: Math.round(stats.score / roundsPlayed),
           headshot_pct: totalShots > 0 ? +((stats.headshots / totalShots) * 100).toFixed(1) : 0,
           headshots: stats.headshots,

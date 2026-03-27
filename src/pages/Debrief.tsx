@@ -37,9 +37,15 @@ export default function Debrief() {
   const [youtubeUrl, setYoutubeUrl] = useState('')
   const [loadingMatch, setLoadingMatch] = useState(false)
   const [matchLoaded, setMatchLoaded] = useState(false)
+  const [matchError, setMatchError] = useState<string | null>(null)
   const [matchStats, setMatchStats] = useState<{
     acs: number; kills: number; deaths: number; assists: number;
-    headshot_pct: number; kd: number; agent_role: string | null;
+    headshot_pct: number; kd: number; kda: number; agent_role: string | null;
+    match_id: string; match_date: string; map: string; agent: string;
+    rounds_won: number; rounds_lost: number; rounds_played: number;
+    headshots: number; bodyshots: number; legshots: number;
+    kpr: number; dpr: number; raw_score: number; result: 'W' | 'L' | 'draw';
+    score: string; mode: string;
   } | null>(null)
 
   // Screen 2 — Reflection
@@ -59,6 +65,11 @@ export default function Debrief() {
     setLoadingMatch(true)
     try {
       const data = await fetchLastMatch()
+      if (!data) {
+        setMatchError('No recent competitive match found. You can fill in the details manually.')
+        setLoadingMatch(false)
+        return
+      }
       if (data) {
         const m = data.match
         setResult(m.result === 'W' ? 'win' : m.result === 'L' ? 'loss' : 'draw')
@@ -73,12 +84,30 @@ export default function Debrief() {
           assists: m.assists,
           headshot_pct: m.headshot_pct,
           kd: m.kd,
+          kda: m.kda,
           agent_role: m.agent_role,
+          match_id: m.match_id,
+          match_date: m.match_date,
+          map: m.map,
+          agent: m.agent,
+          rounds_won: m.rounds_won,
+          rounds_lost: m.rounds_lost,
+          rounds_played: m.rounds_played,
+          headshots: m.headshots,
+          bodyshots: m.bodyshots,
+          legshots: m.legshots,
+          kpr: m.kpr,
+          dpr: m.dpr,
+          raw_score: m.raw_score,
+          result: m.result,
+          score: m.score,
+          mode: m.mode,
         })
         setMatchLoaded(true)
       }
     } catch (err) {
       console.error('Failed to load match:', err)
+      setMatchError('Failed to connect to match data. You can fill in the details manually.')
     } finally {
       setLoadingMatch(false)
     }
@@ -112,6 +141,49 @@ export default function Debrief() {
       setError(dbError.message)
       setSubmitting(false)
       return
+    }
+
+    // Upsert loaded match data to Supabase matches table
+    if (matchStats && matchStats.match_id) {
+      const { data: debriefData } = await supabase
+        .from('match_debriefs')
+        .select('id')
+        .eq('user_id', user!.id)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single()
+
+      const debriefId = debriefData?.id || null
+
+      await supabase.from('matches').upsert({
+        match_id: matchStats.match_id,
+        user_id: user!.id,
+        match_date: matchStats.match_date,
+        map: matchStats.map,
+        agent: matchStats.agent,
+        agent_role: matchStats.agent_role,
+        mode: matchStats.mode,
+        result: matchStats.result,
+        score: matchStats.score,
+        rounds_won: matchStats.rounds_won,
+        rounds_lost: matchStats.rounds_lost,
+        rounds_played: matchStats.rounds_played,
+        kills: matchStats.kills,
+        deaths: matchStats.deaths,
+        assists: matchStats.assists,
+        kd: matchStats.kd,
+        kda: matchStats.kda,
+        acs: matchStats.acs,
+        headshot_pct: matchStats.headshot_pct,
+        headshots: matchStats.headshots,
+        bodyshots: matchStats.bodyshots,
+        legshots: matchStats.legshots,
+        kpr: matchStats.kpr,
+        dpr: matchStats.dpr,
+        raw_score: matchStats.raw_score,
+        match_checkin_id: checkinId || null,
+        match_debrief_id: debriefId,
+      }, { onConflict: 'match_id' })
     }
 
     // Clear session data
@@ -214,6 +286,9 @@ export default function Debrief() {
               <><Download size={16} /> Load Last Match</>
             )}
           </button>
+          {matchError && (
+            <p className="text-xs text-val-yellow mt-1">{matchError}</p>
+          )}
 
           {/* Result */}
           <div className="space-y-2">
