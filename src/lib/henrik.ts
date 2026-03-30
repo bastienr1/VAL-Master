@@ -31,7 +31,7 @@ export async function fetchRecentMatches(
   size: number = 5,
   mode: string = 'competitive'
 ): Promise<HenrikMatchResult[]> {
-  const url = `https://api.henrikdev.xyz/valorant/v3/matches/${REGION}/${PLAYER_NAME}/${PLAYER_TAG}?filter=${mode}&size=${size}&api_key=${HENRIK_API_KEY}`
+  const url = `https://api.henrikdev.xyz/valorant/v3/matches/${REGION}/${PLAYER_NAME}/${PLAYER_TAG}?mode=${mode}&size=${size}&api_key=${HENRIK_API_KEY}`
 
   const res = await fetch(url)
   if (!res.ok) {
