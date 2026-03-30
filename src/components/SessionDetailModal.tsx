@@ -56,7 +56,7 @@ export default function SessionDetailModal({ debrief, onClose }: Props) {
       if (!checkinId) { setLoading(false); return }
 
       const [checkinRes, readsRes] = await Promise.all([
-        supabase.from('match_checkins').select('*').eq('id', checkinId).single(),
+        supabase.from('match_checkins').select('*').eq('id', checkinId).maybeSingle(),
         supabase.from('tactical_reads').select('*').eq('match_checkin_id', checkinId).order('created_at'),
       ])
 

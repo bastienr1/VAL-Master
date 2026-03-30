@@ -44,8 +44,8 @@ export default function Dashboard() {
               .select('*')
               .eq('id', checkinId)
               .eq('user_id', user!.id)
-              .single()
-          : Promise.resolve({ data: null }),
+              .maybeSingle()
+          : Promise.resolve({ data: null, error: null }),
         supabase
           .from('match_debriefs')
           .select('*, match_checkins(map, agent_pick)')
@@ -67,13 +67,17 @@ export default function Dashboard() {
       // Fetch linked matches for stats display
       if (debriefRes.data && debriefRes.data.length > 0) {
         const debriefIds = debriefRes.data.map((d: any) => d.id)
-        const { data: matchData } = await supabase
-          .from('matches')
-          .select('match_debrief_id, acs, kd, headshot_pct, kills, deaths, assists')
-          .eq('user_id', user!.id)
-          .in('match_debrief_id', debriefIds)
-        if (matchData) {
-          setMatchMap(new Map(matchData.map((m: any) => [m.match_debrief_id, m])))
+        try {
+          const { data: matchData, error: matchError } = await supabase
+            .from('matches')
+            .select('match_debrief_id, acs, kd, headshot_pct, kills, deaths, assists, map, agent')
+            .eq('user_id', user!.id)
+            .in('match_debrief_id', debriefIds)
+          if (!matchError && matchData) {
+            setMatchMap(new Map(matchData.map((m: any) => [m.match_debrief_id, m])))
+          }
+        } catch (err) {
+          console.warn('Could not fetch linked matches:', err)
         }
       }
 
@@ -235,8 +239,9 @@ export default function Dashboard() {
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {debriefs.map((d) => {
-              const mapName = d.match_checkins?.map ?? ''
-              const agentName = d.match_checkins?.agent_pick ?? ''
+              const linkedMatch = matchMap.get(d.id)
+              const mapName = linkedMatch?.map ?? d.match_checkins?.map ?? ''
+              const agentName = linkedMatch?.agent ?? d.match_checkins?.agent_pick ?? ''
               const mapImgUrl = mapName ? getMapSplash(mapName) : ''
               const agentIconUrl = agentName ? getAgentIcon(agentName) : ''
               const agentImgUrl = agentName

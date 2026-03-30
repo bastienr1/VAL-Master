@@ -63,6 +63,7 @@ export default function Debrief() {
 
   const handleLoadMatch = async () => {
     setLoadingMatch(true)
+    setMatchError(null)
     try {
       const data = await fetchLastMatch()
       if (!data) {
@@ -145,45 +146,53 @@ export default function Debrief() {
 
     // Upsert loaded match data to Supabase matches table
     if (matchStats && matchStats.match_id) {
-      const { data: debriefData } = await supabase
-        .from('match_debriefs')
-        .select('id')
-        .eq('user_id', user!.id)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .single()
+      try {
+        const { data: debriefData } = await supabase
+          .from('match_debriefs')
+          .select('id')
+          .eq('user_id', user!.id)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle()
 
-      const debriefId = debriefData?.id || null
+        const debriefId = debriefData?.id || null
 
-      await supabase.from('matches').upsert({
-        match_id: matchStats.match_id,
-        user_id: user!.id,
-        match_date: matchStats.match_date,
-        map: matchStats.map,
-        agent: matchStats.agent,
-        agent_role: matchStats.agent_role,
-        mode: matchStats.mode,
-        result: matchStats.result,
-        score: matchStats.score,
-        rounds_won: matchStats.rounds_won,
-        rounds_lost: matchStats.rounds_lost,
-        rounds_played: matchStats.rounds_played,
-        kills: matchStats.kills,
-        deaths: matchStats.deaths,
-        assists: matchStats.assists,
-        kd: matchStats.kd,
-        kda: matchStats.kda,
-        acs: matchStats.acs,
-        headshot_pct: matchStats.headshot_pct,
-        headshots: matchStats.headshots,
-        bodyshots: matchStats.bodyshots,
-        legshots: matchStats.legshots,
-        kpr: matchStats.kpr,
-        dpr: matchStats.dpr,
-        raw_score: matchStats.raw_score,
-        match_checkin_id: checkinId || null,
-        match_debrief_id: debriefId,
-      }, { onConflict: 'match_id' })
+        const { error: upsertError } = await supabase.from('matches').upsert({
+          match_id: matchStats.match_id,
+          user_id: user!.id,
+          match_date: matchStats.match_date,
+          map: matchStats.map,
+          agent: matchStats.agent,
+          agent_role: matchStats.agent_role,
+          mode: matchStats.mode,
+          result: matchStats.result,
+          score: matchStats.score,
+          rounds_won: matchStats.rounds_won,
+          rounds_lost: matchStats.rounds_lost,
+          rounds_played: matchStats.rounds_played,
+          kills: matchStats.kills,
+          deaths: matchStats.deaths,
+          assists: matchStats.assists,
+          kd: matchStats.kd,
+          kda: matchStats.kda,
+          acs: matchStats.acs,
+          headshot_pct: matchStats.headshot_pct,
+          headshots: matchStats.headshots,
+          bodyshots: matchStats.bodyshots,
+          legshots: matchStats.legshots,
+          kpr: matchStats.kpr,
+          dpr: matchStats.dpr,
+          raw_score: matchStats.raw_score,
+          match_checkin_id: checkinId || null,
+          match_debrief_id: debriefId,
+        }, { onConflict: 'match_id' })
+
+        if (upsertError) {
+          console.warn('Match upsert failed (non-blocking):', upsertError.message)
+        }
+      } catch (err) {
+        console.warn('Match upsert error (non-blocking):', err)
+      }
     }
 
     // Clear session data
