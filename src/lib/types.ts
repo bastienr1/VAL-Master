@@ -75,3 +75,39 @@ export interface Match {
   match_checkin_id: string | null
   match_debrief_id: string | null
 }
+
+export interface VodReview {
+  id: string
+  created_at: string
+  user_id: string
+  match_id: string
+  youtube_url: string
+  peak_moment: string | null
+  key_lesson: string | null
+  themes: string | null
+  match_quality: number | null
+  notes: string | null
+}
+
+export interface VodTag {
+  id: string
+  created_at: string
+  user_id: string
+  vod_review_id: string
+  timestamp_seconds: number
+  round_number: number | null
+  tag_type: string
+  label: string
+  side: 'attack' | 'defense' | null
+}
+
+export interface VodComment {
+  id: string
+  created_at: string
+  user_id: string
+  vod_review_id: string
+  timestamp_seconds: number
+  round_number: number | null
+  content: string
+  is_strength: boolean
+}
