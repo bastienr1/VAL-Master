@@ -87,6 +87,7 @@ export interface VodReview {
   themes: string | null
   match_quality: number | null
   notes: string | null
+  barrier_drop_offset: number | null
 }
 
 export interface VodTag {
@@ -99,6 +100,28 @@ export interface VodTag {
   tag_type: string
   label: string
   side: 'attack' | 'defense' | null
+  is_auto: boolean
+}
+
+export interface MatchRound {
+  id: string
+  created_at: string
+  user_id: string
+  match_id: string
+  round_number: number
+  side: 'attack' | 'defense'
+  round_won: boolean
+  end_type: string | null
+  kills: number
+  deaths: number
+  assists: number
+  damage_dealt: number
+  damage_received: number
+  loadout_value: number
+  spent: number
+  score: number
+  kill_events: Array<{ kill_time_ms: number; victim: string; weapon: string }>
+  death_events: Array<{ kill_time_ms: number; killer: string; weapon: string }>
 }
 
 export interface VodComment {

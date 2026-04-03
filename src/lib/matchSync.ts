@@ -1,0 +1,304 @@
+import { supabase } from './supabase'
+import type { MatchRound, VodTag } from './types'
+
+const PLAYER_PUUID = 'Ktw12yrP_o4qg3MuvgfH88E68XCbdAZ7b1DmtLm1di65-JdjCSMy8Dwrzg6O5tvV8EO0Ja_OgGs9GA'
+const AVG_ROUND_DURATION = 110 // seconds (30s buy + ~80s round)
+
+// Weapon ID to display name mapping (common weapons)
+const WEAPON_NAMES: Record<string, string> = {
+  // Sidearms
+  '29A0CFAB-485B-F5D5-779A-B59F85E204A8': 'Classic',
+  '42DA8CCE-40A5-043F-4AEC-7A9F2A1600DE': 'Shorty',
+  '44D4E95C-4157-0037-81B2-17841BF2E8E3': 'Frenzy',
+  '1BAA85B4-4C70-1284-64BB-6481DFC3BB4E': 'Ghost',
+  'E336C6B8-418D-9340-D77F-7A9E4CFE0702': 'Sheriff',
+  // SMGs
+  'F7E1B454-4AD4-1063-EC0A-159E56B58941': 'Stinger',
+  '462080D1-4035-2937-7C09-27AA2A5C27A7': 'Spectre',
+  // Shotguns
+  '910BE174-449B-C412-AB22-D0873436B21B': 'Bucky',
+  'EC845BF4-4F79-DDDA-A3DA-0DB3774B2794': 'Judge',
+  // Rifles
+  'AE3DE142-4D85-2547-DD26-4E90BED35CF7': 'Bulldog',
+  '4ADE7FAA-4CF1-8376-95EF-39884480959B': 'Guardian',
+  '9C82E19D-4575-0200-1A81-3EACF00CF872': 'Phantom',
+  'EE8E8D15-496B-07AC-E5F6-8FAE5D4C7B1A': 'Vandal',
+  // Sniper
+  'C4883E50-4494-202C-3EC3-6B8A9284F00B': 'Marshal',
+  'A03B24D3-4319-996D-0F8C-94BBFBA1DFC7': 'Operator',
+  // Heavy
+  '55D8A0F4-4274-CA67-FE2C-06AB45AC8543': 'Ares',
+  '63E6C3B6-4A8E-869C-3D4C-E38355226584': 'Odin',
+  // Melee
+  '2F59173C-4BED-B6C3-2191-DDB3EDB14835': 'Melee',
+}
+
+function getWeaponName(weaponId: string): string {
+  if (!weaponId) return ''
+  const upper = weaponId.toUpperCase()
+  return WEAPON_NAMES[upper] || weaponId.split('/').pop()?.replace(/_/g, ' ') || 'Unknown'
+}
+
+// ==========================================
+// Fetch round data from Henrik API
+// ==========================================
+export async function fetchMatchRoundData(matchId: string, userId: string): Promise<MatchRound[] | null> {
+  // Check if we already have round data stored
+  const { data: existing } = await supabase
+    .from('match_rounds')
+    .select('*')
+    .eq('match_id', matchId)
+    .eq('user_id', userId)
+    .order('round_number', { ascending: true })
+
+  if (existing && existing.length > 0) return existing
+
+  // Fetch from Henrik API
+  const apiKey = import.meta.env.VITE_HENRIK_API_KEY
+  if (!apiKey) {
+    console.error('VITE_HENRIK_API_KEY not set')
+    return null
+  }
+
+  try {
+    const res = await fetch(`https://api.henrikdev.xyz/valorant/v2/match/${matchId}`, {
+      headers: { Authorization: apiKey },
+    })
+
+    if (!res.ok) {
+      console.error('Henrik API error:', res.status)
+      return null
+    }
+
+    const json = await res.json()
+    const matchData = json.data
+    if (!matchData?.rounds) return null
+
+    // Find our player
+    const allPlayers = matchData.players?.all_players || []
+    const ourPlayer = allPlayers.find((p: any) => p.puuid === PLAYER_PUUID)
+    if (!ourPlayer) {
+      console.error('Player not found in match data')
+      return null
+    }
+
+    const playerTeam = ourPlayer.team // "Red" or "Blue"
+    const firstHalfSide = playerTeam === 'Blue' ? 'attack' : 'defense'
+    const secondHalfSide = playerTeam === 'Blue' ? 'defense' : 'attack'
+
+    // Parse rounds
+    const rounds: Omit<MatchRound, 'id' | 'created_at'>[] = matchData.rounds.map((round: any, index: number) => {
+      const roundNum = index + 1
+      const side = roundNum <= 12 ? firstHalfSide : secondHalfSide
+
+      // Find our player's stats in this round
+      const ourStats = round.player_stats?.find((ps: any) => ps.player_puuid === PLAYER_PUUID)
+
+      // Extract kill events where we are the killer
+      const ourKills = (ourStats?.kill_events || [])
+        .filter((ke: any) => ke.killer_puuid === PLAYER_PUUID)
+        .map((ke: any) => {
+          const victimPlayer = allPlayers.find((p: any) => p.puuid === ke.victim_puuid)
+          return {
+            kill_time_ms: ke.kill_time_in_round || 0,
+            victim: victimPlayer?.character || 'Unknown',
+            weapon: getWeaponName(ke.damage_weapon_id || ''),
+          }
+        })
+
+      // Extract death events where we are the victim
+      const allKillEvents = round.player_stats?.flatMap((ps: any) => ps.kill_events || []) || []
+      const ourDeaths = allKillEvents
+        .filter((ke: any) => ke.victim_puuid === PLAYER_PUUID)
+        .map((ke: any) => {
+          const killerPlayer = allPlayers.find((p: any) => p.puuid === ke.killer_puuid)
+          return {
+            kill_time_ms: ke.kill_time_in_round || 0,
+            killer: killerPlayer?.character || 'Unknown',
+            weapon: getWeaponName(ke.damage_weapon_id || ''),
+          }
+        })
+
+      // Did our team win this round?
+      const roundWon = round.winning_team === playerTeam
+
+      // Damage calculation
+      const ourDamage = ourStats?.damage || 0
+      const damageReceived = ourStats?.damage_received || 0
+
+      return {
+        user_id: userId,
+        match_id: matchId,
+        round_number: roundNum,
+        side,
+        round_won: roundWon,
+        end_type: round.end_type || null,
+        kills: ourStats?.kills || 0,
+        deaths: ourDeaths.length,
+        assists: ourStats?.assists || 0,
+        damage_dealt: ourDamage,
+        damage_received: damageReceived,
+        loadout_value: ourStats?.economy?.loadout_value || 0,
+        spent: ourStats?.economy?.spent || 0,
+        score: ourStats?.score || 0,
+        kill_events: ourKills,
+        death_events: ourDeaths,
+      }
+    })
+
+    // Upsert to Supabase
+    const { data: inserted, error } = await supabase
+      .from('match_rounds')
+      .upsert(rounds, { onConflict: 'match_id,user_id,round_number' })
+      .select()
+
+    if (error) {
+      console.error('Failed to store round data:', error)
+      return null
+    }
+
+    return inserted
+  } catch (err) {
+    console.error('Failed to fetch match detail:', err)
+    return null
+  }
+}
+
+// ==========================================
+// Generate auto-tags from round data
+// ==========================================
+export function generateAutoTags(
+  rounds: MatchRound[],
+  barrierOffset: number,
+): Omit<VodTag, 'id' | 'created_at' | 'user_id' | 'vod_review_id'>[] {
+  const tags: Omit<VodTag, 'id' | 'created_at' | 'user_id' | 'vod_review_id'>[] = []
+
+  rounds.forEach((round) => {
+    const roundIdx = round.round_number - 1
+    const roundStartVideo = barrierOffset + (roundIdx * AVG_ROUND_DURATION)
+
+    // -- Round marker --
+    tags.push({
+      timestamp_seconds: Math.round(roundStartVideo),
+      round_number: round.round_number,
+      tag_type: 'round',
+      label: `R${round.round_number} ${round.side === 'attack' ? 'ATK' : 'DEF'} — ${round.round_won ? 'Won' : 'Lost'}`,
+      side: round.side,
+      is_auto: true,
+    })
+
+    // -- Half-switch at round 13 --
+    if (round.round_number === 13) {
+      tags.push({
+        timestamp_seconds: Math.max(0, Math.round(roundStartVideo - 15)),
+        round_number: 13,
+        tag_type: 'half',
+        label: `Side switch → ${round.side === 'attack' ? 'ATTACK' : 'DEFENSE'}`,
+        side: round.side,
+        is_auto: true,
+      })
+    }
+
+    // -- Kill events --
+    const killEvents = round.kill_events || []
+    killEvents.forEach((kill) => {
+      const killTime = roundStartVideo + (kill.kill_time_ms / 1000)
+      tags.push({
+        timestamp_seconds: Math.round(killTime),
+        round_number: round.round_number,
+        tag_type: 'kill',
+        label: `Killed ${kill.victim}${kill.weapon ? ` (${kill.weapon})` : ''}`,
+        side: round.side,
+        is_auto: true,
+      })
+    })
+
+    // -- Death events --
+    const deathEvents = round.death_events || []
+    deathEvents.forEach((death) => {
+      const deathTime = roundStartVideo + (death.kill_time_ms / 1000)
+      tags.push({
+        timestamp_seconds: Math.round(deathTime),
+        round_number: round.round_number,
+        tag_type: 'death',
+        label: `Died to ${death.killer}${death.weapon ? ` (${death.weapon})` : ''}`,
+        side: round.side,
+        is_auto: true,
+      })
+    })
+
+    // -- Multi-kill (3K, 4K, ACE) --
+    if (round.kills >= 3) {
+      const multiLabel = round.kills === 5 ? 'ACE' : round.kills === 4 ? '4K' : '3K'
+      tags.push({
+        timestamp_seconds: Math.round(roundStartVideo + 5),
+        round_number: round.round_number,
+        tag_type: 'strength',
+        label: `${multiLabel} — R${round.round_number}`,
+        side: round.side,
+        is_auto: true,
+      })
+    }
+
+    // -- First blood (early kill) --
+    if (killEvents.length > 0 && killEvents[0].kill_time_ms <= 15000) {
+      tags.push({
+        timestamp_seconds: Math.round(roundStartVideo + (killEvents[0].kill_time_ms / 1000)),
+        round_number: round.round_number,
+        tag_type: 'strength',
+        label: `First Blood on ${killEvents[0].victim}`,
+        side: round.side,
+        is_auto: true,
+      })
+    }
+
+    // -- First death (early death) --
+    if (deathEvents.length > 0 && deathEvents[0].kill_time_ms <= 15000) {
+      tags.push({
+        timestamp_seconds: Math.round(roundStartVideo + (deathEvents[0].kill_time_ms / 1000)),
+        round_number: round.round_number,
+        tag_type: 'mistake',
+        label: `First Death — killed by ${deathEvents[0].killer}`,
+        side: round.side,
+        is_auto: true,
+      })
+    }
+  })
+
+  return tags
+}
+
+// ==========================================
+// Save auto-tags to Supabase
+// ==========================================
+export async function saveAutoTags(
+  vodReviewId: string,
+  userId: string,
+  autoTags: Omit<VodTag, 'id' | 'created_at' | 'user_id' | 'vod_review_id'>[],
+): Promise<VodTag[]> {
+  // Delete existing auto-tags for this review (regenerating fresh)
+  await supabase
+    .from('vod_tags')
+    .delete()
+    .eq('vod_review_id', vodReviewId)
+    .eq('is_auto', true)
+
+  // Insert new auto-tags
+  const rows = autoTags.map(tag => ({
+    ...tag,
+    user_id: userId,
+    vod_review_id: vodReviewId,
+  }))
+
+  const { data, error } = await supabase
+    .from('vod_tags')
+    .insert(rows)
+    .select()
+
+  if (error) {
+    console.error('Failed to save auto-tags:', error)
+    return []
+  }
+
+  return data || []
+}

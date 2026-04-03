@@ -2,11 +2,12 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { getMapSplash, getAgentIcon } from '../lib/constants'
-import type { Match, VodReview as VodReviewType, VodTag } from '../lib/types'
+import type { Match, VodReview as VodReviewType, VodTag, MatchRound } from '../lib/types'
+import { fetchMatchRoundData, generateAutoTags, saveAutoTags } from '../lib/matchSync'
 import {
   ArrowLeft, Crosshair, Target, Swords, Percent, Play, Pause,
   SkipBack, SkipForward, Link as LinkIcon, Check, Clock, Film,
-  Tag, Trash2, Plus, X
+  Tag, Trash2, Plus, X, Zap
 } from 'lucide-react'
 
 // YouTube IFrame API types
@@ -76,7 +77,7 @@ function StatRow({ icon: Icon, label, value }: { icon: React.ElementType; label:
   )
 }
 
-const TAG_TYPES = [
+const MANUAL_TAG_TYPES = [
   { type: 'strength', label: 'Strength', color: 'bg-val-green', textColor: 'text-val-green', dotColor: '#3DD598' },
   { type: 'mistake', label: 'Mistake', color: 'bg-val-red', textColor: 'text-val-red', dotColor: '#FF4655' },
   { type: 'read', label: 'Read', color: 'bg-val-cyan', textColor: 'text-val-cyan', dotColor: '#53CADC' },
@@ -87,6 +88,22 @@ const TAG_TYPES = [
   { type: 'economy', label: 'Economy', color: 'bg-text-muted', textColor: 'text-text-muted', dotColor: '#64748B' },
   { type: 'aim', label: 'Aim', color: 'bg-val-cyan', textColor: 'text-val-cyan', dotColor: '#53CADC' },
 ] as const
+
+const ALL_TAG_COLORS: Record<string, { color: string; textColor: string; dotColor: string }> = {
+  strength: { color: 'bg-val-green', textColor: 'text-val-green', dotColor: '#3DD598' },
+  mistake: { color: 'bg-val-red', textColor: 'text-val-red', dotColor: '#FF4655' },
+  read: { color: 'bg-val-cyan', textColor: 'text-val-cyan', dotColor: '#53CADC' },
+  clutch: { color: 'bg-val-yellow', textColor: 'text-val-yellow', dotColor: '#FFCA3A' },
+  comms: { color: 'bg-text-secondary', textColor: 'text-text-secondary', dotColor: '#94A3B8' },
+  positioning: { color: 'bg-[#6EE7B7]', textColor: 'text-[#6EE7B7]', dotColor: '#6EE7B7' },
+  utility: { color: 'bg-[#F97316]', textColor: 'text-[#F97316]', dotColor: '#F97316' },
+  economy: { color: 'bg-text-muted', textColor: 'text-text-muted', dotColor: '#64748B' },
+  aim: { color: 'bg-val-cyan', textColor: 'text-val-cyan', dotColor: '#53CADC' },
+  round: { color: 'bg-text-muted', textColor: 'text-text-muted', dotColor: '#475569' },
+  kill: { color: 'bg-val-green', textColor: 'text-val-green', dotColor: '#3DD598' },
+  death: { color: 'bg-val-red', textColor: 'text-val-red', dotColor: '#FF4655' },
+  half: { color: 'bg-text-secondary', textColor: 'text-text-secondary', dotColor: '#94A3B8' },
+}
 
 export default function VodReview() {
   const { matchId } = useParams<{ matchId: string }>()
@@ -115,6 +132,12 @@ export default function VodReview() {
   const [tagTimestamp, setTagTimestamp] = useState(0)
   const [savingTag, setSavingTag] = useState(false)
   const tagLabelRef = useRef<HTMLInputElement>(null)
+
+  // Match sync state
+  const [matchRounds, setMatchRounds] = useState<MatchRound[]>([])
+  const [roundsLoading, setRoundsLoading] = useState(false)
+  const [syncing, setSyncing] = useState(false)
+  const [showAutoTags, setShowAutoTags] = useState(true)
 
   // Data loading
   useEffect(() => {
@@ -176,6 +199,22 @@ export default function VodReview() {
     }
     loadTags()
   }, [vodReview])
+
+  // Load round data when match is available
+  useEffect(() => {
+    if (!match || !match.match_id) return
+
+    async function loadRounds() {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+
+      setRoundsLoading(true)
+      const rounds = await fetchMatchRoundData(match!.match_id, user.id)
+      if (rounds) setMatchRounds(rounds)
+      setRoundsLoading(false)
+    }
+    loadRounds()
+  }, [match])
 
   // YouTube IFrame API loader
   useEffect(() => {
@@ -337,6 +376,7 @@ export default function VodReview() {
           timestamp_seconds: Math.round(tagTimestamp),
           tag_type: selectedTagType,
           label: tagLabel.trim(),
+          is_auto: false,
         })
         .select()
         .single()
@@ -382,6 +422,45 @@ export default function VodReview() {
     if (!playerRef.current || !playerReady) return
     playerRef.current.seekTo(seconds, true)
     setCurrentTime(seconds)
+  }
+
+  // === MATCH SYNC (calibration) ===
+  const handleBarrierSync = async () => {
+    if (!playerRef.current || !playerReady || !vodReview) return
+    setSyncing(true)
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+
+      const offset = Math.round(playerRef.current.getCurrentTime())
+
+      // Save barrier offset to vod_reviews
+      const { data, error } = await supabase
+        .from('vod_reviews')
+        .update({ barrier_drop_offset: offset })
+        .eq('id', vodReview.id)
+        .select()
+        .maybeSingle()
+
+      if (error) throw error
+      if (data) setVodReview(data)
+
+      // Generate and save auto-tags
+      if (matchRounds.length > 0) {
+        const autoTagData = generateAutoTags(matchRounds, offset)
+        const savedTags = await saveAutoTags(vodReview.id, user.id, autoTagData)
+
+        // Merge with existing manual tags
+        setTags(prev => {
+          const manualTags = prev.filter(t => !t.is_auto)
+          return [...manualTags, ...savedTags].sort((a, b) => a.timestamp_seconds - b.timestamp_seconds)
+        })
+      }
+    } catch (err) {
+      console.error('Failed to sync match:', err)
+    } finally {
+      setSyncing(false)
+    }
   }
 
   // Keyboard shortcuts
@@ -566,20 +645,75 @@ export default function VodReview() {
             </div>
           )}
 
-          {/* === TAGGING SYSTEM === */}
+          {/* === TAGGING + MATCH SYNC === */}
           {videoId && playerReady && vodReview && (
             <div className="space-y-2">
+
+              {/* Sync bar — shown when no barrier offset set yet */}
+              {vodReview.barrier_drop_offset == null && matchRounds.length > 0 && (
+                <div className="bg-bg-card border border-val-yellow/30 rounded-lg px-4 py-2 flex items-center gap-3">
+                  <Zap className="w-4 h-4 text-val-yellow shrink-0" />
+                  <div className="flex-1">
+                    <p className="text-xs text-text-secondary">
+                      <strong className="text-val-yellow">Sync match data:</strong> Play the VOD to the moment R1 barriers drop, then click Sync.
+                    </p>
+                  </div>
+                  <button
+                    onClick={handleBarrierSync}
+                    disabled={syncing}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-val-yellow/10 text-val-yellow border border-val-yellow/20 rounded-lg text-xs font-medium hover:bg-val-yellow/20 disabled:opacity-40 transition-colors shrink-0"
+                  >
+                    {syncing ? (
+                      <div className="w-3 h-3 border-2 border-val-yellow border-t-transparent rounded-full animate-spin" />
+                    ) : (
+                      <Zap className="w-3 h-3" />
+                    )}
+                    Sync: Barriers Drop
+                  </button>
+                </div>
+              )}
+
+              {/* Re-sync option — shown when barrier offset IS set */}
+              {vodReview.barrier_drop_offset != null && (
+                <div className="flex items-center gap-2 text-[10px] text-text-muted">
+                  <Zap className="w-3 h-3" />
+                  <span>Synced at {formatTime(vodReview.barrier_drop_offset)} — {matchRounds.length} rounds loaded</span>
+                  <button
+                    onClick={handleBarrierSync}
+                    disabled={syncing}
+                    className="text-val-yellow hover:text-val-yellow/80 font-medium"
+                  >
+                    {syncing ? 'Syncing...' : 'Re-sync'}
+                  </button>
+                  <label className="ml-auto flex items-center gap-1 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={showAutoTags}
+                      onChange={(e) => setShowAutoTags(e.target.checked)}
+                      className="w-3 h-3 accent-val-cyan"
+                    />
+                    <span>Show auto-tags</span>
+                  </label>
+                </div>
+              )}
+
+              {/* Rounds loading state */}
+              {roundsLoading && (
+                <div className="flex items-center gap-2 text-xs text-text-muted">
+                  <div className="w-3 h-3 border-2 border-val-cyan border-t-transparent rounded-full animate-spin" />
+                  Loading round data from API...
+                </div>
+              )}
 
               {/* Tag input bar — shown when tagging is active */}
               {isTagging ? (
                 <div className="bg-bg-card border border-val-cyan/30 rounded-lg p-3 space-y-2">
-                  {/* Timestamp + type selector row */}
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-stats text-xs text-val-cyan">
                       {formatTime(tagTimestamp)}
                     </span>
                     <div className="flex gap-1 flex-wrap">
-                      {TAG_TYPES.map(t => (
+                      {MANUAL_TAG_TYPES.map(t => (
                         <button
                           key={t.type}
                           onClick={() => setSelectedTagType(t.type)}
@@ -594,8 +728,6 @@ export default function VodReview() {
                       ))}
                     </div>
                   </div>
-
-                  {/* Label input + save/cancel */}
                   <div className="flex items-center gap-2">
                     <input
                       ref={tagLabelRef}
@@ -621,21 +753,16 @@ export default function VodReview() {
                       )}
                       Save
                     </button>
-                    <button
-                      onClick={cancelTagging}
-                      className="p-1.5 text-text-muted hover:text-text-secondary transition-colors"
-                      title="Cancel (Esc)"
-                    >
+                    <button onClick={cancelTagging} className="p-1.5 text-text-muted hover:text-text-secondary transition-colors" title="Cancel (Esc)">
                       <X className="w-4 h-4" />
                     </button>
                   </div>
                 </div>
               ) : (
-                /* Quick-tag pills — shown when NOT actively tagging */
                 <div className="flex items-center gap-2">
                   <Tag className="w-3.5 h-3.5 text-text-muted shrink-0" />
                   <div className="flex gap-1 flex-wrap">
-                    {TAG_TYPES.map(t => (
+                    {MANUAL_TAG_TYPES.map(t => (
                       <button
                         key={t.type}
                         onClick={() => startTagging(t.type)}
@@ -652,121 +779,140 @@ export default function VodReview() {
               )}
 
               {/* Visual timeline scrubber */}
-              {tags.length > 0 && (
-                <div className="bg-bg-card border border-bg-elevated rounded-lg px-3 py-2">
-                  {/* Timeline bar */}
-                  <div
-                    className="relative h-6 bg-bg-elevated rounded-full cursor-pointer group"
-                    onClick={(e) => {
-                      if (!playerRef.current || !duration) return
-                      const rect = e.currentTarget.getBoundingClientRect()
-                      const pct = (e.clientX - rect.left) / rect.width
-                      const seekTime = pct * duration
-                      playerRef.current.seekTo(seekTime, true)
-                      setCurrentTime(seekTime)
-                    }}
-                  >
-                    {/* Playback progress */}
+              {(() => {
+                const visibleTags = showAutoTags ? tags : tags.filter(t => !t.is_auto)
+                if (visibleTags.length === 0) return null
+
+                return (
+                  <div className="bg-bg-card border border-bg-elevated rounded-lg px-3 py-2">
                     <div
-                      className="absolute inset-y-0 left-0 bg-white/5 rounded-full transition-all"
-                      style={{ width: `${duration > 0 ? (currentTime / duration) * 100 : 0}%` }}
-                    />
+                      className="relative h-6 bg-bg-elevated rounded-full cursor-pointer group"
+                      onClick={(e) => {
+                        if (!playerRef.current || !duration) return
+                        const rect = e.currentTarget.getBoundingClientRect()
+                        const pct = (e.clientX - rect.left) / rect.width
+                        const seekTime = pct * duration
+                        playerRef.current.seekTo(seekTime, true)
+                        setCurrentTime(seekTime)
+                      }}
+                    >
+                      <div
+                        className="absolute inset-y-0 left-0 bg-white/5 rounded-full transition-all"
+                        style={{ width: `${duration > 0 ? (currentTime / duration) * 100 : 0}%` }}
+                      />
 
-                    {/* Tag dots */}
-                    {tags.map(tag => {
-                      const pct = duration > 0 ? (tag.timestamp_seconds / duration) * 100 : 0
-                      const tagMeta = TAG_TYPES.find(t => t.type === tag.tag_type)
-                      return (
-                        <button
-                          key={tag.id}
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            seekToTag(tag.timestamp_seconds)
-                          }}
-                          className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-3 h-3 rounded-full border-2 border-bg-card hover:scale-150 transition-transform z-10"
-                          style={{
-                            left: `${Math.max(1, Math.min(99, pct))}%`,
-                            backgroundColor: tagMeta?.dotColor || '#64748B',
-                          }}
-                          title={`${formatTime(tag.timestamp_seconds)} — ${tag.label}`}
-                        />
-                      )
-                    })}
-
-                    {/* Current time indicator */}
-                    <div
-                      className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-1.5 h-4 bg-white rounded-full opacity-60 pointer-events-none"
-                      style={{ left: `${duration > 0 ? (currentTime / duration) * 100 : 0}%` }}
-                    />
-                  </div>
-
-                  {/* Tag count summary */}
-                  <div className="flex items-center gap-2 mt-1.5">
-                    <span className="text-[10px] text-text-muted">{tags.length} tag{tags.length !== 1 ? 's' : ''}</span>
-                    <div className="flex gap-1 ml-auto">
-                      {TAG_TYPES.filter(t => tags.some(tag => tag.tag_type === t.type)).map(t => {
-                        const count = tags.filter(tag => tag.tag_type === t.type).length
+                      {/* Half-switch marker line */}
+                      {visibleTags.filter(t => t.tag_type === 'half').map(tag => {
+                        const pct = duration > 0 ? (tag.timestamp_seconds / duration) * 100 : 0
                         return (
-                          <span key={t.type} className={`text-[10px] ${t.textColor} font-stats`}>
-                            {count} {t.label.toLowerCase()}
-                          </span>
+                          <div
+                            key={tag.id}
+                            className="absolute top-0 bottom-0 w-px bg-val-yellow/40"
+                            style={{ left: `${Math.max(1, Math.min(99, pct))}%` }}
+                            title={tag.label}
+                          />
+                        )
+                      })}
+
+                      {/* Round markers (small ticks) */}
+                      {showAutoTags && visibleTags.filter(t => t.tag_type === 'round').map(tag => {
+                        const pct = duration > 0 ? (tag.timestamp_seconds / duration) * 100 : 0
+                        return (
+                          <button
+                            key={tag.id}
+                            onClick={(e) => { e.stopPropagation(); seekToTag(tag.timestamp_seconds) }}
+                            className="absolute top-0 w-px h-2 bg-text-muted/30 hover:bg-text-muted/60 transition-colors"
+                            style={{ left: `${Math.max(1, Math.min(99, pct))}%` }}
+                            title={tag.label}
+                          />
+                        )
+                      })}
+
+                      {/* Tag dots (non-structural) */}
+                      {visibleTags.filter(t => t.tag_type !== 'round' && t.tag_type !== 'half').map(tag => {
+                        const pct = duration > 0 ? (tag.timestamp_seconds / duration) * 100 : 0
+                        const tagMeta = ALL_TAG_COLORS[tag.tag_type]
+                        return (
+                          <button
+                            key={tag.id}
+                            onClick={(e) => { e.stopPropagation(); seekToTag(tag.timestamp_seconds) }}
+                            className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-3 h-3 rounded-full border-2 border-bg-card hover:scale-150 transition-transform z-10"
+                            style={{
+                              left: `${Math.max(1, Math.min(99, pct))}%`,
+                              backgroundColor: tagMeta?.dotColor || '#64748B',
+                            }}
+                            title={`${formatTime(tag.timestamp_seconds)} — ${tag.label}`}
+                          />
+                        )
+                      })}
+
+                      <div
+                        className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-1.5 h-4 bg-white rounded-full opacity-60 pointer-events-none"
+                        style={{ left: `${duration > 0 ? (currentTime / duration) * 100 : 0}%` }}
+                      />
+                    </div>
+
+                    <div className="flex items-center gap-2 mt-1.5">
+                      <span className="text-[10px] text-text-muted">
+                        {tags.filter(t => !t.is_auto).length} manual · {tags.filter(t => t.is_auto).length} auto
+                      </span>
+                    </div>
+                  </div>
+                )
+              })()}
+
+              {/* Tag list */}
+              {(() => {
+                const visibleTags = showAutoTags
+                  ? tags.filter(t => t.tag_type !== 'round') // hide round markers from list (too noisy), keep kills/deaths/etc
+                  : tags.filter(t => !t.is_auto)
+                if (visibleTags.length === 0) return null
+
+                return (
+                  <div className="bg-bg-card border border-bg-elevated rounded-lg overflow-hidden">
+                    <div className="max-h-60 overflow-y-auto divide-y divide-bg-elevated">
+                      {visibleTags.map(tag => {
+                        const tagMeta = ALL_TAG_COLORS[tag.tag_type]
+                        return (
+                          <div
+                            key={tag.id}
+                            className="flex items-center gap-2 px-3 py-2 hover:bg-bg-elevated/50 cursor-pointer group transition-colors"
+                            onClick={() => seekToTag(tag.timestamp_seconds)}
+                          >
+                            <div
+                              className="w-2 h-2 rounded-full shrink-0"
+                              style={{ backgroundColor: tagMeta?.dotColor || '#64748B' }}
+                            />
+                            <span className="font-stats text-[11px] text-val-cyan w-10 shrink-0">
+                              {formatTime(tag.timestamp_seconds)}
+                            </span>
+                            {tag.round_number && (
+                              <span className="text-[9px] text-text-muted w-6 shrink-0">R{tag.round_number}</span>
+                            )}
+                            <span className={`px-1.5 py-0.5 rounded text-[9px] font-medium ${tagMeta?.color}/15 ${tagMeta?.textColor} shrink-0`}>
+                              {tag.tag_type}
+                            </span>
+                            <span className="text-xs text-text-secondary truncate flex-1">
+                              {tag.label}
+                            </span>
+                            {tag.is_auto ? (
+                              <span className="text-[9px] text-text-muted shrink-0">auto</span>
+                            ) : (
+                              <button
+                                onClick={(e) => { e.stopPropagation(); deleteTag(tag.id) }}
+                                className="p-1 text-text-muted hover:text-val-red opacity-0 group-hover:opacity-100 transition-all shrink-0"
+                                title="Delete tag"
+                              >
+                                <Trash2 className="w-3 h-3" />
+                              </button>
+                            )}
+                          </div>
                         )
                       })}
                     </div>
                   </div>
-                </div>
-              )}
-
-              {/* Tag list */}
-              {tags.length > 0 && (
-                <div className="bg-bg-card border border-bg-elevated rounded-lg overflow-hidden">
-                  <div className="max-h-60 overflow-y-auto divide-y divide-bg-elevated">
-                    {tags.map(tag => {
-                      const tagMeta = TAG_TYPES.find(t => t.type === tag.tag_type)
-                      return (
-                        <div
-                          key={tag.id}
-                          className="flex items-center gap-2 px-3 py-2 hover:bg-bg-elevated/50 cursor-pointer group transition-colors"
-                          onClick={() => seekToTag(tag.timestamp_seconds)}
-                        >
-                          {/* Color dot */}
-                          <div
-                            className="w-2 h-2 rounded-full shrink-0"
-                            style={{ backgroundColor: tagMeta?.dotColor || '#64748B' }}
-                          />
-
-                          {/* Timestamp */}
-                          <span className="font-stats text-[11px] text-val-cyan w-10 shrink-0">
-                            {formatTime(tag.timestamp_seconds)}
-                          </span>
-
-                          {/* Type badge */}
-                          <span className={`px-1.5 py-0.5 rounded text-[9px] font-medium ${tagMeta?.color}/15 ${tagMeta?.textColor} shrink-0`}>
-                            {tagMeta?.label || tag.tag_type}
-                          </span>
-
-                          {/* Label */}
-                          <span className="text-xs text-text-secondary truncate flex-1">
-                            {tag.label}
-                          </span>
-
-                          {/* Delete button — visible on hover */}
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              deleteTag(tag.id)
-                            }}
-                            className="p-1 text-text-muted hover:text-val-red opacity-0 group-hover:opacity-100 transition-all shrink-0"
-                            title="Delete tag"
-                          >
-                            <Trash2 className="w-3 h-3" />
-                          </button>
-                        </div>
-                      )
-                    })}
-                  </div>
-                </div>
-              )}
+                )
+              })()}
             </div>
           )}
         </div>
