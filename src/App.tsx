@@ -3,6 +3,8 @@ import CheckIn from './pages/CheckIn'
 import Debrief from './pages/Debrief'
 import TacticalReads from './pages/TacticalReads'
 import Dashboard from './pages/Dashboard'
+import MatchLibrary from './pages/MatchLibrary'
+import VodReview from './pages/VodReview'
 import Login from './pages/Login'
 import { useSession, signOut } from './lib/auth'
 
@@ -32,16 +34,10 @@ function App() {
             <div className="flex gap-4 text-sm font-medium">
               <NavLink to="/" end className={({ isActive }) =>
                 isActive ? 'text-val-cyan' : 'text-text-secondary hover:text-text-primary transition-colors'
-              }>Dashboard</NavLink>
-              <NavLink to="/checkin" className={({ isActive }) =>
+              }>Matches</NavLink>
+              <NavLink to="/analytics" className={({ isActive }) =>
                 isActive ? 'text-val-cyan' : 'text-text-secondary hover:text-text-primary transition-colors'
-              }>Check-In</NavLink>
-              <NavLink to="/tactical" className={({ isActive }) =>
-                isActive ? 'text-val-cyan' : 'text-text-secondary hover:text-text-primary transition-colors'
-              }>Tactical</NavLink>
-              <NavLink to="/debrief" className={({ isActive }) =>
-                isActive ? 'text-val-cyan' : 'text-text-secondary hover:text-text-primary transition-colors'
-              }>Debrief</NavLink>
+              }>Analytics</NavLink>
             </div>
             <button
               onClick={() => signOut()}
@@ -53,7 +49,10 @@ function App() {
         </nav>
         <main className="max-w-7xl mx-auto px-4 py-6">
           <Routes>
-            <Route path="/" element={<Dashboard />} />
+            <Route path="/" element={<MatchLibrary />} />
+            <Route path="/review/:matchId" element={<VodReview />} />
+            <Route path="/analytics" element={<Dashboard />} />
+            {/* Preserved legacy routes — accessible via direct URL */}
             <Route path="/checkin" element={<CheckIn />} />
             <Route path="/tactical" element={<TacticalReads />} />
             <Route path="/debrief" element={<Debrief />} />
