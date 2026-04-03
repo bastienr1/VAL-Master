@@ -2,6 +2,8 @@ import { supabase } from './supabase'
 import type { MatchRound, VodTag } from './types'
 
 const PLAYER_PUUID = 'Ktw12yrP_o4qg3MuvgfH88E68XCbdAZ7b1DmtLm1di65-JdjCSMy8Dwrzg6O5tvV8EO0Ja_OgGs9GA'
+const PLAYER_NAME = 'Jobast'
+const PLAYER_TAG = '9537'
 const AVG_ROUND_DURATION = 110 // seconds (30s buy + ~80s round)
 
 // Weapon ID to display name mapping (common weapons)
@@ -76,9 +78,17 @@ export async function fetchMatchRoundData(matchId: string, userId: string): Prom
 
     // Find our player
     const allPlayers = matchData.players?.all_players || []
-    const ourPlayer = allPlayers.find((p: any) => p.puuid === PLAYER_PUUID)
+    let ourPlayer = allPlayers.find((p: any) => p.puuid === PLAYER_PUUID)
     if (!ourPlayer) {
-      console.error('Player not found in match data')
+      // Fallback: match by Riot ID name#tag
+      ourPlayer = allPlayers.find((p: any) =>
+        p.name?.toLowerCase() === PLAYER_NAME.toLowerCase() && p.tag === PLAYER_TAG
+      )
+    }
+    if (!ourPlayer) {
+      console.error('Player not found. Available players:',
+        allPlayers.map((p: any) => `${p.name}#${p.tag} (${p.puuid?.substring(0, 20)}...)`)
+      )
       return null
     }
 
@@ -92,11 +102,11 @@ export async function fetchMatchRoundData(matchId: string, userId: string): Prom
       const side = roundNum <= 12 ? firstHalfSide : secondHalfSide
 
       // Find our player's stats in this round
-      const ourStats = round.player_stats?.find((ps: any) => ps.player_puuid === PLAYER_PUUID)
+      const ourStats = round.player_stats?.find((ps: any) => ps.player_puuid === ourPlayer.puuid)
 
       // Extract kill events where we are the killer
       const ourKills = (ourStats?.kill_events || [])
-        .filter((ke: any) => ke.killer_puuid === PLAYER_PUUID)
+        .filter((ke: any) => ke.killer_puuid === ourPlayer.puuid)
         .map((ke: any) => {
           const victimPlayer = allPlayers.find((p: any) => p.puuid === ke.victim_puuid)
           return {
@@ -109,7 +119,7 @@ export async function fetchMatchRoundData(matchId: string, userId: string): Prom
       // Extract death events where we are the victim
       const allKillEvents = round.player_stats?.flatMap((ps: any) => ps.kill_events || []) || []
       const ourDeaths = allKillEvents
-        .filter((ke: any) => ke.victim_puuid === PLAYER_PUUID)
+        .filter((ke: any) => ke.victim_puuid === ourPlayer.puuid)
         .map((ke: any) => {
           const killerPlayer = allPlayers.find((p: any) => p.puuid === ke.killer_puuid)
           return {
