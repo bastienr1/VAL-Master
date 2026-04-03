@@ -2,10 +2,11 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { getMapSplash, getAgentIcon } from '../lib/constants'
-import type { Match, VodReview as VodReviewType } from '../lib/types'
+import type { Match, VodReview as VodReviewType, VodTag } from '../lib/types'
 import {
   ArrowLeft, Crosshair, Target, Swords, Percent, Play, Pause,
-  SkipBack, SkipForward, Link as LinkIcon, Check, Clock, Film
+  SkipBack, SkipForward, Link as LinkIcon, Check, Clock, Film,
+  Tag, Trash2, Plus, X
 } from 'lucide-react'
 
 // YouTube IFrame API types
@@ -75,10 +76,22 @@ function StatRow({ icon: Icon, label, value }: { icon: React.ElementType; label:
   )
 }
 
+const TAG_TYPES = [
+  { type: 'strength', label: 'Strength', color: 'bg-val-green', textColor: 'text-val-green', dotColor: '#3DD598' },
+  { type: 'mistake', label: 'Mistake', color: 'bg-val-red', textColor: 'text-val-red', dotColor: '#FF4655' },
+  { type: 'read', label: 'Read', color: 'bg-val-cyan', textColor: 'text-val-cyan', dotColor: '#53CADC' },
+  { type: 'clutch', label: 'Clutch', color: 'bg-val-yellow', textColor: 'text-val-yellow', dotColor: '#FFCA3A' },
+  { type: 'comms', label: 'Comms', color: 'bg-text-secondary', textColor: 'text-text-secondary', dotColor: '#94A3B8' },
+  { type: 'positioning', label: 'Position', color: 'bg-[#6EE7B7]', textColor: 'text-[#6EE7B7]', dotColor: '#6EE7B7' },
+  { type: 'utility', label: 'Utility', color: 'bg-[#F97316]', textColor: 'text-[#F97316]', dotColor: '#F97316' },
+  { type: 'economy', label: 'Economy', color: 'bg-text-muted', textColor: 'text-text-muted', dotColor: '#64748B' },
+  { type: 'aim', label: 'Aim', color: 'bg-val-cyan', textColor: 'text-val-cyan', dotColor: '#53CADC' },
+] as const
+
 export default function VodReview() {
   const { matchId } = useParams<{ matchId: string }>()
   const [match, setMatch] = useState<Match | null>(null)
-  const [_vodReview, setVodReview] = useState<VodReviewType | null>(null)
+  const [vodReview, setVodReview] = useState<VodReviewType | null>(null)
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
 
@@ -93,6 +106,15 @@ export default function VodReview() {
   const [urlSaved, setUrlSaved] = useState(false)
   const [saving, setSaving] = useState(false)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  // Tagging state
+  const [tags, setTags] = useState<VodTag[]>([])
+  const [isTagging, setIsTagging] = useState(false)
+  const [selectedTagType, setSelectedTagType] = useState<string>('strength')
+  const [tagLabel, setTagLabel] = useState('')
+  const [tagTimestamp, setTagTimestamp] = useState(0)
+  const [savingTag, setSavingTag] = useState(false)
+  const tagLabelRef = useRef<HTMLInputElement>(null)
 
   // Data loading
   useEffect(() => {
@@ -138,6 +160,22 @@ export default function VodReview() {
     }
     loadData()
   }, [matchId])
+
+  // Load tags when vod_review is available
+  useEffect(() => {
+    if (!vodReview) return
+
+    async function loadTags() {
+      const { data, error } = await supabase
+        .from('vod_tags')
+        .select('*')
+        .eq('vod_review_id', vodReview!.id)
+        .order('timestamp_seconds', { ascending: true })
+
+      if (!error && data) setTags(data)
+    }
+    loadTags()
+  }, [vodReview])
 
   // YouTube IFrame API loader
   useEffect(() => {
@@ -231,31 +269,6 @@ export default function VodReview() {
     setCurrentTime(newTime)
   }, [playerReady, duration])
 
-  // Keyboard shortcuts
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
-
-      switch (e.key) {
-        case ' ':
-          e.preventDefault()
-          togglePlay()
-          break
-        case 'ArrowLeft':
-          e.preventDefault()
-          seek(e.shiftKey ? -10 : -5)
-          break
-        case 'ArrowRight':
-          e.preventDefault()
-          seek(e.shiftKey ? 10 : 5)
-          break
-      }
-    }
-
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [togglePlay, seek])
-
   // Save YouTube URL
   const handleSaveUrl = async () => {
     const vid = extractYouTubeId(youtubeUrl)
@@ -294,6 +307,120 @@ export default function VodReview() {
       setSaving(false)
     }
   }
+
+  // Start tagging flow
+  const startTagging = useCallback((preselectedType?: string) => {
+    if (!playerRef.current || !playerReady || !vodReview) return
+    playerRef.current.pauseVideo()
+    const ts = playerRef.current.getCurrentTime()
+    setTagTimestamp(ts)
+    setSelectedTagType(preselectedType || 'strength')
+    setTagLabel('')
+    setIsTagging(true)
+    setTimeout(() => tagLabelRef.current?.focus(), 50)
+  }, [playerReady, vodReview])
+
+  // Save a tag
+  const saveTag = async () => {
+    if (!tagLabel.trim() || !vodReview) return
+
+    setSavingTag(true)
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+
+      const { data, error } = await supabase
+        .from('vod_tags')
+        .insert({
+          user_id: user.id,
+          vod_review_id: vodReview.id,
+          timestamp_seconds: Math.round(tagTimestamp),
+          tag_type: selectedTagType,
+          label: tagLabel.trim(),
+        })
+        .select()
+        .single()
+
+      if (error) throw error
+      if (data) {
+        setTags(prev => [...prev, data].sort((a, b) => a.timestamp_seconds - b.timestamp_seconds))
+      }
+
+      setIsTagging(false)
+      setTagLabel('')
+    } catch (err) {
+      console.error('Failed to save tag:', err)
+    } finally {
+      setSavingTag(false)
+    }
+  }
+
+  // Delete a tag
+  const deleteTag = async (tagId: string) => {
+    try {
+      const { error } = await supabase
+        .from('vod_tags')
+        .delete()
+        .eq('id', tagId)
+
+      if (!error) {
+        setTags(prev => prev.filter(t => t.id !== tagId))
+      }
+    } catch (err) {
+      console.error('Failed to delete tag:', err)
+    }
+  }
+
+  // Cancel tagging
+  const cancelTagging = () => {
+    setIsTagging(false)
+    setTagLabel('')
+  }
+
+  // Seek to tag timestamp
+  const seekToTag = (seconds: number) => {
+    if (!playerRef.current || !playerReady) return
+    playerRef.current.seekTo(seconds, true)
+    setCurrentTime(seconds)
+  }
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
+
+      switch (e.key) {
+        case ' ':
+          e.preventDefault()
+          togglePlay()
+          break
+        case 'ArrowLeft':
+          e.preventDefault()
+          seek(e.shiftKey ? -10 : -5)
+          break
+        case 'ArrowRight':
+          e.preventDefault()
+          seek(e.shiftKey ? 10 : 5)
+          break
+        case 't':
+        case 'T':
+          e.preventDefault()
+          if (!isTagging) {
+            startTagging('strength')
+          }
+          break
+        case 'Escape':
+          e.preventDefault()
+          if (isTagging) {
+            cancelTagging()
+          }
+          break
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [togglePlay, seek, isTagging, startTagging, cancelTagging])
 
   if (loading) {
     return (
@@ -379,7 +506,7 @@ export default function VodReview() {
                 <div className="ml-auto text-[10px] text-text-muted hidden md:flex items-center gap-3">
                   <span><kbd className="px-1 py-0.5 bg-bg-elevated rounded text-[10px]">Space</kbd> play/pause</span>
                   <span><kbd className="px-1 py-0.5 bg-bg-elevated rounded text-[10px]">←→</kbd> ±5s</span>
-                  <span><kbd className="px-1 py-0.5 bg-bg-elevated rounded text-[10px]">Shift+←→</kbd> ±10s</span>
+                  <span><kbd className="px-1 py-0.5 bg-bg-elevated rounded text-[10px]">T</kbd> tag</span>
                 </div>
               </div>
             </div>
@@ -439,12 +566,207 @@ export default function VodReview() {
             </div>
           )}
 
-          {/* Sprint 3 preview — tagging placeholder */}
-          {videoId && playerReady && (
-            <div className="bg-bg-card border border-dashed border-bg-elevated rounded-lg px-4 py-3 text-center">
-              <p className="text-text-muted text-xs">
-                🏷️ Timestamped tagging — Sprint 3. Press <kbd className="px-1 py-0.5 bg-bg-elevated rounded text-[10px]">T</kbd> to tag moments while watching.
-              </p>
+          {/* === TAGGING SYSTEM === */}
+          {videoId && playerReady && vodReview && (
+            <div className="space-y-2">
+
+              {/* Tag input bar — shown when tagging is active */}
+              {isTagging ? (
+                <div className="bg-bg-card border border-val-cyan/30 rounded-lg p-3 space-y-2">
+                  {/* Timestamp + type selector row */}
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-stats text-xs text-val-cyan">
+                      {formatTime(tagTimestamp)}
+                    </span>
+                    <div className="flex gap-1 flex-wrap">
+                      {TAG_TYPES.map(t => (
+                        <button
+                          key={t.type}
+                          onClick={() => setSelectedTagType(t.type)}
+                          className={`px-2 py-0.5 rounded-full text-[10px] font-medium border transition-colors ${
+                            selectedTagType === t.type
+                              ? `${t.color}/20 ${t.textColor} border-current`
+                              : 'bg-bg-elevated text-text-muted border-transparent hover:border-bg-card'
+                          }`}
+                        >
+                          {t.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Label input + save/cancel */}
+                  <div className="flex items-center gap-2">
+                    <input
+                      ref={tagLabelRef}
+                      type="text"
+                      value={tagLabel}
+                      onChange={(e) => setTagLabel(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && tagLabel.trim()) saveTag()
+                        if (e.key === 'Escape') cancelTagging()
+                      }}
+                      placeholder="What happened here? (e.g., clean one-tap B site)"
+                      className="flex-1 bg-bg-elevated border border-bg-card rounded-lg px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-val-cyan/40"
+                    />
+                    <button
+                      onClick={saveTag}
+                      disabled={!tagLabel.trim() || savingTag}
+                      className="flex items-center gap-1 px-3 py-1.5 bg-val-green/10 text-val-green border border-val-green/20 rounded-lg text-xs font-medium hover:bg-val-green/20 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                    >
+                      {savingTag ? (
+                        <div className="w-3 h-3 border-2 border-val-green border-t-transparent rounded-full animate-spin" />
+                      ) : (
+                        <Plus className="w-3 h-3" />
+                      )}
+                      Save
+                    </button>
+                    <button
+                      onClick={cancelTagging}
+                      className="p-1.5 text-text-muted hover:text-text-secondary transition-colors"
+                      title="Cancel (Esc)"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                /* Quick-tag pills — shown when NOT actively tagging */
+                <div className="flex items-center gap-2">
+                  <Tag className="w-3.5 h-3.5 text-text-muted shrink-0" />
+                  <div className="flex gap-1 flex-wrap">
+                    {TAG_TYPES.map(t => (
+                      <button
+                        key={t.type}
+                        onClick={() => startTagging(t.type)}
+                        className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${t.color}/10 ${t.textColor} border border-transparent hover:border-current transition-colors`}
+                      >
+                        {t.label}
+                      </button>
+                    ))}
+                  </div>
+                  <span className="ml-auto text-[10px] text-text-muted hidden md:block">
+                    <kbd className="px-1 py-0.5 bg-bg-elevated rounded text-[10px]">T</kbd> quick tag
+                  </span>
+                </div>
+              )}
+
+              {/* Visual timeline scrubber */}
+              {tags.length > 0 && (
+                <div className="bg-bg-card border border-bg-elevated rounded-lg px-3 py-2">
+                  {/* Timeline bar */}
+                  <div
+                    className="relative h-6 bg-bg-elevated rounded-full cursor-pointer group"
+                    onClick={(e) => {
+                      if (!playerRef.current || !duration) return
+                      const rect = e.currentTarget.getBoundingClientRect()
+                      const pct = (e.clientX - rect.left) / rect.width
+                      const seekTime = pct * duration
+                      playerRef.current.seekTo(seekTime, true)
+                      setCurrentTime(seekTime)
+                    }}
+                  >
+                    {/* Playback progress */}
+                    <div
+                      className="absolute inset-y-0 left-0 bg-white/5 rounded-full transition-all"
+                      style={{ width: `${duration > 0 ? (currentTime / duration) * 100 : 0}%` }}
+                    />
+
+                    {/* Tag dots */}
+                    {tags.map(tag => {
+                      const pct = duration > 0 ? (tag.timestamp_seconds / duration) * 100 : 0
+                      const tagMeta = TAG_TYPES.find(t => t.type === tag.tag_type)
+                      return (
+                        <button
+                          key={tag.id}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            seekToTag(tag.timestamp_seconds)
+                          }}
+                          className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-3 h-3 rounded-full border-2 border-bg-card hover:scale-150 transition-transform z-10"
+                          style={{
+                            left: `${Math.max(1, Math.min(99, pct))}%`,
+                            backgroundColor: tagMeta?.dotColor || '#64748B',
+                          }}
+                          title={`${formatTime(tag.timestamp_seconds)} — ${tag.label}`}
+                        />
+                      )
+                    })}
+
+                    {/* Current time indicator */}
+                    <div
+                      className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-1.5 h-4 bg-white rounded-full opacity-60 pointer-events-none"
+                      style={{ left: `${duration > 0 ? (currentTime / duration) * 100 : 0}%` }}
+                    />
+                  </div>
+
+                  {/* Tag count summary */}
+                  <div className="flex items-center gap-2 mt-1.5">
+                    <span className="text-[10px] text-text-muted">{tags.length} tag{tags.length !== 1 ? 's' : ''}</span>
+                    <div className="flex gap-1 ml-auto">
+                      {TAG_TYPES.filter(t => tags.some(tag => tag.tag_type === t.type)).map(t => {
+                        const count = tags.filter(tag => tag.tag_type === t.type).length
+                        return (
+                          <span key={t.type} className={`text-[10px] ${t.textColor} font-stats`}>
+                            {count} {t.label.toLowerCase()}
+                          </span>
+                        )
+                      })}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Tag list */}
+              {tags.length > 0 && (
+                <div className="bg-bg-card border border-bg-elevated rounded-lg overflow-hidden">
+                  <div className="max-h-60 overflow-y-auto divide-y divide-bg-elevated">
+                    {tags.map(tag => {
+                      const tagMeta = TAG_TYPES.find(t => t.type === tag.tag_type)
+                      return (
+                        <div
+                          key={tag.id}
+                          className="flex items-center gap-2 px-3 py-2 hover:bg-bg-elevated/50 cursor-pointer group transition-colors"
+                          onClick={() => seekToTag(tag.timestamp_seconds)}
+                        >
+                          {/* Color dot */}
+                          <div
+                            className="w-2 h-2 rounded-full shrink-0"
+                            style={{ backgroundColor: tagMeta?.dotColor || '#64748B' }}
+                          />
+
+                          {/* Timestamp */}
+                          <span className="font-stats text-[11px] text-val-cyan w-10 shrink-0">
+                            {formatTime(tag.timestamp_seconds)}
+                          </span>
+
+                          {/* Type badge */}
+                          <span className={`px-1.5 py-0.5 rounded text-[9px] font-medium ${tagMeta?.color}/15 ${tagMeta?.textColor} shrink-0`}>
+                            {tagMeta?.label || tag.tag_type}
+                          </span>
+
+                          {/* Label */}
+                          <span className="text-xs text-text-secondary truncate flex-1">
+                            {tag.label}
+                          </span>
+
+                          {/* Delete button — visible on hover */}
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              deleteTag(tag.id)
+                            }}
+                            className="p-1 text-text-muted hover:text-val-red opacity-0 group-hover:opacity-100 transition-all shrink-0"
+                            title="Delete tag"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
