@@ -4,7 +4,9 @@ import type { MatchRound, VodTag } from './types'
 const PLAYER_PUUID = 'Ktw12yrP_o4qg3MuvgfH88E68XCbdAZ7b1DmtLm1di65-JdjCSMy8Dwrzg6O5tvV8EO0Ja_OgGs9GA'
 const PLAYER_NAME = 'Jobast'
 const PLAYER_TAG = '9537'
-const AVG_ROUND_DURATION = 110 // seconds (30s buy + ~80s round)
+const BUY_PHASE_DURATION = 30
+const DEFAULT_ROUND_PLAY_TIME = 80
+const POST_ROUND_BUFFER = 7
 
 // Weapon ID to display name mapping (common weapons)
 const WEAPON_NAMES: Record<string, string> = {
@@ -177,15 +179,33 @@ export async function fetchMatchRoundData(matchId: string, userId: string): Prom
 // ==========================================
 // Generate auto-tags from round data
 // ==========================================
+function estimateRoundDuration(round: MatchRound): number {
+  const allEvents = [
+    ...(round.kill_events || []).map((e: any) => e.kill_time_ms),
+    ...(round.death_events || []).map((e: any) => e.kill_time_ms),
+  ]
+  if (allEvents.length > 0) {
+    const latestEventMs = Math.max(...allEvents)
+    return BUY_PHASE_DURATION + (latestEventMs / 1000) + POST_ROUND_BUFFER
+  }
+  return BUY_PHASE_DURATION + DEFAULT_ROUND_PLAY_TIME
+}
+
 export function generateAutoTags(
   rounds: MatchRound[],
   barrierOffset: number,
 ): Omit<VodTag, 'id' | 'created_at' | 'user_id' | 'vod_review_id'>[] {
   const tags: Omit<VodTag, 'id' | 'created_at' | 'user_id' | 'vod_review_id'>[] = []
 
-  rounds.forEach((round) => {
-    const roundIdx = round.round_number - 1
-    const roundStartVideo = barrierOffset + (roundIdx * AVG_ROUND_DURATION)
+  const roundStartTimes: number[] = []
+  let cumulativeTime = barrierOffset
+  for (const round of rounds) {
+    roundStartTimes.push(cumulativeTime)
+    cumulativeTime += estimateRoundDuration(round)
+  }
+
+  rounds.forEach((round, idx) => {
+    const roundStartVideo = roundStartTimes[idx]
 
     // -- Round marker --
     tags.push({
