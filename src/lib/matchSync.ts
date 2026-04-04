@@ -55,7 +55,12 @@ export async function fetchMatchRoundData(matchId: string, userId: string): Prom
     .eq('user_id', userId)
     .order('round_number', { ascending: true })
 
-  if (existing && existing.length > 0) return existing
+  if (existing && existing.length > 0 && existing[0].round_duration_ms != null) {
+    return existing
+  }
+  if (existing && existing.length > 0) {
+    await supabase.from('match_rounds').delete().eq('match_id', matchId).eq('user_id', userId)
+  }
 
   // Fetch from Henrik API
   const apiKey = import.meta.env.VITE_HENRIK_API_KEY
@@ -138,6 +143,12 @@ export async function fetchMatchRoundData(matchId: string, userId: string): Prom
       const ourDamage = ourStats?.damage || 0
       const damageReceived = ourStats?.damage_received || 0
 
+      // Actual round play duration from ALL players' kill events (all 10, not just ours)
+      const allRoundKillTimes = round.player_stats?.flatMap((ps: any) =>
+        (ps.kill_events || []).map((ke: any) => ke.kill_time_in_round || 0)
+      ) || []
+      const roundDurationMs = allRoundKillTimes.length > 0 ? Math.max(...allRoundKillTimes) : null
+
       return {
         user_id: userId,
         match_id: matchId,
@@ -155,6 +166,7 @@ export async function fetchMatchRoundData(matchId: string, userId: string): Prom
         score: ourStats?.score || 0,
         kill_events: ourKills,
         death_events: ourDeaths,
+        round_duration_ms: roundDurationMs,
       }
     })
 
@@ -180,13 +192,8 @@ export async function fetchMatchRoundData(matchId: string, userId: string): Prom
 // Generate auto-tags from round data
 // ==========================================
 function estimateRoundDuration(round: MatchRound): number {
-  const allEvents = [
-    ...(round.kill_events || []).map((e: any) => e.kill_time_ms),
-    ...(round.death_events || []).map((e: any) => e.kill_time_ms),
-  ]
-  if (allEvents.length > 0) {
-    const latestEventMs = Math.max(...allEvents)
-    return BUY_PHASE_DURATION + (latestEventMs / 1000) + POST_ROUND_BUFFER
+  if (round.round_duration_ms && round.round_duration_ms > 0) {
+    return BUY_PHASE_DURATION + (round.round_duration_ms / 1000) + POST_ROUND_BUFFER
   }
   return BUY_PHASE_DURATION + DEFAULT_ROUND_PLAY_TIME
 }
@@ -197,6 +204,7 @@ export function generateAutoTags(
 ): Omit<VodTag, 'id' | 'created_at' | 'user_id' | 'vod_review_id'>[] {
   const tags: Omit<VodTag, 'id' | 'created_at' | 'user_id' | 'vod_review_id'>[] = []
 
+  // Pre-compute cumulative round start times using actual round durations
   const roundStartTimes: number[] = []
   let cumulativeTime = barrierOffset
   for (const round of rounds) {
@@ -207,7 +215,7 @@ export function generateAutoTags(
   rounds.forEach((round, idx) => {
     const roundStartVideo = roundStartTimes[idx]
 
-    // -- Round marker --
+    // Round start marker
     tags.push({
       timestamp_seconds: Math.round(roundStartVideo),
       round_number: round.round_number,
@@ -217,78 +225,13 @@ export function generateAutoTags(
       is_auto: true,
     })
 
-    // -- Half-switch at round 13 --
+    // Half-switch marker at round 13
     if (round.round_number === 13) {
       tags.push({
         timestamp_seconds: Math.max(0, Math.round(roundStartVideo - 15)),
         round_number: 13,
         tag_type: 'half',
         label: `Side switch → ${round.side === 'attack' ? 'ATTACK' : 'DEFENSE'}`,
-        side: round.side,
-        is_auto: true,
-      })
-    }
-
-    // -- Kill events --
-    const killEvents = round.kill_events || []
-    killEvents.forEach((kill) => {
-      const killTime = roundStartVideo + (kill.kill_time_ms / 1000)
-      tags.push({
-        timestamp_seconds: Math.round(killTime),
-        round_number: round.round_number,
-        tag_type: 'kill',
-        label: `Killed ${kill.victim}${kill.weapon ? ` (${kill.weapon})` : ''}`,
-        side: round.side,
-        is_auto: true,
-      })
-    })
-
-    // -- Death events --
-    const deathEvents = round.death_events || []
-    deathEvents.forEach((death) => {
-      const deathTime = roundStartVideo + (death.kill_time_ms / 1000)
-      tags.push({
-        timestamp_seconds: Math.round(deathTime),
-        round_number: round.round_number,
-        tag_type: 'death',
-        label: `Died to ${death.killer}${death.weapon ? ` (${death.weapon})` : ''}`,
-        side: round.side,
-        is_auto: true,
-      })
-    })
-
-    // -- Multi-kill (3K, 4K, ACE) --
-    if (round.kills >= 3) {
-      const multiLabel = round.kills === 5 ? 'ACE' : round.kills === 4 ? '4K' : '3K'
-      tags.push({
-        timestamp_seconds: Math.round(roundStartVideo + 5),
-        round_number: round.round_number,
-        tag_type: 'strength',
-        label: `${multiLabel} — R${round.round_number}`,
-        side: round.side,
-        is_auto: true,
-      })
-    }
-
-    // -- First blood (early kill) --
-    if (killEvents.length > 0 && killEvents[0].kill_time_ms <= 15000) {
-      tags.push({
-        timestamp_seconds: Math.round(roundStartVideo + (killEvents[0].kill_time_ms / 1000)),
-        round_number: round.round_number,
-        tag_type: 'strength',
-        label: `First Blood on ${killEvents[0].victim}`,
-        side: round.side,
-        is_auto: true,
-      })
-    }
-
-    // -- First death (early death) --
-    if (deathEvents.length > 0 && deathEvents[0].kill_time_ms <= 15000) {
-      tags.push({
-        timestamp_seconds: Math.round(roundStartVideo + (deathEvents[0].kill_time_ms / 1000)),
-        round_number: round.round_number,
-        tag_type: 'mistake',
-        label: `First Death — killed by ${deathEvents[0].killer}`,
         side: round.side,
         is_auto: true,
       })

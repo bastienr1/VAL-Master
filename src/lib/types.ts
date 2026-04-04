@@ -122,6 +122,7 @@ export interface MatchRound {
   score: number
   kill_events: Array<{ kill_time_ms: number; victim: string; weapon: string }>
   death_events: Array<{ kill_time_ms: number; killer: string; weapon: string }>
+  round_duration_ms: number | null
 }
 
 export interface VodComment {
