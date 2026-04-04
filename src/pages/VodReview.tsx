@@ -864,7 +864,7 @@ export default function VodReview() {
               {/* Tag list */}
               {(() => {
                 const visibleTags = showAutoTags
-                  ? tags.filter(t => t.tag_type !== 'round') // hide round markers from list (too noisy), keep kills/deaths/etc
+                  ? tags
                   : tags.filter(t => !t.is_auto)
                 if (visibleTags.length === 0) return null
 
