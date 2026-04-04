@@ -4,9 +4,6 @@ import type { MatchRound, VodTag } from './types'
 const PLAYER_PUUID = 'Ktw12yrP_o4qg3MuvgfH88E68XCbdAZ7b1DmtLm1di65-JdjCSMy8Dwrzg6O5tvV8EO0Ja_OgGs9GA'
 const PLAYER_NAME = 'Jobast'
 const PLAYER_TAG = '9537'
-const BUY_PHASE_DURATION = 30
-const DEFAULT_ROUND_PLAY_TIME = 80
-const POST_ROUND_BUFFER = 7
 
 // Weapon ID to display name mapping (common weapons)
 const WEAPON_NAMES: Record<string, string> = {
@@ -55,7 +52,7 @@ export async function fetchMatchRoundData(matchId: string, userId: string): Prom
     .eq('user_id', userId)
     .order('round_number', { ascending: true })
 
-  if (existing && existing.length > 0 && existing[0].round_duration_ms != null) {
+  if (existing && existing.length > 0 && existing[0].round_start_ms != null) {
     return existing
   }
   if (existing && existing.length > 0) {
@@ -82,17 +79,6 @@ export async function fetchMatchRoundData(matchId: string, userId: string): Prom
     const json = await res.json()
     const matchData = json.data
     if (!matchData?.rounds) return null
-
-    // DEBUG: Log the actual structure of the first round's kill events
-    const firstRound = matchData.rounds[0]
-    const firstPlayerStats = firstRound?.player_stats?.[0]
-    const firstKill = firstPlayerStats?.kill_events?.[0]
-    console.log('DEBUG round data structure:', {
-      roundKeys: firstRound ? Object.keys(firstRound) : 'no round',
-      playerStatsKeys: firstPlayerStats ? Object.keys(firstPlayerStats) : 'no stats',
-      killEventKeys: firstKill ? Object.keys(firstKill) : 'no kills',
-      firstKillFull: firstKill || 'no kill data',
-    })
 
     // Find our player
     const allPlayers = matchData.players?.all_players || []
@@ -160,6 +146,15 @@ export async function fetchMatchRoundData(matchId: string, userId: string): Prom
       ) || []
       const roundDurationMs = allRoundKillTimes.length > 0 ? Math.max(...allRoundKillTimes) : null
 
+      // Absolute game-time of the EARLIEST kill in this round from ANY player
+      // Henrik API may use: kill_time_in_match, game_time, or gameTime
+      const allRoundGameTimes = round.player_stats?.flatMap((ps: any) =>
+        (ps.kill_events || []).map((ke: any) => {
+          return ke.kill_time_in_match || ke.game_time || ke.gameTime || 0
+        }).filter((t: number) => t > 0)
+      ) || []
+      const roundStartMs = allRoundGameTimes.length > 0 ? Math.min(...allRoundGameTimes) : null
+
       return {
         user_id: userId,
         match_id: matchId,
@@ -178,8 +173,16 @@ export async function fetchMatchRoundData(matchId: string, userId: string): Prom
         kill_events: ourKills,
         death_events: ourDeaths,
         round_duration_ms: roundDurationMs,
+        round_start_ms: roundStartMs,
       }
     })
+
+    const r1Start = rounds[0]?.round_start_ms
+    console.log('Round timing:', rounds.map(r => ({
+      r: r.round_number,
+      start_ms: r.round_start_ms,
+      offset_from_r1: r1Start && r.round_start_ms ? Math.round((r.round_start_ms - r1Start) / 1000) + 's' : 'N/A',
+    })))
 
     // Upsert to Supabase
     const { data: inserted, error } = await supabase
@@ -202,31 +205,50 @@ export async function fetchMatchRoundData(matchId: string, userId: string): Prom
 // ==========================================
 // Generate auto-tags from round data
 // ==========================================
-function estimateRoundDuration(round: MatchRound): number {
-  if (round.round_duration_ms && round.round_duration_ms > 0) {
-    return BUY_PHASE_DURATION + (round.round_duration_ms / 1000) + POST_ROUND_BUFFER
-  }
-  return BUY_PHASE_DURATION + DEFAULT_ROUND_PLAY_TIME
-}
-
 export function generateAutoTags(
   rounds: MatchRound[],
   barrierOffset: number,
 ): Omit<VodTag, 'id' | 'created_at' | 'user_id' | 'vod_review_id'>[] {
   const tags: Omit<VodTag, 'id' | 'created_at' | 'user_id' | 'vod_review_id'>[] = []
 
-  // Pre-compute cumulative round start times using actual round durations
+  // Check if we have absolute timing data from the API
+  const r1StartMs = rounds[0]?.round_start_ms
+  const roundsWithTiming = rounds.filter(r => r.round_start_ms != null && r.round_start_ms > 0)
+  const hasAbsoluteTiming = r1StartMs != null && r1StartMs > 0 && roundsWithTiming.length > rounds.length * 0.5
+
+  // Pre-compute round video timestamps
   const roundStartTimes: number[] = []
-  let cumulativeTime = barrierOffset
-  for (const round of rounds) {
-    roundStartTimes.push(cumulativeTime)
-    cumulativeTime += estimateRoundDuration(round)
+
+  if (hasAbsoluteTiming) {
+    // PRECISE: offset each round from R1 using absolute game-time
+    // round_start_ms is the first kill's game-time. The offset between rounds
+    // is exact because each has the same systematic offset from barrier drop.
+    for (const round of rounds) {
+      if (round.round_start_ms != null && round.round_start_ms > 0) {
+        const offsetFromR1Seconds = (round.round_start_ms - r1StartMs!) / 1000
+        roundStartTimes.push(barrierOffset + offsetFromR1Seconds)
+      } else {
+        // No kills in this round — estimate from previous
+        const prev = roundStartTimes.length > 0 ? roundStartTimes[roundStartTimes.length - 1] : barrierOffset
+        roundStartTimes.push(prev + 110)
+      }
+    }
+  } else {
+    // FALLBACK: flat 110s estimate
+    let t = barrierOffset
+    for (const round of rounds) {
+      roundStartTimes.push(t)
+      if (round.round_duration_ms && round.round_duration_ms > 0) {
+        t += 30 + (round.round_duration_ms / 1000) + 7
+      } else {
+        t += 110
+      }
+    }
   }
 
   rounds.forEach((round, idx) => {
     const roundStartVideo = roundStartTimes[idx]
 
-    // Round start marker
     tags.push({
       timestamp_seconds: Math.round(roundStartVideo),
       round_number: round.round_number,
@@ -236,7 +258,6 @@ export function generateAutoTags(
       is_auto: true,
     })
 
-    // Half-switch marker at round 13
     if (round.round_number === 13) {
       tags.push({
         timestamp_seconds: Math.max(0, Math.round(roundStartVideo - 15)),
