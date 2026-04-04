@@ -83,6 +83,17 @@ export async function fetchMatchRoundData(matchId: string, userId: string): Prom
     const matchData = json.data
     if (!matchData?.rounds) return null
 
+    // DEBUG: Log the actual structure of the first round's kill events
+    const firstRound = matchData.rounds[0]
+    const firstPlayerStats = firstRound?.player_stats?.[0]
+    const firstKill = firstPlayerStats?.kill_events?.[0]
+    console.log('DEBUG round data structure:', {
+      roundKeys: firstRound ? Object.keys(firstRound) : 'no round',
+      playerStatsKeys: firstPlayerStats ? Object.keys(firstPlayerStats) : 'no stats',
+      killEventKeys: firstKill ? Object.keys(firstKill) : 'no kills',
+      firstKillFull: firstKill || 'no kill data',
+    })
+
     // Find our player
     const allPlayers = matchData.players?.all_players || []
     let ourPlayer = allPlayers.find((p: any) => p.puuid === PLAYER_PUUID)
