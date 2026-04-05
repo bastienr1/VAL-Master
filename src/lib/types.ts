@@ -133,6 +133,7 @@ export interface VodComment {
   vod_review_id: string
   timestamp_seconds: number
   round_number: number | null
-  content: string
+  tags: string[]
+  free_text: string | null
   is_strength: boolean
 }

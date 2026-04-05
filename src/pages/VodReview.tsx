@@ -2,8 +2,10 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { getMapSplash, getAgentIcon } from '../lib/constants'
-import type { Match, VodReview as VodReviewType, VodTag, MatchRound } from '../lib/types'
+import type { Match, VodReview as VodReviewType, VodTag, MatchRound, VodComment } from '../lib/types'
 import { fetchMatchRoundData, generateAutoTags, saveAutoTags } from '../lib/matchSync'
+import RoundCard from '../components/RoundCard'
+import InlineDebrief from '../components/InlineDebrief'
 import {
   ArrowLeft, Crosshair, Target, Swords, Percent, Play, Pause,
   SkipBack, SkipForward, Link as LinkIcon, Check, Clock, Film,
@@ -139,6 +141,9 @@ export default function VodReview() {
   const [syncing, setSyncing] = useState(false)
   const [showAutoTags, setShowAutoTags] = useState(true)
 
+  // Comments state
+  const [comments, setComments] = useState<VodComment[]>([])
+
   // Data loading
   useEffect(() => {
     async function loadData() {
@@ -198,6 +203,22 @@ export default function VodReview() {
       if (!error && data) setTags(data)
     }
     loadTags()
+  }, [vodReview])
+
+  // Load comments when vod_review is available
+  useEffect(() => {
+    if (!vodReview) return
+
+    async function loadComments() {
+      const { data, error } = await supabase
+        .from('vod_comments')
+        .select('*')
+        .eq('vod_review_id', vodReview!.id)
+        .order('timestamp_seconds', { ascending: true })
+
+      if (!error && data) setComments(data)
+    }
+    loadComments()
   }, [vodReview])
 
   // Load round data when match is available
@@ -462,6 +483,26 @@ export default function VodReview() {
       setSyncing(false)
     }
   }
+
+  // Comment handlers
+  const handleCommentAdded = (comment: VodComment) => {
+    setComments(prev => [...prev, comment].sort((a, b) => a.timestamp_seconds - b.timestamp_seconds))
+  }
+
+  const handleCommentDeleted = (commentId: string) => {
+    setComments(prev => prev.filter(c => c.id !== commentId))
+  }
+
+  // Compute video timestamps for rounds (same logic as generateAutoTags)
+  const getRoundVideoTime = useCallback((round: MatchRound): number => {
+    if (!vodReview?.barrier_drop_offset) return 0
+    const r1StartMs = matchRounds[0]?.round_start_ms
+    if (r1StartMs && round.round_start_ms) {
+      return vodReview.barrier_drop_offset + (round.round_start_ms - r1StartMs) / 1000
+    }
+    // Fallback: estimate from round index
+    return vodReview.barrier_drop_offset + ((round.round_number - 1) * 110)
+  }, [vodReview?.barrier_drop_offset, matchRounds])
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -861,58 +902,143 @@ export default function VodReview() {
                 )
               })()}
 
-              {/* Tag list */}
-              {(() => {
-                const visibleTags = showAutoTags
-                  ? tags
-                  : tags.filter(t => !t.is_auto)
-                if (visibleTags.length === 0) return null
-
-                return (
-                  <div className="bg-bg-card border border-bg-elevated rounded-lg overflow-hidden">
-                    <div className="max-h-60 overflow-y-auto divide-y divide-bg-elevated">
-                      {visibleTags.map(tag => {
-                        const tagMeta = ALL_TAG_COLORS[tag.tag_type]
-                        return (
-                          <div
-                            key={tag.id}
-                            className="flex items-center gap-2 px-3 py-2 hover:bg-bg-elevated/50 cursor-pointer group transition-colors"
-                            onClick={() => seekToTag(tag.timestamp_seconds)}
-                          >
-                            <div
-                              className="w-2 h-2 rounded-full shrink-0"
-                              style={{ backgroundColor: tagMeta?.dotColor || '#64748B' }}
+              {/* Hierarchical Round View */}
+              {vodReview.barrier_drop_offset != null && matchRounds.length > 0 && (
+                <div className="space-y-3">
+                  {/* ATK section */}
+                  {(() => {
+                    const atkRounds = matchRounds.filter(r => r.side === 'attack')
+                    if (atkRounds.length === 0) return null
+                    return (
+                      <div>
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-[10px] font-bold text-val-red uppercase tracking-widest">Attack</span>
+                          <div className="flex-1 h-px bg-val-red/20" />
+                        </div>
+                        <div className="space-y-1">
+                          {atkRounds.map(round => (
+                            <RoundCard
+                              key={round.round_number}
+                              round={round}
+                              roundVideoTime={getRoundVideoTime(round)}
+                              r1StartMs={matchRounds[0]?.round_start_ms}
+                              manualTags={tags.filter(t => !t.is_auto && t.round_number === round.round_number)}
+                              comments={comments.filter(c => c.round_number === round.round_number)}
+                              vodReviewId={vodReview.id}
+                              onSeek={seekToTag}
+                              onCommentAdded={handleCommentAdded}
+                              onCommentDeleted={handleCommentDeleted}
                             />
-                            <span className="font-stats text-[11px] text-val-cyan w-10 shrink-0">
-                              {formatTime(tag.timestamp_seconds)}
-                            </span>
-                            {tag.round_number && (
-                              <span className="text-[9px] text-text-muted w-6 shrink-0">R{tag.round_number}</span>
-                            )}
-                            <span className={`px-1.5 py-0.5 rounded text-[9px] font-medium ${tagMeta?.color}/15 ${tagMeta?.textColor} shrink-0`}>
-                              {tag.tag_type}
-                            </span>
-                            <span className="text-xs text-text-secondary truncate flex-1">
-                              {tag.label}
-                            </span>
-                            {tag.is_auto ? (
-                              <span className="text-[9px] text-text-muted shrink-0">auto</span>
-                            ) : (
-                              <button
-                                onClick={(e) => { e.stopPropagation(); deleteTag(tag.id) }}
-                                className="p-1 text-text-muted hover:text-val-red opacity-0 group-hover:opacity-100 transition-all shrink-0"
-                                title="Delete tag"
-                              >
-                                <Trash2 className="w-3 h-3" />
-                              </button>
-                            )}
+                          ))}
+                        </div>
+                      </div>
+                    )
+                  })()}
+
+                  {/* DEF section */}
+                  {(() => {
+                    const defRounds = matchRounds.filter(r => r.side === 'defense')
+                    if (defRounds.length === 0) return null
+                    return (
+                      <div>
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-[10px] font-bold text-val-cyan uppercase tracking-widest">Defense</span>
+                          <div className="flex-1 h-px bg-val-cyan/20" />
+                        </div>
+                        <div className="space-y-1">
+                          {defRounds.map(round => (
+                            <RoundCard
+                              key={round.round_number}
+                              round={round}
+                              roundVideoTime={getRoundVideoTime(round)}
+                              r1StartMs={matchRounds[0]?.round_start_ms}
+                              manualTags={tags.filter(t => !t.is_auto && t.round_number === round.round_number)}
+                              comments={comments.filter(c => c.round_number === round.round_number)}
+                              vodReviewId={vodReview.id}
+                              onSeek={seekToTag}
+                              onCommentAdded={handleCommentAdded}
+                              onCommentDeleted={handleCommentDeleted}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    )
+                  })()}
+
+                  {/* Unlinked manual tags (tags without a round_number) */}
+                  {(() => {
+                    const unlinkedTags = tags.filter(t => !t.is_auto && !t.round_number)
+                    if (unlinkedTags.length === 0) return null
+                    return (
+                      <div>
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-[10px] font-bold text-text-muted uppercase tracking-widest">General Tags</span>
+                          <div className="flex-1 h-px bg-bg-elevated" />
+                        </div>
+                        <div className="bg-bg-card border border-bg-elevated rounded-lg overflow-hidden">
+                          <div className="divide-y divide-bg-elevated">
+                            {unlinkedTags.map(tag => {
+                              const tagColor = ALL_TAG_COLORS[tag.tag_type]
+                              return (
+                                <div
+                                  key={tag.id}
+                                  className="flex items-center gap-2 px-3 py-2 hover:bg-bg-elevated/50 cursor-pointer group transition-colors"
+                                  onClick={() => seekToTag(tag.timestamp_seconds)}
+                                >
+                                  <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: tagColor?.dotColor || '#64748B' }} />
+                                  <span className="font-stats text-[11px] text-val-cyan w-10 shrink-0">{formatTime(tag.timestamp_seconds)}</span>
+                                  <span className={`px-1.5 py-0.5 rounded text-[9px] font-medium ${tagColor?.color}/15 ${tagColor?.textColor} shrink-0`}>{tag.tag_type}</span>
+                                  <span className="text-xs text-text-secondary truncate flex-1">{tag.label}</span>
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); deleteTag(tag.id) }}
+                                    className="p-1 text-text-muted hover:text-val-red opacity-0 group-hover:opacity-100 transition-all shrink-0"
+                                  >
+                                    <Trash2 className="w-3 h-3" />
+                                  </button>
+                                </div>
+                              )
+                            })}
                           </div>
-                        )
-                      })}
-                    </div>
+                        </div>
+                      </div>
+                    )
+                  })()}
+                </div>
+              )}
+
+              {/* Flat tag list fallback — when no barrier sync yet */}
+              {(vodReview.barrier_drop_offset == null || matchRounds.length === 0) && tags.length > 0 && (
+                <div className="bg-bg-card border border-bg-elevated rounded-lg overflow-hidden">
+                  <div className="max-h-60 overflow-y-auto divide-y divide-bg-elevated">
+                    {(showAutoTags ? tags : tags.filter(t => !t.is_auto)).map(tag => {
+                      const tagMeta = ALL_TAG_COLORS[tag.tag_type]
+                      return (
+                        <div
+                          key={tag.id}
+                          className="flex items-center gap-2 px-3 py-2 hover:bg-bg-elevated/50 cursor-pointer group transition-colors"
+                          onClick={() => seekToTag(tag.timestamp_seconds)}
+                        >
+                          <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: tagMeta?.dotColor || '#64748B' }} />
+                          <span className="font-stats text-[11px] text-val-cyan w-10 shrink-0">{formatTime(tag.timestamp_seconds)}</span>
+                          {tag.round_number && <span className="text-[9px] text-text-muted w-6 shrink-0">R{tag.round_number}</span>}
+                          <span className={`px-1.5 py-0.5 rounded text-[9px] font-medium ${tagMeta?.color}/15 ${tagMeta?.textColor} shrink-0`}>{tag.tag_type}</span>
+                          <span className="text-xs text-text-secondary truncate flex-1">{tag.label}</span>
+                          {tag.is_auto ? (
+                            <span className="text-[9px] text-text-muted shrink-0">auto</span>
+                          ) : (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); deleteTag(tag.id) }}
+                              className="p-1 text-text-muted hover:text-val-red opacity-0 group-hover:opacity-100 transition-all shrink-0"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                          )}
+                        </div>
+                      )
+                    })}
                   </div>
-                )
-              })()}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -958,12 +1084,10 @@ export default function VodReview() {
             </div>
           </div>
 
-          {/* Sprint 4 preview — inline debrief placeholder */}
-          <div className="bg-bg-card border border-dashed border-bg-elevated rounded-lg px-4 py-6 text-center">
-            <p className="text-text-muted text-xs">
-              📝 Inline debrief — Sprint 4. Peak moment, key lesson, themes, quality rating.
-            </p>
-          </div>
+          {/* Inline debrief */}
+          {vodReview && (
+            <InlineDebrief vodReview={vodReview} onUpdate={setVodReview} />
+          )}
         </div>
       </div>
     </div>
