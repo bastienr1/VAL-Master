@@ -9,7 +9,7 @@ import InlineDebrief from '../components/InlineDebrief'
 import {
   ArrowLeft, Crosshair, Target, Swords, Percent, Play, Pause,
   SkipBack, SkipForward, Link as LinkIcon, Check, Clock, Film,
-  Tag, Trash2, Plus, X, Zap
+  Tag, Trash2, Plus, X, Zap, ChevronDown, ChevronRight
 } from 'lucide-react'
 
 // YouTube IFrame API types
@@ -143,6 +143,8 @@ export default function VodReview() {
 
   // Comments state
   const [comments, setComments] = useState<VodComment[]>([])
+  const [atkExpanded, setAtkExpanded] = useState(true)
+  const [defExpanded, setDefExpanded] = useState(true)
 
   // Data loading
   useEffect(() => {
@@ -911,11 +913,16 @@ export default function VodReview() {
                     if (atkRounds.length === 0) return null
                     return (
                       <div>
-                        <div className="flex items-center gap-2 mb-1">
+                        <button
+                          onClick={() => setAtkExpanded(!atkExpanded)}
+                          className="w-full flex items-center gap-2 mb-1 hover:opacity-80 transition-opacity"
+                        >
+                          {atkExpanded ? <ChevronDown className="w-3 h-3 text-val-red" /> : <ChevronRight className="w-3 h-3 text-val-red" />}
                           <span className="text-[10px] font-bold text-val-red uppercase tracking-widest">Attack</span>
+                          <span className="text-[10px] text-text-muted">({atkRounds.length})</span>
                           <div className="flex-1 h-px bg-val-red/20" />
-                        </div>
-                        <div className="space-y-1">
+                        </button>
+                        {atkExpanded && <div className="space-y-1">
                           {atkRounds.map(round => (
                             <RoundCard
                               key={round.round_number}
@@ -930,7 +937,7 @@ export default function VodReview() {
                               onCommentDeleted={handleCommentDeleted}
                             />
                           ))}
-                        </div>
+                        </div>}
                       </div>
                     )
                   })()}
@@ -941,11 +948,16 @@ export default function VodReview() {
                     if (defRounds.length === 0) return null
                     return (
                       <div>
-                        <div className="flex items-center gap-2 mb-1">
+                        <button
+                          onClick={() => setDefExpanded(!defExpanded)}
+                          className="w-full flex items-center gap-2 mb-1 hover:opacity-80 transition-opacity"
+                        >
+                          {defExpanded ? <ChevronDown className="w-3 h-3 text-val-cyan" /> : <ChevronRight className="w-3 h-3 text-val-cyan" />}
                           <span className="text-[10px] font-bold text-val-cyan uppercase tracking-widest">Defense</span>
+                          <span className="text-[10px] text-text-muted">({defRounds.length})</span>
                           <div className="flex-1 h-px bg-val-cyan/20" />
-                        </div>
-                        <div className="space-y-1">
+                        </button>
+                        {defExpanded && <div className="space-y-1">
                           {defRounds.map(round => (
                             <RoundCard
                               key={round.round_number}
@@ -960,7 +972,7 @@ export default function VodReview() {
                               onCommentDeleted={handleCommentDeleted}
                             />
                           ))}
-                        </div>
+                        </div>}
                       </div>
                     )
                   })()}
