@@ -1,8 +1,9 @@
 import { useState } from 'react'
-import type { MatchRound, VodTag, VodComment } from '../lib/types'
+import type { MatchRound, VodTag, VodComment, RoundScreenshot } from '../lib/types'
 import { COMMENT_TAG_CATEGORIES } from '../lib/commentTags'
 import { supabase } from '../lib/supabase'
 import { ChevronDown, ChevronRight, Skull, Crosshair, MessageSquare, Plus, X, Star } from 'lucide-react'
+import RoundScreenshots from './RoundScreenshots'
 
 function formatTime(seconds: number): string {
   const mins = Math.floor(seconds / 60)
@@ -17,16 +18,32 @@ interface RoundCardProps {
   manualTags: VodTag[]
   comments: VodComment[]
   vodReviewId: string
+  matchId: string
+  screenshots: RoundScreenshot[]
   onSeek: (seconds: number) => void
   onCommentAdded: (comment: VodComment) => void
   onCommentDeleted: (commentId: string) => void
+  onScreenshotAdded: (screenshot: RoundScreenshot) => void
+  onScreenshotDeleted: (screenshotId: string) => void
 }
 
 export default function RoundCard({
   round, roundVideoTime, r1StartMs: _r1StartMs, manualTags, comments,
-  vodReviewId, onSeek, onCommentAdded, onCommentDeleted,
+  vodReviewId, matchId, screenshots, onSeek, onCommentAdded, onCommentDeleted,
+  onScreenshotAdded, onScreenshotDeleted,
 }: RoundCardProps) {
   const [expanded, setExpanded] = useState(false)
+  const [pastedFile, setPastedFile] = useState<File | null>(null)
+
+  const handlePaste = (e: React.ClipboardEvent) => {
+    const items = Array.from(e.clipboardData.items)
+    const imageItem = items.find(item => item.type.startsWith('image/'))
+    if (imageItem) {
+      e.preventDefault()
+      const file = imageItem.getAsFile()
+      if (file) setPastedFile(file)
+    }
+  }
   const [commentingOn, setCommentingOn] = useState<number | null>(null) // timestamp_seconds of the kill/round being commented
   const [selectedTags, setSelectedTags] = useState<string[]>([])
   const [freeText, setFreeText] = useState('')
@@ -172,7 +189,7 @@ export default function RoundCard({
 
       {/* Expanded content */}
       {expanded && hasContent && (
-        <div className="border-t border-bg-elevated px-3 py-2 space-y-1">
+        <div className="border-t border-bg-elevated px-3 py-2 space-y-1" onPaste={handlePaste}>
           {/* Kill events */}
           {killEvents.map((kill, i) => {
             const killTs = Math.round(getKillVideoTime(kill.kill_time_ms))
@@ -273,6 +290,17 @@ export default function RoundCard({
               ))}
             </div>
           )}
+
+          {/* Screenshots */}
+          <RoundScreenshots
+            matchId={matchId}
+            roundNumber={round.round_number}
+            screenshots={screenshots}
+            pastedFile={pastedFile}
+            onPasteConsumed={() => setPastedFile(null)}
+            onScreenshotAdded={onScreenshotAdded}
+            onScreenshotDeleted={onScreenshotDeleted}
+          />
 
           {/* Add comment on round level (not on a specific kill) */}
           {commentingOn === null && (

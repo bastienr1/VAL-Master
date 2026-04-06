@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { getMapSplash, getAgentIcon } from '../lib/constants'
-import type { Match, VodReview as VodReviewType, VodTag, MatchRound, VodComment } from '../lib/types'
+import type { Match, VodReview as VodReviewType, VodTag, MatchRound, VodComment, RoundScreenshot } from '../lib/types'
 import { fetchMatchRoundData, generateAutoTags, saveAutoTags } from '../lib/matchSync'
 import RoundCard from '../components/RoundCard'
 import InlineDebrief from '../components/InlineDebrief'
@@ -143,6 +143,7 @@ export default function VodReview() {
 
   // Comments state
   const [comments, setComments] = useState<VodComment[]>([])
+  const [screenshots, setScreenshots] = useState<RoundScreenshot[]>([])
   const [atkExpanded, setAtkExpanded] = useState(true)
   const [defExpanded, setDefExpanded] = useState(true)
 
@@ -222,6 +223,26 @@ export default function VodReview() {
     }
     loadComments()
   }, [vodReview])
+
+  // Load screenshots when match is available
+  useEffect(() => {
+    if (!match?.match_id) return
+
+    async function loadScreenshots() {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+
+      const { data, error } = await supabase
+        .from('round_screenshots')
+        .select('*')
+        .eq('match_id', match!.match_id)
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: true })
+
+      if (!error && data) setScreenshots(data)
+    }
+    loadScreenshots()
+  }, [match])
 
   // Load round data when match is available
   useEffect(() => {
@@ -493,6 +514,14 @@ export default function VodReview() {
 
   const handleCommentDeleted = (commentId: string) => {
     setComments(prev => prev.filter(c => c.id !== commentId))
+  }
+
+  const handleScreenshotAdded = (screenshot: RoundScreenshot) => {
+    setScreenshots(prev => [...prev, screenshot])
+  }
+
+  const handleScreenshotDeleted = (screenshotId: string) => {
+    setScreenshots(prev => prev.filter(s => s.id !== screenshotId))
   }
 
   // Compute video timestamps for rounds (same logic as generateAutoTags)
@@ -927,14 +956,18 @@ export default function VodReview() {
                             <RoundCard
                               key={round.round_number}
                               round={round}
+                              matchId={match.match_id}
                               roundVideoTime={getRoundVideoTime(round)}
                               r1StartMs={matchRounds[0]?.round_start_ms}
                               manualTags={tags.filter(t => !t.is_auto && t.round_number === round.round_number)}
                               comments={comments.filter(c => c.round_number === round.round_number)}
+                              screenshots={screenshots.filter(s => s.round_number === round.round_number)}
                               vodReviewId={vodReview.id}
                               onSeek={seekToTag}
                               onCommentAdded={handleCommentAdded}
                               onCommentDeleted={handleCommentDeleted}
+                              onScreenshotAdded={handleScreenshotAdded}
+                              onScreenshotDeleted={handleScreenshotDeleted}
                             />
                           ))}
                         </div>}
@@ -962,14 +995,18 @@ export default function VodReview() {
                             <RoundCard
                               key={round.round_number}
                               round={round}
+                              matchId={match.match_id}
                               roundVideoTime={getRoundVideoTime(round)}
                               r1StartMs={matchRounds[0]?.round_start_ms}
                               manualTags={tags.filter(t => !t.is_auto && t.round_number === round.round_number)}
                               comments={comments.filter(c => c.round_number === round.round_number)}
+                              screenshots={screenshots.filter(s => s.round_number === round.round_number)}
                               vodReviewId={vodReview.id}
                               onSeek={seekToTag}
                               onCommentAdded={handleCommentAdded}
                               onCommentDeleted={handleCommentDeleted}
+                              onScreenshotAdded={handleScreenshotAdded}
+                              onScreenshotDeleted={handleScreenshotDeleted}
                             />
                           ))}
                         </div>}

@@ -137,3 +137,16 @@ export interface VodComment {
   free_text: string | null
   is_strength: boolean
 }
+
+export interface RoundScreenshot {
+  id: string
+  created_at: string
+  user_id: string
+  match_id: string
+  round_number: number
+  storage_path: string
+  image_url: string
+  file_size: number | null
+  width: number | null
+  height: number | null
+}
