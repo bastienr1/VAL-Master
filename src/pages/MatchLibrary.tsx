@@ -96,7 +96,10 @@ function ActRecapCard({
 
   const wins = matches.filter((m) => m.result === 'W').length
   const losses = matches.filter((m) => m.result === 'L').length
-  const winRate = Math.round((wins / matches.length) * 100)
+  const draws = matches.filter((m) => m.result === 'draw').length
+  // Draws excluded from win-rate denominator
+  const decisive = wins + losses
+  const winRate = decisive > 0 ? Math.round((wins / decisive) * 100) : 0
   const avgAcs = Math.round(matches.reduce((s, m) => s + m.acs, 0) / matches.length)
   const avgKd = (matches.reduce((s, m) => s + m.kd, 0) / matches.length).toFixed(2)
   const avgHs = (matches.reduce((s, m) => s + m.headshot_pct, 0) / matches.length).toFixed(1)
@@ -144,7 +147,7 @@ function ActRecapCard({
         <KpiTile
           label="Win Rate"
           value={`${winRate}%`}
-          sub={`${wins}W ${losses}L`}
+          sub={draws > 0 ? `${wins}W ${losses}L ${draws}D` : `${wins}W ${losses}L`}
           tone={winRate >= 55 ? 'good' : winRate >= 45 ? 'neutral' : 'bad'}
         />
         <KpiTile label="Avg ACS" value={avgAcs.toString()} />
@@ -240,7 +243,7 @@ export default function MatchLibrary() {
   const [matches, setMatches] = useState<Match[]>([])
   const [loading, setLoading] = useState(true)
   const [syncing, setSyncing] = useState(false)
-  const [resultFilter, setResultFilter] = useState<'all' | 'W' | 'L'>('all')
+  const [resultFilter, setResultFilter] = useState<'all' | 'W' | 'L' | 'draw'>('all')
   const [mapFilter, setMapFilter] = useState('all')
   const [agentFilter, setAgentFilter] = useState('all')
   const [showMapDropdown, setShowMapDropdown] = useState(false)
@@ -303,7 +306,10 @@ export default function MatchLibrary() {
 
   const filteredWins = filtered.filter((m) => m.result === 'W').length
   const filteredLosses = filtered.filter((m) => m.result === 'L').length
-  const filteredWinRate = filtered.length > 0 ? Math.round((filteredWins / filtered.length) * 100) : 0
+  const filteredDraws = filtered.filter((m) => m.result === 'draw').length
+  // Draws excluded from win-rate denominator — they're neither a win nor a loss
+  const decisive = filteredWins + filteredLosses
+  const filteredWinRate = decisive > 0 ? Math.round((filteredWins / decisive) * 100) : 0
 
   const playedMaps = [...new Set(matches.map((m) => m.map))].sort()
   const playedAgents = [...new Set(matches.map((m) => m.agent))].sort()
@@ -342,7 +348,9 @@ export default function MatchLibrary() {
             {actFilter !== 'all' && (
               <span className="text-val-cyan font-medium mr-1">{actFilter} ·</span>
             )}
-            {filtered.length} matches &middot; {filteredWins}W {filteredLosses}L &middot; {filteredWinRate}% WR
+            {filtered.length} matches &middot; {filteredWins}W {filteredLosses}L
+            {filteredDraws > 0 && <> {filteredDraws}D</>}
+            {' '}&middot; {filteredWinRate}% WR
           </p>
         </div>
         <button
@@ -382,6 +390,14 @@ export default function MatchLibrary() {
             }`}
           >
             Losses
+          </button>
+          <button
+            onClick={() => setResultFilter('draw')}
+            className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
+              resultFilter === 'draw' ? 'bg-val-yellow/20 text-val-yellow' : 'text-text-secondary hover:text-text-primary'
+            }`}
+          >
+            Draws
           </button>
         </div>
 

@@ -255,11 +255,21 @@ export async function fetchRecentMatches(
     const assists = stats.assists ?? 0
     const totalShots = (stats.headshots ?? 0) + (stats.bodyshots ?? 0) + (stats.legshots ?? 0)
 
-    let result: 'W' | 'L' | 'draw' = 'draw'
-    if (ours.has_won === true) result = 'W'
-    else if (ours.has_won === false) result = 'L'
-    else if (ours.rounds_won > theirs.rounds_won) result = 'W'
-    else if (ours.rounds_won < theirs.rounds_won) result = 'L'
+    // Determine outcome — round score is the source of truth.
+    // `has_won` cannot be trusted on its own because Henrik returns
+    // has_won: false for BOTH teams in a true draw (e.g. 12-12 no OT),
+    // which would misclassify draws as losses.
+    let result: 'W' | 'L' | 'draw'
+    if (ours.rounds_won > theirs.rounds_won) {
+      result = 'W'
+    } else if (ours.rounds_won < theirs.rounds_won) {
+      result = 'L'
+    } else {
+      // Equal round scores → draw (unless API explicitly says we won/lost)
+      if (ours.has_won === true) result = 'W'
+      else if (ours.has_won === false && theirs.has_won === true) result = 'L'
+      else result = 'draw'
+    }
 
     const agentName = getAgentName(ourPlayer)
 
