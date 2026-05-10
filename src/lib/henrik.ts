@@ -3,7 +3,6 @@ import type { Match } from './types'
 const HENRIK_API_KEY = import.meta.env.VITE_HENRIK_API_KEY
 const PLAYER_NAME = 'Jobast'
 const PLAYER_TAG = '9537'
-const PLAYER_PUUID = 'Ktw12yrP_o4qg3MuvgfH88E68XCbdAZ7b1DmtLm1di65-JdjCSMy8Dwrzg6O5tvV8EO0Ja_OgGs9GA'
 const REGION = 'ap'
 
 const AGENT_ROLES: Record<string, string> = {
@@ -55,34 +54,13 @@ function normalizePlayers(match: any): any[] {
   return []
 }
 
-type SkipReason = 'anonymized' | 'not_found' | null
-
-function findOurPlayer(players: any[]): { player: any | null; reason: SkipReason } {
-  if (!players || players.length === 0) {
-    return { player: null, reason: 'not_found' }
-  }
-
-  // Detect Riot privacy window: all names empty (Riot anonymizes recent matches)
-  const allAnonymized = players.every(
-    (p: any) => !p?.name || p.name === ''
-  )
-  if (allAnonymized) {
-    return { player: null, reason: 'anonymized' }
-  }
-
-  // Prefer PUUID match — most reliable across name changes
-  let p = players.find((pl: any) => pl?.puuid === PLAYER_PUUID)
-  if (p) return { player: p, reason: null }
-
-  // Fallback: name#tag
-  p = players.find(
-    (pl: any) =>
-      pl?.name?.toLowerCase() === PLAYER_NAME.toLowerCase() &&
-      pl?.tag === PLAYER_TAG
-  )
-  if (p) return { player: p, reason: null }
-
-  return { player: null, reason: 'not_found' }
+function findOurPlayer(players: any[]): any | null {
+  if (!players || players.length === 0) return null
+  return players.find(
+    (p: any) =>
+      p?.name?.toLowerCase() === PLAYER_NAME.toLowerCase() &&
+      p?.tag === PLAYER_TAG
+  ) ?? null
 }
 
 function getAgentName(player: any): string {
@@ -218,30 +196,21 @@ export async function fetchRecentMatches(
   }
 
   const results: HenrikMatchResult[] = []
-  let anonymizedSkips = 0
   let parseFailures = 0
 
   for (const match of matches) {
     const metadata = match?.metadata ?? {}
     const players = normalizePlayers(match)
-    const { player: ourPlayer, reason } = findOurPlayer(players)
+    const ourPlayer = findOurPlayer(players)
 
     if (!ourPlayer) {
+      parseFailures++
       const matchId = metadata?.match_id || metadata?.matchid || 'unknown'
       const matchTime = metadata?.started_at || metadata?.game_start_patched || 'unknown'
-
-      if (reason === 'anonymized') {
-        anonymizedSkips++
-        console.info(
-          `[henrik] Match ${matchId.substring(0, 8)} (${matchTime}) skipped — Riot privacy window. Will retry on next sync.`
-        )
-      } else {
-        parseFailures++
-        console.warn(
-          `[henrik] Match ${matchId.substring(0, 8)} skipped — player not found. Sample player keys:`,
-          players[0] ? Object.keys(players[0]) : 'NO PLAYERS'
-        )
-      }
+      console.warn(
+        `[henrik] Match ${String(matchId).substring(0, 8)} (${matchTime}) skipped — couldn't find ${PLAYER_NAME}#${PLAYER_TAG}. ` +
+        `Players found: ${players.slice(0, 3).map((p: any) => `${p.name}#${p.tag}`).join(', ')}${players.length > 3 ? '...' : ''}`
+      )
       continue
     }
 
@@ -312,12 +281,8 @@ export async function fetchRecentMatches(
       `[henrik] All ${parseFailures} matches failed to parse — likely schema change. ` +
       `Sample player keys: ${JSON.stringify(Object.keys(matches[0]?.players ?? matches[0] ?? {}))}`
     )
-  } else if (parseFailures > 0 || anonymizedSkips > 0) {
-    console.info(
-      `[henrik] Sync complete: ${saved}/${total} saved` +
-      (anonymizedSkips > 0 ? ` · ${anonymizedSkips} anonymized (will retry)` : '') +
-      (parseFailures > 0 ? ` · ${parseFailures} parse failures` : '')
-    )
+  } else if (parseFailures > 0) {
+    console.info(`[henrik] Sync complete: ${saved}/${total} saved · ${parseFailures} skipped`)
   }
 
   return results
