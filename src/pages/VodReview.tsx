@@ -1,13 +1,14 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import { getMapSplash, getAgentIcon } from '../lib/constants'
 import type { Match, VodReview as VodReviewType, VodTag, MatchRound, VodComment, RoundScreenshot } from '../lib/types'
 import { fetchMatchRoundData, generateAutoTags, saveAutoTags } from '../lib/matchSync'
 import RoundCard from '../components/RoundCard'
 import InlineDebrief from '../components/InlineDebrief'
+import MatchRecapHeader from '../components/MatchRecapHeader'
+import { useSplitter, SplitterHandle } from '../components/ColumnSplitter'
 import {
-  ArrowLeft, Crosshair, Target, Swords, Percent, Play, Pause,
+  ArrowLeft, Play, Pause,
   SkipBack, SkipForward, Link as LinkIcon, Check, Clock, Film,
   Tag, Trash2, Plus, X, Zap, ChevronDown, ChevronRight
 } from 'lucide-react'
@@ -67,16 +68,6 @@ function formatTime(seconds: number): string {
   const mins = Math.floor(seconds / 60)
   const secs = Math.floor(seconds % 60)
   return `${mins}:${secs.toString().padStart(2, '0')}`
-}
-
-function StatRow({ icon: Icon, label, value }: { icon: React.ElementType; label: string; value: string | number }) {
-  return (
-    <div className="flex items-center gap-1.5">
-      <Icon className="w-3 h-3 text-text-muted" />
-      <span className="text-[10px] text-text-muted uppercase w-8">{label}</span>
-      <span className="text-xs font-stats font-medium text-text-primary">{value}</span>
-    </div>
-  )
 }
 
 const MANUAL_TAG_TYPES = [
@@ -573,6 +564,14 @@ export default function VodReview() {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [togglePlay, seek, isTagging, startTagging, cancelTagging])
 
+  // Resizable notes panel (right column)
+  const { width: notesPanelWidth, dragHandlers } = useSplitter({
+    initialWidth: 320,
+    minWidth: 240,
+    maxWidth: 480,
+    storageKey: 'vodReview.notesPanelWidth',
+  })
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -593,25 +592,34 @@ export default function VodReview() {
     )
   }
 
-  const resultColor = match.result === 'W' ? 'val-green' : match.result === 'L' ? 'val-red' : 'val-yellow'
-  const resultLabel = match.result === 'W' ? 'VICTORY' : match.result === 'L' ? 'DEFEAT' : 'DRAW'
-  const date = new Date(match.match_date)
-  const dateStr = date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
-  const timeStr = date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+  const notedRoundCount = new Set(comments.map(c => c.round_number).filter((n): n is number => n != null)).size
 
   return (
     <div className="space-y-4">
-      {/* Back link */}
-      <Link to="/" className="inline-flex items-center gap-1 text-text-secondary hover:text-val-cyan transition-colors text-sm">
-        <ArrowLeft className="w-4 h-4" />
-        Back to Matches
-      </Link>
+      {/* Breadcrumb */}
+      <div className="flex items-center gap-2 px-1 mb-2">
+        <Link to="/" className="text-text-secondary hover:text-val-cyan transition-colors text-xs">
+          Matches
+        </Link>
+        <span className="text-text-muted text-xs">/</span>
+        <span className="text-text-primary text-xs font-medium">
+          {match.agent} on {match.map} · {match.score} {match.result}
+        </span>
+        <span className="ml-auto text-text-muted text-xs">
+          {matchRounds.length > 0
+            ? `${notedRoundCount}/${matchRounds.length} rounds noted`
+            : `${notedRoundCount} rounds noted`}
+        </span>
+      </div>
 
-      {/* Two-panel layout */}
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-4">
+      {/* Match recap header */}
+      <MatchRecapHeader match={match} />
+
+      {/* Two-panel layout (flex + splitter) */}
+      <div className="flex gap-4">
 
         {/* === LEFT PANEL: Video + Controls === */}
-        <div className="space-y-3">
+        <div className="flex-1 min-w-0 space-y-3">
 
           {/* YouTube Player OR URL Input */}
           {videoId ? (
@@ -1092,48 +1100,10 @@ export default function VodReview() {
           )}
         </div>
 
-        {/* === RIGHT PANEL: Match Context === */}
-        <div className="space-y-3">
+        <SplitterHandle {...dragHandlers} />
 
-          {/* Match context card */}
-          <div className="bg-bg-card border border-bg-elevated rounded-xl overflow-hidden">
-            <div className="relative h-28">
-              <img
-                src={getMapSplash(match.map)}
-                alt={match.map}
-                className="absolute inset-0 w-full h-full object-cover opacity-30"
-              />
-              <div className="absolute inset-0 bg-gradient-to-t from-bg-card to-transparent" />
-
-              <div className="absolute bottom-2 left-3 flex items-center gap-2">
-                <img
-                  src={getAgentIcon(match.agent)}
-                  alt={match.agent}
-                  className="w-10 h-10 rounded-full border-2 border-bg-card"
-                />
-                <div>
-                  <h2 className="text-sm font-heading font-bold leading-tight">{match.agent} on {match.map}</h2>
-                  <p className="text-[10px] text-text-muted">{dateStr} · {timeStr}</p>
-                </div>
-              </div>
-
-              <div className="absolute bottom-2 right-3 text-right">
-                <div className={`text-xl font-stats font-bold text-${resultColor}`}>{match.score}</div>
-                <div className={`text-[10px] font-bold text-${resultColor}`}>{resultLabel}</div>
-              </div>
-            </div>
-
-            <div className="px-3 py-3 border-t border-bg-elevated grid grid-cols-2 gap-y-2 gap-x-4">
-              <StatRow icon={Target} label="ACS" value={match.acs} />
-              <StatRow icon={Crosshair} label="K/D" value={match.kd} />
-              <StatRow icon={Swords} label="KDA" value={`${match.kills}/${match.deaths}/${match.assists}`} />
-              <StatRow icon={Percent} label="HS%" value={`${match.headshot_pct}%`} />
-              <StatRow icon={Crosshair} label="KPR" value={match.kpr} />
-              <StatRow icon={Target} label="DPR" value={match.dpr} />
-            </div>
-          </div>
-
-          {/* Inline debrief */}
+        {/* === RIGHT PANEL: Inline Debrief (recap header moved up) === */}
+        <div style={{ width: notesPanelWidth, flexShrink: 0 }} className="space-y-3">
           {vodReview && (
             <InlineDebrief vodReview={vodReview} onUpdate={setVodReview} />
           )}

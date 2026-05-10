@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, NavLink } from 'react-router-dom'
+import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import CheckIn from './pages/CheckIn'
 import Debrief from './pages/Debrief'
 import TacticalReads from './pages/TacticalReads'
@@ -6,7 +6,8 @@ import Dashboard from './pages/Dashboard'
 import MatchLibrary from './pages/MatchLibrary'
 import VodReview from './pages/VodReview'
 import Login from './pages/Login'
-import { useSession, signOut } from './lib/auth'
+import AppShell from './components/AppShell'
+import { useSession } from './lib/auth'
 
 function App() {
   const { user, loading } = useSession()
@@ -25,40 +26,17 @@ function App() {
 
   return (
     <BrowserRouter>
-      <div className="min-h-screen bg-bg-primary text-text-primary">
-        <nav className="border-b border-bg-elevated bg-bg-secondary/80 backdrop-blur-sm sticky top-0 z-50">
-          <div className="max-w-7xl mx-auto px-4 flex items-center h-14 gap-6">
-            <span className="font-heading text-xl font-bold tracking-wide text-val-red">
-              VAL MASTER
-            </span>
-            <div className="flex gap-4 text-sm font-medium">
-              <NavLink to="/" end className={({ isActive }) =>
-                isActive ? 'text-val-cyan' : 'text-text-secondary hover:text-text-primary transition-colors'
-              }>Matches</NavLink>
-              <NavLink to="/analytics" className={({ isActive }) =>
-                isActive ? 'text-val-cyan' : 'text-text-secondary hover:text-text-primary transition-colors'
-              }>Analytics</NavLink>
-            </div>
-            <button
-              onClick={() => signOut()}
-              className="ml-auto text-xs text-val-red font-medium hover:text-val-red/80 transition-colors"
-            >
-              Sign Out
-            </button>
-          </div>
-        </nav>
-        <main className="max-w-7xl mx-auto px-4 py-6">
-          <Routes>
-            <Route path="/" element={<MatchLibrary />} />
-            <Route path="/review/:matchId" element={<VodReview />} />
-            <Route path="/analytics" element={<Dashboard />} />
-            {/* Preserved legacy routes — accessible via direct URL */}
-            <Route path="/checkin" element={<CheckIn />} />
-            <Route path="/tactical" element={<TacticalReads />} />
-            <Route path="/debrief" element={<Debrief />} />
-          </Routes>
-        </main>
-      </div>
+      <AppShell>
+        <Routes>
+          <Route path="/" element={<MatchLibrary />} />
+          <Route path="/review/:matchId" element={<VodReview />} />
+          <Route path="/analytics" element={<Dashboard />} />
+          {/* Preserved legacy routes — accessible via direct URL */}
+          <Route path="/checkin" element={<CheckIn />} />
+          <Route path="/tactical" element={<TacticalReads />} />
+          <Route path="/debrief" element={<Debrief />} />
+        </Routes>
+      </AppShell>
     </BrowserRouter>
   )
 }
