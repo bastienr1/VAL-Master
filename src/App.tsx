@@ -6,6 +6,7 @@ import Dashboard from './pages/Dashboard'
 import MatchLibrary from './pages/MatchLibrary'
 import VodReview from './pages/VodReview'
 import Login from './pages/Login'
+import Settings from './pages/Settings'
 import AppShell from './components/AppShell'
 import { useSession } from './lib/auth'
 
@@ -29,6 +30,7 @@ function App() {
       <AppShell>
         <Routes>
           <Route path="/" element={<MatchLibrary />} />
+          <Route path="/settings" element={<Settings />} />
           <Route path="/review/:matchId" element={<VodReview />} />
           <Route path="/analytics" element={<Dashboard />} />
           {/* Preserved legacy routes — accessible via direct URL */}

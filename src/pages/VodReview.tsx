@@ -3,6 +3,7 @@ import { useParams, Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import type { Match, VodReview as VodReviewType, VodTag, MatchRound, VodComment, RoundScreenshot } from '../lib/types'
 import { fetchMatchRoundData, generateAutoTags, saveAutoTags } from '../lib/matchSync'
+import { useProfile, profileToPlayer } from '../lib/profile'
 import InlineDebrief from '../components/InlineDebrief'
 import MatchRecapHeader from '../components/MatchRecapHeader'
 import MatchTimeline from '../components/MatchTimeline'
@@ -75,6 +76,7 @@ function formatTime(seconds: number): string {
 
 export default function VodReview() {
   const { matchId } = useParams<{ matchId: string }>()
+  const { profile } = useProfile()
   const [match, setMatch] = useState<Match | null>(null)
   const [vodReview, setVodReview] = useState<VodReviewType | null>(null)
   const [loading, setLoading] = useState(true)
@@ -212,14 +214,19 @@ export default function VodReview() {
     async function loadRounds() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
+      const player = profileToPlayer(profile)
+      if (!player) {
+        setRoundsLoading(false)
+        return
+      }
 
       setRoundsLoading(true)
-      const rounds = await fetchMatchRoundData(match!.match_id, user.id)
+      const rounds = await fetchMatchRoundData(match!.match_id, user.id, player)
       if (rounds) setMatchRounds(rounds)
       setRoundsLoading(false)
     }
     loadRounds()
-  }, [match])
+  }, [match, profile])
 
   // YouTube IFrame API loader
   useEffect(() => {

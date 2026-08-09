@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
-import { List, BarChart3, Tag, LogOut } from 'lucide-react'
+import { List, BarChart3, Tag, LogOut, Settings as SettingsIcon } from 'lucide-react'
 import { signOut } from '../lib/auth'
 import MatchSearchPanel from './MatchSearchPanel'
 
@@ -56,6 +56,9 @@ export default function AppShell({ children }: AppShellProps) {
           </NavLink>
           <NavLink to="/analytics" className={railLinkClass} title="Analytics">
             <BarChart3 className="w-4 h-4" />
+          </NavLink>
+          <NavLink to="/settings" className={railLinkClass} title="Settings">
+            <SettingsIcon className="w-4 h-4" />
           </NavLink>
           <div
             className="w-8 h-8 rounded-md flex items-center justify-center text-text-muted opacity-30 cursor-not-allowed"

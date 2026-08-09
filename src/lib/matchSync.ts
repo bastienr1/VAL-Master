@@ -1,9 +1,6 @@
 import { supabase } from './supabase'
 import type { MatchRound, VodTag } from './types'
-
-const PLAYER_PUUID = 'Ktw12yrP_o4qg3MuvgfH88E68XCbdAZ7b1DmtLm1di65-JdjCSMy8Dwrzg6O5tvV8EO0Ja_OgGs9GA'
-const PLAYER_NAME = 'Jobast'
-const PLAYER_TAG = '9537'
+import type { PlayerConfig } from './profile'
 
 // Weapon ID to display name mapping (common weapons)
 const WEAPON_NAMES: Record<string, string> = {
@@ -100,7 +97,7 @@ function resolveSideForRound(
 // ==========================================
 // Fetch round data from Henrik API
 // ==========================================
-export async function fetchMatchRoundData(matchId: string, userId: string): Promise<MatchRound[] | null> {
+export async function fetchMatchRoundData(matchId: string, userId: string, player: PlayerConfig): Promise<MatchRound[] | null> {
   // Check if we already have round data stored
   const { data: existing } = await supabase
     .from('match_rounds')
@@ -139,11 +136,13 @@ export async function fetchMatchRoundData(matchId: string, userId: string): Prom
 
     // Find our player
     const allPlayers = matchData.players?.all_players || []
-    let ourPlayer = allPlayers.find((p: any) => p.puuid === PLAYER_PUUID)
+    let ourPlayer = player.puuid
+      ? allPlayers.find((p: any) => p.puuid === player.puuid)
+      : undefined
     if (!ourPlayer) {
       // Fallback: match by Riot ID name#tag
       ourPlayer = allPlayers.find((p: any) =>
-        p.name?.toLowerCase() === PLAYER_NAME.toLowerCase() && p.tag === PLAYER_TAG
+        p.name?.toLowerCase() === player.name.toLowerCase() && p.tag === player.tag
       )
     }
     if (!ourPlayer) {

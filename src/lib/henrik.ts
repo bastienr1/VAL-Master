@@ -1,9 +1,7 @@
 import type { Match } from './types'
+import type { PlayerConfig } from './profile'
 
 const HENRIK_API_KEY = import.meta.env.VITE_HENRIK_API_KEY
-const PLAYER_NAME = 'Jobast'
-const PLAYER_TAG = '9537'
-const REGION = 'ap'
 
 const AGENT_ROLES: Record<string, string> = {
   Jett: 'Duelist', Reyna: 'Duelist', Raze: 'Duelist', Phoenix: 'Duelist',
@@ -54,12 +52,16 @@ function normalizePlayers(match: any): any[] {
   return []
 }
 
-function findOurPlayer(players: any[]): any | null {
+function findOurPlayer(players: any[], player: PlayerConfig): any | null {
   if (!players || players.length === 0) return null
+  if (player.puuid) {
+    const byPuuid = players.find((p: any) => p?.puuid === player.puuid)
+    if (byPuuid) return byPuuid
+  }
   return players.find(
     (p: any) =>
-      p?.name?.toLowerCase() === PLAYER_NAME.toLowerCase() &&
-      p?.tag === PLAYER_TAG
+      p?.name?.toLowerCase() === player.name.toLowerCase() &&
+      p?.tag === player.tag,
   ) ?? null
 }
 
@@ -175,12 +177,13 @@ function getMatchMode(metadata: any, fallback: string): string {
 // ──────────────────────────────────────────────────────────────────────────
 
 export async function fetchRecentMatches(
+  player: PlayerConfig,
   size: number = 5,
   mode: string = 'competitive'
 ): Promise<HenrikMatchResult[]> {
   // v3 size cap is 10 — clamp defensively
   const safeSize = Math.min(Math.max(size, 1), 10)
-  const url = `https://api.henrikdev.xyz/valorant/v3/matches/${REGION}/${PLAYER_NAME}/${PLAYER_TAG}?mode=${mode}&size=${safeSize}&api_key=${HENRIK_API_KEY}`
+  const url = `https://api.henrikdev.xyz/valorant/v3/matches/${player.region}/${encodeURIComponent(player.name)}/${encodeURIComponent(player.tag)}?mode=${mode}&size=${safeSize}&api_key=${HENRIK_API_KEY}`
 
   const res = await fetch(url)
   if (!res.ok) {
@@ -201,14 +204,14 @@ export async function fetchRecentMatches(
   for (const match of matches) {
     const metadata = match?.metadata ?? {}
     const players = normalizePlayers(match)
-    const ourPlayer = findOurPlayer(players)
+    const ourPlayer = findOurPlayer(players, player)
 
     if (!ourPlayer) {
       parseFailures++
       const matchId = metadata?.match_id || metadata?.matchid || 'unknown'
       const matchTime = metadata?.started_at || metadata?.game_start_patched || 'unknown'
       console.warn(
-        `[henrik] Match ${String(matchId).substring(0, 8)} (${matchTime}) skipped — couldn't find ${PLAYER_NAME}#${PLAYER_TAG}. ` +
+        `[henrik] Match ${String(matchId).substring(0, 8)} (${matchTime}) skipped — couldn't find ${player.name}#${player.tag}. ` +
         `Players found: ${players.slice(0, 3).map((p: any) => `${p.name}#${p.tag}`).join(', ')}${players.length > 3 ? '...' : ''}`
       )
       continue
@@ -288,7 +291,7 @@ export async function fetchRecentMatches(
   return results
 }
 
-export async function fetchLastMatch(): Promise<HenrikMatchResult | null> {
-  const matches = await fetchRecentMatches(1, 'competitive')
+export async function fetchLastMatch(player: PlayerConfig): Promise<HenrikMatchResult | null> {
+  const matches = await fetchRecentMatches(player, 1, 'competitive')
   return matches[0] ?? null
 }

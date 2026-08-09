@@ -4,6 +4,7 @@ import { ChevronRight, ChevronLeft, BarChart3, MessageSquare, Star, Loader2, Dow
 import { fetchLastMatch } from '../lib/henrik'
 import { supabase } from '../lib/supabase'
 import { useSession } from '../lib/auth'
+import { useProfile, profileToPlayer } from '../lib/profile'
 import { AGENTS, MAPS } from '../lib/constants'
 
 type Result = 'win' | 'loss' | 'draw'
@@ -23,6 +24,7 @@ const CHECKIN_ID_KEY = 'val-master-last-checkin-id'
 export default function Debrief() {
   const navigate = useNavigate()
   const { user } = useSession()
+  const { profile } = useProfile()
   const [step, setStep] = useState(0)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -65,7 +67,13 @@ export default function Debrief() {
     setLoadingMatch(true)
     setMatchError(null)
     try {
-      const data = await fetchLastMatch()
+      const player = profileToPlayer(profile)
+      if (!player) {
+        setMatchError('Set your Riot ID in Settings to load your last match.')
+        setLoadingMatch(false)
+        return
+      }
+      const data = await fetchLastMatch(player)
       if (!data) {
         setMatchError('No recent competitive match found. You can fill in the details manually.')
         setLoadingMatch(false)
