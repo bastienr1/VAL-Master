@@ -106,3 +106,6 @@ export const MAPS: string[] = [
   'Abyss', 'Ascent', 'Bind', 'Breeze', 'Fracture', 'Haven',
   'Icebox', 'Lotus', 'Pearl', 'Split', 'Sunset', 'Corrode',
 ]
+
+// tracker.gg match reports are keyed by the Riot match UUID alone — no region segment.
+export const TRN_MATCH_BASE = 'https://tracker.gg/valorant/match'
