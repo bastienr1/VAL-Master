@@ -6,7 +6,6 @@ import { fetchMatchRoundData, generateAutoTags, saveAutoTags } from '../lib/matc
 import { useProfile, profileToPlayer } from '../lib/profile'
 import InlineDebrief from '../components/InlineDebrief'
 import MatchRecapHeader from '../components/MatchRecapHeader'
-import TrnMatchCard from '../components/TrnMatchCard'
 import MatchTimeline from '../components/MatchTimeline'
 import CapturePanel from '../components/CapturePanel'
 import NotesPanel from '../components/NotesPanel'
@@ -518,18 +517,8 @@ export default function VodReview() {
         </span>
       </div>
 
-      {/* Match recap header */}
+      {/* Match recap header — carries the tracker.gg report link */}
       <MatchRecapHeader match={match} />
-
-      {/* tracker.gg report card — link derived from the stored Riot match id */}
-      <TrnMatchCard
-        match={match}
-        playerId={
-          profile.riot_name && profile.riot_tag
-            ? `${profile.riot_name}#${profile.riot_tag}`
-            : undefined
-        }
-      />
 
       {/* Two-panel layout (flex + splitter) */}
       <div className="flex gap-4">

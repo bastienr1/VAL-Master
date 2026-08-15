@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Target, Crosshair, Swords, Percent, ChevronUp, ChevronDown } from 'lucide-react'
 import { getMapSplash, getAgentIcon } from '../lib/constants'
+import TrnReportLink from './TrnReportLink'
 import type { Match } from '../lib/types'
 
 interface MatchRecapHeaderProps {
@@ -65,13 +66,16 @@ export default function MatchRecapHeader({ match }: MatchRecapHeaderProps) {
           <span className={`font-stats ${resultColor}`}>{match.score}</span>
           <span className="text-text-muted">·</span>
           <span className={`font-bold tracking-widest text-[10px] ${resultColor}`}>{resultLabel}</span>
-          <button
-            onClick={() => setMode('expanded')}
-            className="ml-auto p-1 text-text-muted hover:text-val-cyan transition-colors"
-            title="Expand recap"
-          >
-            <ChevronDown className="w-3.5 h-3.5" />
-          </button>
+          <div className="ml-auto flex items-center gap-2">
+            <TrnReportLink matchId={match.match_id} variant="compact" />
+            <button
+              onClick={() => setMode('expanded')}
+              className="p-1 text-text-muted hover:text-val-cyan transition-colors"
+              title="Expand recap"
+            >
+              <ChevronDown className="w-3.5 h-3.5" />
+            </button>
+          </div>
         </div>
       </div>
     )
@@ -113,12 +117,14 @@ export default function MatchRecapHeader({ match }: MatchRecapHeaderProps) {
           <StatCell icon={Target} label="DPR" value={match.dpr} />
         </div>
 
-        {/* RIGHT — score + result */}
-        <div className="flex items-center gap-3 pl-4 border-l border-bg-elevated">
+        {/* RIGHT — score + result, TRN report link beneath */}
+        {/* pr-7 keeps the score clear of the absolutely-positioned collapse button */}
+        <div className="flex flex-col items-end justify-center gap-2 pl-4 pr-7 border-l border-bg-elevated">
           <div className="text-right">
             <div className={`font-stats text-2xl font-medium ${resultColor}`}>{match.score}</div>
             <div className={`text-[10px] font-bold tracking-widest ${resultColor}`}>{resultLabel}</div>
           </div>
+          <TrnReportLink matchId={match.match_id} />
         </div>
       </div>
 
