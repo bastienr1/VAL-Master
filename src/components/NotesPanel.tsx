@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react'
-import { Filter, FilterX, ChevronDown, ChevronRight, Trash2, Crosshair, Skull } from 'lucide-react'
+import { Filter, FilterX, ChevronDown, ChevronRight, Trash2, Pencil, Crosshair, Skull } from 'lucide-react'
+import NoteMarkdown from './NoteMarkdown'
 import { supabase } from '../lib/supabase'
 import type { MatchRound, VodComment, VodTag, RoundScreenshot } from '../lib/types'
 import {
@@ -18,9 +19,12 @@ interface NotesPanelProps {
   activeRound: number | null
   vodReviewId: string
   barrierOffset: number | null
+  /** Note currently loaded in the editor — dimmed in the list. */
+  editingCommentId: string | null
   onSeek: (seconds: number) => void
   onCommentDeleted: (commentId: string) => void
   onCommentAdded: (comment: VodComment) => void
+  onCommentEdit: (comment: VodComment) => void
   onLegacyTagConverted: (tagId: string) => void
 }
 
@@ -43,16 +47,24 @@ function findPrimaryTag(tags: string[]): { type: string; label: string; dotColor
 interface NoteCardProps {
   comment: VodComment
   screenshot: RoundScreenshot | undefined
+  isEditing: boolean
   onSeek: (seconds: number) => void
+  onEdit: () => void
   onDelete: () => void
 }
 
-function NoteCard({ comment, screenshot, onSeek, onDelete }: NoteCardProps) {
+function NoteCard({ comment, screenshot, isEditing, onSeek, onEdit, onDelete }: NoteCardProps) {
   const primary = findPrimaryTag(comment.tags || [])
   const detailTags = (comment.tags || []).filter(t => !PRIMARY_TAG_TYPE_NAMES.has(t))
 
   return (
-    <div className="group rounded-lg p-2 hover:bg-bg-elevated/20 transition-colors relative">
+    <div
+      className={`group rounded-lg p-2 transition-colors relative ${
+        isEditing
+          ? 'opacity-50 border border-val-yellow/40 bg-val-yellow/5'
+          : 'hover:bg-bg-elevated/20'
+      }`}
+    >
       {/* Header */}
       <div className="flex items-center gap-2 mb-1">
         <button
@@ -74,22 +86,28 @@ function NoteCard({ comment, screenshot, onSeek, onDelete }: NoteCardProps) {
             {primary.label}
           </span>
         )}
-        <button
-          type="button"
-          onClick={onDelete}
-          className="ml-auto p-1 text-text-muted hover:text-val-red opacity-0 group-hover:opacity-100 transition-all"
-          title="Delete note"
-        >
-          <Trash2 className="w-3 h-3" />
-        </button>
+        <div className="ml-auto flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-all">
+          <button
+            type="button"
+            onClick={onEdit}
+            className="p-1 text-text-muted hover:text-val-cyan transition-colors"
+            title="Edit note"
+          >
+            <Pencil className="w-3 h-3" />
+          </button>
+          <button
+            type="button"
+            onClick={onDelete}
+            className="p-1 text-text-muted hover:text-val-red transition-colors"
+            title="Delete note"
+          >
+            <Trash2 className="w-3 h-3" />
+          </button>
+        </div>
       </div>
 
-      {/* Body text */}
-      {comment.free_text && (
-        <p className="text-text-primary text-[13px] font-normal leading-relaxed">
-          {comment.free_text}
-        </p>
-      )}
+      {/* Body — markdown source rendered */}
+      {comment.free_text && <NoteMarkdown>{comment.free_text}</NoteMarkdown>}
 
       {/* Screenshot + detail tags */}
       {(screenshot || detailTags.length > 0) && (
@@ -128,9 +146,11 @@ export default function NotesPanel({
   activeRound,
   vodReviewId,
   barrierOffset,
+  editingCommentId,
   onSeek,
   onCommentDeleted,
   onCommentAdded,
+  onCommentEdit,
   onLegacyTagConverted,
 }: NotesPanelProps) {
   const [showAllNotes, setShowAllNotes] = useState(false)
@@ -235,7 +255,9 @@ export default function NotesPanel({
                 <NoteCard
                   comment={c}
                   screenshot={screenshot}
+                  isEditing={editingCommentId === c.id}
                   onSeek={onSeek}
+                  onEdit={() => onCommentEdit(c)}
                   onDelete={() => handleDelete(c.id)}
                 />
               </div>

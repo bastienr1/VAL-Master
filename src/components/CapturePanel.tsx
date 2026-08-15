@@ -1,15 +1,19 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
-import { ChevronDown, ChevronRight, Camera } from 'lucide-react'
+import { ChevronDown, ChevronRight, Camera, Pencil } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import type { MatchRound, VodComment, RoundScreenshot } from '../lib/types'
 import {
   PRIMARY_TAG_TYPES,
   SECONDARY_TAG_TYPES,
+  PRIMARY_TAG_TYPE_NAMES,
+  SECONDARY_TAG_TYPE_NAMES,
   hexWithAlpha,
 } from '../lib/tagColors'
 import { COMMENT_TAG_CATEGORIES } from '../lib/commentTags'
 import { resolveRoundFromTimestamp } from '../lib/roundResolver'
 import RoundScreenshots from './RoundScreenshots'
+import MarkdownToolbar from './MarkdownToolbar'
+import { applyAction } from '../lib/markdown'
 
 interface CapturePanelProps {
   vodReviewId: string
@@ -19,8 +23,11 @@ interface CapturePanelProps {
   currentTime: number
   isPaused: boolean
   isOpen: boolean
+  /** When set, the panel edits this note instead of creating a new one. */
+  editingComment?: VodComment | null
   onClose: () => void
   onCommentAdded: (comment: VodComment) => void
+  onCommentUpdated: (comment: VodComment) => void
   onScreenshotAdded: (screenshot: RoundScreenshot) => void
   onScreenshotDeleted: (screenshotId: string) => void
   screenshots: RoundScreenshot[]
@@ -70,8 +77,10 @@ export default function CapturePanel({
   currentTime,
   isPaused,
   isOpen,
+  editingComment,
   onClose,
   onCommentAdded,
+  onCommentUpdated,
   onScreenshotAdded,
   onScreenshotDeleted,
   screenshots,
@@ -86,14 +95,32 @@ export default function CapturePanel({
   const [pastedFile, setPastedFile] = useState<File | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
+  const isEditing = !!editingComment
+
+  // An edit keeps the note's original moment in the tape; a new note takes the playhead.
+  const noteTime = editingComment ? editingComment.timestamp_seconds : currentTime
+
   const resolvedRound = useMemo(
-    () => resolveRoundFromTimestamp(currentTime, rounds, barrierOffset),
-    [currentTime, rounds, barrierOffset]
+    () => resolveRoundFromTimestamp(noteTime, rounds, barrierOffset),
+    [noteTime, rounds, barrierOffset]
   )
 
-  // Auto-focus when opened, reset when closed
+  // Auto-focus when opened, prefill in edit mode, reset when closed
   useEffect(() => {
     if (isOpen) {
+      if (editingComment) {
+        const tags = editingComment.tags || []
+        const detail = tags.filter(
+          t => !PRIMARY_TAG_TYPE_NAMES.has(t) && !SECONDARY_TAG_TYPE_NAMES.has(t)
+        )
+        const secondaryTags = tags.filter(t => SECONDARY_TAG_TYPE_NAMES.has(t))
+        setText(editingComment.free_text ?? '')
+        setPrimary(new Set(tags.filter(t => PRIMARY_TAG_TYPE_NAMES.has(t))))
+        setSecondary(new Set(secondaryTags))
+        setDetailTags(detail)
+        setShowSecondary(secondaryTags.length > 0)
+        setShowDetail(detail.length > 0)
+      }
       const t = setTimeout(() => textareaRef.current?.focus(), 30)
       return () => clearTimeout(t)
     } else {
@@ -105,7 +132,7 @@ export default function CapturePanel({
       setShowDetail(false)
       setPastedFile(null)
     }
-  }, [isOpen])
+  }, [isOpen, editingComment])
 
   if (!isOpen) return null
 
@@ -153,6 +180,28 @@ export default function CapturePanel({
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
 
+      // Branch on editingComment: an edit UPDATEs the existing row, never INSERTs.
+      if (editingComment) {
+        const { data, error } = await supabase
+          .from('vod_comments')
+          .update({
+            tags,
+            free_text: trimmed || null,
+            is_strength: primary.has('strength'),
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', editingComment.id)
+          .select()
+          .single()
+
+        if (error) throw error
+        if (data) {
+          onCommentUpdated(data)
+          onClose()
+        }
+        return
+      }
+
       const { data, error } = await supabase
         .from('vod_comments')
         .insert({
@@ -186,6 +235,9 @@ export default function CapturePanel({
     } else if (e.key === 'Escape') {
       e.preventDefault()
       onClose()
+    } else if ((e.metaKey || e.ctrlKey) && (e.key === 'b' || e.key === 'i')) {
+      e.preventDefault()
+      setText(applyAction(e.currentTarget, { kind: 'wrap', token: e.key === 'b' ? '**' : '*' }))
     }
   }
 
@@ -197,18 +249,40 @@ export default function CapturePanel({
   const canSave = text.trim().length > 0 || primary.size > 0 || secondary.size > 0 || detailTags.length > 0
 
   return (
-    <div className="bg-bg-card border border-val-cyan/30 rounded-lg overflow-hidden">
+    <div className={`bg-bg-card border rounded-lg overflow-hidden ${isEditing ? 'border-val-yellow/40' : 'border-val-cyan/30'}`}>
+      {/* Editing banner */}
+      {isEditing && (
+        <div className="px-3 py-1.5 bg-val-yellow/10 border-b border-val-yellow/30 flex items-center gap-2">
+          <Pencil className="w-3 h-3 text-val-yellow shrink-0" />
+          <span className="text-[11px] text-val-yellow">Editing an existing note</span>
+          <button
+            type="button"
+            onClick={onClose}
+            className="ml-auto text-[10px] text-text-muted hover:text-text-secondary transition-colors"
+          >
+            Cancel · Esc
+          </button>
+        </div>
+      )}
+
       {/* Header */}
       <div className="px-3 py-2 border-b border-bg-elevated flex items-center gap-2">
-        <span className="font-stats text-xs text-val-cyan">{formatTime(currentTime)}</span>
+        <span className="font-stats text-xs text-val-cyan">{formatTime(noteTime)}</span>
         {roundLabel && (
           <span className="text-xs text-text-secondary">
             · {roundLabel}{sideLabel ? ` · ${sideLabel}` : ''}
           </span>
         )}
-        <span className="ml-auto px-1.5 py-0.5 rounded bg-bg-elevated text-[9px] text-text-muted">
-          {isPaused ? 'paused' : 'live'}
-        </span>
+        {!isEditing && (
+          <span className="ml-auto px-1.5 py-0.5 rounded bg-bg-elevated text-[9px] text-text-muted">
+            {isPaused ? 'paused' : 'live'}
+          </span>
+        )}
+      </div>
+
+      {/* Formatting toolbar */}
+      <div className="px-2 py-1 border-b border-bg-elevated">
+        <MarkdownToolbar textareaRef={textareaRef} onChange={setText} />
       </div>
 
       {/* Textarea */}
@@ -248,9 +322,13 @@ export default function CapturePanel({
           type="button"
           onClick={handleSave}
           disabled={!canSave || saving}
-          className="ml-auto bg-val-cyan/15 text-val-cyan border border-val-cyan/30 px-3 py-1 rounded-md text-[11px] font-medium hover:bg-val-cyan/25 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          className={`ml-auto px-3 py-1 rounded-md text-[11px] font-medium border disabled:opacity-40 disabled:cursor-not-allowed transition-colors ${
+            isEditing
+              ? 'bg-val-yellow/15 text-val-yellow border-val-yellow/30 hover:bg-val-yellow/25'
+              : 'bg-val-cyan/15 text-val-cyan border-val-cyan/30 hover:bg-val-cyan/25'
+          }`}
         >
-          {saving ? 'Saving…' : 'Save · ⌘↵'}
+          {saving ? 'Saving…' : isEditing ? 'Update · ⌘↵' : 'Save · ⌘↵'}
         </button>
       </div>
 

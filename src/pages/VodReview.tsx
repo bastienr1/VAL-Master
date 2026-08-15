@@ -108,6 +108,8 @@ export default function VodReview() {
 
   // Capture / focus state (Sprint 5b)
   const [captureOpen, setCaptureOpen] = useState(false)
+  // Set → the capture panel is editing that note rather than creating a new one.
+  const [editingCommentId, setEditingCommentId] = useState<string | null>(null)
   const [activeRound, setActiveRound] = useState<number | null>(null)
 
   // Data loading
@@ -411,8 +413,14 @@ export default function VodReview() {
     setComments(prev => [...prev, comment].sort((a, b) => a.timestamp_seconds - b.timestamp_seconds))
   }, [])
 
+  const handleCommentUpdated = useCallback((comment: VodComment) => {
+    setComments(prev => prev.map(c => (c.id === comment.id ? comment : c)))
+  }, [])
+
   const handleCommentDeleted = useCallback((commentId: string) => {
     setComments(prev => prev.filter(c => c.id !== commentId))
+    // Don't leave the editor holding a note that no longer exists.
+    setEditingCommentId(prev => (prev === commentId ? null : prev))
   }, [])
 
   const handleScreenshotAdded = useCallback((screenshot: RoundScreenshot) => {
@@ -427,12 +435,25 @@ export default function VodReview() {
     setTags(prev => prev.filter(t => t.id !== tagId))
   }, [])
 
-  // Open capture panel — pause video and show panel
+  // Open capture panel for a NEW note — pause video and show panel
   const openCapture = useCallback(() => {
     if (!playerRef.current || !playerReady || !vodReview) return
     playerRef.current.pauseVideo()
+    setEditingCommentId(null)
     setCaptureOpen(true)
   }, [playerReady, vodReview])
+
+  // Open the same panel loaded with an existing note
+  const openEdit = useCallback((comment: VodComment) => {
+    playerRef.current?.pauseVideo()
+    setEditingCommentId(comment.id)
+    setCaptureOpen(true)
+  }, [])
+
+  const closeCapture = useCallback(() => {
+    setCaptureOpen(false)
+    setEditingCommentId(null)
+  }, [])
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -459,14 +480,14 @@ export default function VodReview() {
           break
         case 'Escape':
           e.preventDefault()
-          setCaptureOpen(false)
+          closeCapture()
           break
       }
     }
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [togglePlay, seek, openCapture])
+  }, [togglePlay, seek, openCapture, closeCapture])
 
   // Resizable notes panel (right column)
   const { width: notesPanelWidth, dragHandlers } = useSplitter({
@@ -497,6 +518,10 @@ export default function VodReview() {
   }
 
   const notedRoundCount = new Set(comments.map(c => c.round_number).filter((n): n is number => n != null)).size
+
+  const editingComment = editingCommentId
+    ? comments.find(c => c.id === editingCommentId) ?? null
+    : null
   const legacyManualTags = tags.filter(t => !t.is_auto)
 
   return (
@@ -703,8 +728,10 @@ export default function VodReview() {
                 currentTime={currentTime}
                 isPaused={!isPlaying}
                 isOpen={captureOpen}
-                onClose={() => setCaptureOpen(false)}
+                editingComment={editingComment}
+                onClose={closeCapture}
                 onCommentAdded={handleCommentAdded}
+                onCommentUpdated={handleCommentUpdated}
                 onScreenshotAdded={handleScreenshotAdded}
                 onScreenshotDeleted={handleScreenshotDeleted}
                 screenshots={screenshots}
@@ -726,9 +753,11 @@ export default function VodReview() {
               activeRound={activeRound}
               vodReviewId={vodReview.id}
               barrierOffset={vodReview.barrier_drop_offset}
+              editingCommentId={editingCommentId}
               onSeek={seekToTimestamp}
               onCommentDeleted={handleCommentDeleted}
               onCommentAdded={handleCommentAdded}
+              onCommentEdit={openEdit}
               onLegacyTagConverted={handleLegacyTagConverted}
             />
           )}

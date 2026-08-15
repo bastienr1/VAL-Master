@@ -129,11 +129,14 @@ export interface MatchRound {
 export interface VodComment {
   id: string
   created_at: string
+  // Bumped on every edit. Nullable so rows written before the column existed still parse.
+  updated_at: string | null
   user_id: string
   vod_review_id: string
   timestamp_seconds: number
   round_number: number | null
   tags: string[]
+  /** Markdown source. */
   free_text: string | null
   is_strength: boolean
 }
