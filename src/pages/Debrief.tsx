@@ -5,7 +5,7 @@ import { fetchLastMatch } from '../lib/henrik'
 import { supabase } from '../lib/supabase'
 import { useSession } from '../lib/auth'
 import { useProfile, profileToPlayer } from '../lib/profile'
-import { AGENTS, MAPS } from '../lib/constants'
+import { useGameContentNames } from '../hooks/useGameContent'
 
 type Result = 'win' | 'loss' | 'draw'
 type DurationFeel = 'Quick' | 'Normal' | 'Marathon' | 'Overtime'
@@ -31,8 +31,15 @@ export default function Debrief() {
 
   // Screen 1 — Match Summary (auto-fill from session)
   const [result, setResult] = useState<Result | null>(null)
-  const [map, setMap] = useState(() => localStorage.getItem('val_map') || MAPS[0])
-  const [agentPlayed, setAgentPlayed] = useState(() => localStorage.getItem('val_agent') || AGENTS[0])
+  const { mapNames, agentNames, loading: contentLoading } = useGameContentNames()
+  const [mapRaw, setMap] = useState(() => localStorage.getItem('val_map') || '')
+  const [agentPlayedRaw, setAgentPlayed] = useState(() => localStorage.getItem('val_agent') || '')
+
+  // Nothing is picked until the registry lands, so fall back to the first entry
+  // rather than writing it into state from an effect.
+  const map = mapRaw || mapNames[0] || ''
+  const agentPlayed = agentPlayedRaw || agentNames[0] || ''
+
   const [roundsWon, setRoundsWon] = useState(13)
   const [roundsLost, setRoundsLost] = useState(0)
   const [durationFeel, setDurationFeel] = useState<DurationFeel | null>(null)
@@ -43,7 +50,8 @@ export default function Debrief() {
   const [matchStats, setMatchStats] = useState<{
     acs: number; kills: number; deaths: number; assists: number;
     headshot_pct: number; kd: number; kda: number; agent_role: string | null;
-    match_id: string; match_date: string; map: string; agent: string;
+    match_id: string; match_date: string; map: string; map_id: string | null;
+    agent: string; agent_id: string | null;
     rounds_won: number; rounds_lost: number; rounds_played: number;
     headshots: number; bodyshots: number; legshots: number;
     kpr: number; dpr: number; raw_score: number; result: 'W' | 'L' | 'draw';
@@ -98,7 +106,9 @@ export default function Debrief() {
           match_id: m.match_id,
           match_date: m.match_date,
           map: m.map,
+          map_id: m.map_id,
           agent: m.agent,
+          agent_id: m.agent_id,
           rounds_won: m.rounds_won,
           rounds_lost: m.rounds_lost,
           rounds_played: m.rounds_played,
@@ -170,7 +180,9 @@ export default function Debrief() {
           user_id: user!.id,
           match_date: matchStats.match_date,
           map: matchStats.map,
+          map_id: matchStats.map_id,
           agent: matchStats.agent,
+          agent_id: matchStats.agent_id,
           agent_role: matchStats.agent_role,
           mode: matchStats.mode,
           result: matchStats.result,
@@ -333,25 +345,31 @@ export default function Debrief() {
           {/* Map & Agent */}
           <div className="grid grid-cols-2 gap-3">
             <label className="block space-y-2">
-              <span className="text-sm text-text-secondary">Map</span>
+              <span className="text-sm text-text-secondary">
+                Map{contentLoading && <span className="text-text-muted"> · loading content…</span>}
+              </span>
               <select
                 value={map}
                 onChange={(e) => setMap(e.target.value)}
-                className="w-full bg-bg-elevated border border-bg-elevated rounded-lg px-3 py-2.5 text-text-primary text-sm focus:outline-none focus:border-val-cyan/50 transition-colors"
+                disabled={contentLoading}
+                className="w-full bg-bg-elevated border border-bg-elevated rounded-lg px-3 py-2.5 text-text-primary text-sm focus:outline-none focus:border-val-cyan/50 disabled:opacity-40 transition-colors"
               >
-                {MAPS.map((m) => (
+                {mapNames.map((m) => (
                   <option key={m} value={m}>{m}</option>
                 ))}
               </select>
             </label>
             <label className="block space-y-2">
-              <span className="text-sm text-text-secondary">Agent</span>
+              <span className="text-sm text-text-secondary">
+                Agent{contentLoading && <span className="text-text-muted"> · loading content…</span>}
+              </span>
               <select
                 value={agentPlayed}
                 onChange={(e) => setAgentPlayed(e.target.value)}
-                className="w-full bg-bg-elevated border border-bg-elevated rounded-lg px-3 py-2.5 text-text-primary text-sm focus:outline-none focus:border-val-cyan/50 transition-colors"
+                disabled={contentLoading}
+                className="w-full bg-bg-elevated border border-bg-elevated rounded-lg px-3 py-2.5 text-text-primary text-sm focus:outline-none focus:border-val-cyan/50 disabled:opacity-40 transition-colors"
               >
-                {AGENTS.map((a) => (
+                {agentNames.map((a) => (
                   <option key={a} value={a}>{a}</option>
                 ))}
               </select>
