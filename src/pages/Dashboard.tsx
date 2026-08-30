@@ -3,16 +3,13 @@ import { Link } from 'react-router-dom'
 import { Star, AlertTriangle, Zap, Crosshair, FileText } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useSession } from '../lib/auth'
-import { getMapSplash, getAgentIcon } from '../lib/constants'
+import { mapImageFor, agentImageFor } from '../lib/gameContent'
+import GameImage from '../components/GameImage'
 import SessionDetailModal from '../components/SessionDetailModal'
 import type { MatchCheckin, MatchDebrief } from '../lib/types'
 
 const WEEKLY_GOAL_KEY = 'val-master-weekly-goal'
 const CHECKIN_ID_KEY = 'val-master-last-checkin-id'
-
-function agentSlug(name: string) {
-  return name.toLowerCase().replace(/\//g, '-').replace(/\s+/g, '-')
-}
 
 type DebriefWithCheckin = MatchDebrief & {
   match_checkins: Pick<MatchCheckin, 'map' | 'agent_pick'> | null
@@ -27,7 +24,6 @@ export default function Dashboard() {
   )
   const [editingGoal, setEditingGoal] = useState(false)
   const [loading, setLoading] = useState(true)
-  const [failedImages, setFailedImages] = useState<Set<string>>(new Set())
   const [selectedDebrief, setSelectedDebrief] = useState<DebriefWithCheckin | null>(null)
   const [matchMap, setMatchMap] = useState<Map<string, any>>(new Map())
 
@@ -242,12 +238,8 @@ export default function Dashboard() {
               const linkedMatch = matchMap.get(d.id)
               const mapName = linkedMatch?.map ?? d.match_checkins?.map ?? ''
               const agentName = linkedMatch?.agent ?? d.match_checkins?.agent_pick ?? ''
-              const mapImgUrl = mapName ? getMapSplash(mapName) : ''
-              const agentIconUrl = agentName ? getAgentIcon(agentName) : ''
-              const agentImgUrl = agentName
-                ? `https://bastienr1.github.io/valorant-assets/agents/${agentSlug(agentName)}.png`
-                : ''
-              const imgFailed = failedImages.has(d.id)
+              const mapImgUrl = mapName ? mapImageFor({ map: mapName }) : null
+              const agentIconUrl = agentName ? agentImageFor({ agent: agentName }) : null
 
               return (
                 <div
@@ -256,31 +248,23 @@ export default function Dashboard() {
                   onClick={() => setSelectedDebrief(d)}
                 >
                   {/* Map splash */}
-                  {mapImgUrl && !imgFailed ? (
-                    <div className="relative w-full h-36">
-                      <img
-                        src={mapImgUrl}
-                        alt={mapName}
-                        className="w-full h-full object-cover object-center"
-                        onError={() => setFailedImages((prev) => new Set(prev).add(d.id))}
+                  <div className="relative w-full h-36">
+                    <GameImage
+                      kind="map"
+                      src={mapImgUrl}
+                      alt={mapName}
+                      className="w-full h-full object-cover object-center"
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-bg-card via-transparent to-transparent" />
+                    {agentName && (
+                      <GameImage
+                        kind="agent"
+                        src={agentIconUrl}
+                        alt={agentName}
+                        className="absolute bottom-2 left-2 w-8 h-8 rounded-full object-cover ring-1 ring-val-red bg-bg-primary/80"
                       />
-                      <div className="absolute inset-0 bg-gradient-to-t from-bg-card via-transparent to-transparent" />
-                      {agentIconUrl && (
-                        <img
-                          src={agentIconUrl}
-                          alt={agentName}
-                          className="absolute bottom-2 left-2 w-8 h-8 rounded-full object-cover ring-1 ring-val-red bg-bg-primary/80"
-                          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
-                        />
-                      )}
-                    </div>
-                  ) : (
-                    <div className="w-full h-36 bg-gradient-to-br from-bg-elevated to-bg-primary flex items-center justify-center">
-                      <span className="font-heading text-lg font-bold text-text-muted/50">
-                        {mapName || 'Unknown Map'}
-                      </span>
-                    </div>
-                  )}
+                    )}
+                  </div>
 
                   {/* Card details */}
                   <div className="p-3 space-y-2">
@@ -294,12 +278,12 @@ export default function Dashboard() {
 
                     {/* Agent icon + Score + Stars */}
                     <div className="flex items-center gap-2">
-                      {agentImgUrl && (
-                        <img
-                          src={agentImgUrl}
+                      {agentName && (
+                        <GameImage
+                          kind="agent"
+                          src={agentIconUrl}
                           alt={agentName}
                           className="w-5 h-5 rounded-full object-cover"
-                          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
                         />
                       )}
                       <span className="font-stats text-xs text-text-secondary">

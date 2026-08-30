@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
 import { X } from 'lucide-react'
 import { supabase } from '../lib/supabase'
-import { getMapSplash, getAgentIcon } from '../lib/constants'
+import { mapImageFor, agentImageFor } from '../lib/gameContent'
+import GameImage from './GameImage'
 import type { MatchCheckin, MatchDebrief, TacticalRead } from '../lib/types'
 
 type DebriefWithCheckin = MatchDebrief & {
@@ -47,8 +48,8 @@ export default function SessionDetailModal({ debrief, onClose }: Props) {
 
   const mapName = debrief.match_checkins?.map ?? ''
   const agentName = debrief.match_checkins?.agent_pick ?? ''
-  const mapSplash = mapName ? getMapSplash(mapName) : ''
-  const agentIcon = agentName ? getAgentIcon(agentName) : ''
+  const mapSplash = mapName ? mapImageFor({ map: mapName }) : null
+  const agentIcon = agentName ? agentImageFor({ agent: agentName }) : null
 
   useEffect(() => {
     async function load() {
@@ -92,26 +93,22 @@ export default function SessionDetailModal({ debrief, onClose }: Props) {
       >
         {/* Header banner */}
         <div className="relative shrink-0">
-          {mapSplash ? (
-            <img
-              src={mapSplash}
-              alt={mapName}
-              className="w-full h-16 object-cover"
-              onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
-            />
-          ) : (
-            <div className="w-full h-16 bg-bg-elevated" />
-          )}
+          <GameImage
+            kind="map"
+            src={mapSplash}
+            alt={mapName}
+            className="w-full h-16 object-cover"
+          />
           <div className="absolute inset-0 bg-gradient-to-t from-bg-primary via-bg-primary/60 to-transparent" />
 
           {/* Header content */}
           <div className="absolute inset-0 flex items-center px-4 gap-3">
-            {agentIcon && (
-              <img
+            {agentName && (
+              <GameImage
+                kind="agent"
                 src={agentIcon}
                 alt={agentName}
                 className="w-10 h-10 rounded-full object-cover ring-1 ring-val-red bg-bg-primary/80"
-                onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
               />
             )}
             <div className="flex-1 min-w-0">
@@ -207,27 +204,25 @@ function PreMatchTab({
     { label: 'Calm', value: checkin.tilt_risk },
   ]
 
-  const agentIcon = agentName ? getAgentIcon(agentName) : ''
-  const mapSplash = mapName ? getMapSplash(mapName) : ''
+  const agentIcon = agentName ? agentImageFor({ agent: agentName }) : null
+  const mapSplash = mapName ? mapImageFor({ map: mapName }) : null
 
   return (
     <>
       {/* Agent + Map */}
       <div className="flex items-center gap-3 bg-bg-card border border-bg-elevated rounded-xl p-4">
-        {agentIcon && (
-          <img src={agentIcon} alt={agentName}
+        {agentName && (
+          <GameImage kind="agent" src={agentIcon} alt={agentName}
             className="w-12 h-12 rounded-full object-cover ring-1 ring-val-cyan bg-bg-primary/80"
-            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
           />
         )}
         <div className="flex-1">
           <p className="font-heading font-bold text-white text-sm">{agentName}</p>
           <p className="text-text-muted text-xs">{mapName}</p>
         </div>
-        {mapSplash && (
-          <img src={mapSplash} alt={mapName}
+        {mapName && (
+          <GameImage kind="map" src={mapSplash} alt={mapName}
             className="w-16 h-10 rounded object-cover opacity-60"
-            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
           />
         )}
       </div>

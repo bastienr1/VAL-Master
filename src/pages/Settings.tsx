@@ -4,6 +4,9 @@ import { ArrowLeft, Loader2 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { signOut } from '../lib/auth'
 import { useProfile, resolveRiotAccount } from '../lib/profile'
+import { backfillContentIds } from '../lib/gameContent'
+import type { BackfillResult } from '../lib/gameContent'
+import { useGameContent } from '../hooks/useGameContent'
 
 const REGIONS = [
   { value: 'ap', label: 'AP — Asia-Pacific' },
@@ -64,6 +67,29 @@ const btnPrimary =
 
 export default function Settings() {
   const { profile, loading, save } = useProfile()
+  const { registry, status: contentStatus } = useGameContent()
+
+  // Game content backfill
+  const [backfillStatus, setBackfillStatus] = useState<Status>({ kind: 'idle' })
+  const [backfillResult, setBackfillResult] = useState<BackfillResult | null>(null)
+
+  async function handleBackfill() {
+    setBackfillStatus({ kind: 'saving' })
+    setBackfillResult(null)
+    try {
+      const result = await backfillContentIds()
+      setBackfillResult(result)
+      setBackfillStatus({
+        kind: 'ok',
+        msg: `Updated ${result.updated} of ${result.scanned} match${result.scanned === 1 ? '' : 'es'}.`,
+      })
+    } catch (err) {
+      setBackfillStatus({
+        kind: 'err',
+        msg: err instanceof Error ? err.message : 'Backfill failed',
+      })
+    }
+  }
 
   // Riot ID
   const [riotName, setRiotName] = useState('')
@@ -304,6 +330,61 @@ export default function Settings() {
           </button>
           <StatusLine status={goalStatus} />
         </div>
+      </SectionCard>
+
+      <SectionCard
+        title="Game Content"
+        description="Map and agent artwork is sourced online from Riot UUIDs. Matches saved before this existed only carry names — resolving them fills in the IDs so their images render."
+      >
+        <div className="space-y-1.5">
+          <span className="text-xs text-text-secondary uppercase tracking-wider font-medium">
+            Registry
+          </span>
+          <p className="text-sm text-text-primary">
+            {contentStatus === 'loading' && 'Loading…'}
+            {contentStatus === 'error' && <span className="text-val-red">Unavailable — check the console</span>}
+            {(contentStatus === 'ready' || contentStatus === 'degraded') && registry && (
+              <>
+                {registry.maps.byId.size} maps · {registry.agents.byId.size} agents{' '}
+                <span className={contentStatus === 'degraded' ? 'text-val-yellow' : 'text-text-muted'}>
+                  (source: {registry.source}{contentStatus === 'degraded' ? ' — degraded' : ''})
+                </span>
+              </>
+            )}
+          </p>
+        </div>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleBackfill}
+            disabled={backfillStatus.kind === 'saving' || contentStatus === 'loading'}
+            className={btnPrimary}
+          >
+            {backfillStatus.kind === 'saving' && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+            Resolve content IDs
+          </button>
+          <StatusLine status={backfillStatus} />
+        </div>
+        {backfillResult && (
+          <div className="text-xs text-text-secondary space-y-1 pt-1">
+            <p>
+              Scanned {backfillResult.scanned} · updated {backfillResult.updated}
+            </p>
+            {backfillResult.unresolved.maps.length > 0 && (
+              <p className="text-val-yellow">
+                Unresolved maps: {backfillResult.unresolved.maps.join(', ')}
+              </p>
+            )}
+            {backfillResult.unresolved.agents.length > 0 && (
+              <p className="text-val-yellow">
+                Unresolved agents: {backfillResult.unresolved.agents.join(', ')}
+              </p>
+            )}
+            {backfillResult.unresolved.maps.length === 0 &&
+              backfillResult.unresolved.agents.length === 0 && (
+                <p className="text-val-green">Nothing unresolved.</p>
+              )}
+          </div>
+        )}
       </SectionCard>
 
       <SectionCard title="Account">
