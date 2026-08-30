@@ -1,15 +1,20 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { DEBRIEF_THEMES } from '../lib/commentTags'
+import { normalizeUrl, isSafeUrl } from '../lib/url'
 import type { VodReview } from '../lib/types'
-import { Star, Save, Check } from 'lucide-react'
+import { Star, Save, Check, ExternalLink } from 'lucide-react'
 
 interface InlineDebriefProps {
   vodReview: VodReview
+  map?: string | null
   onUpdate: (updated: VodReview) => void
 }
 
-export default function InlineDebrief({ vodReview, onUpdate }: InlineDebriefProps) {
+export default function InlineDebrief({ vodReview, map, onUpdate }: InlineDebriefProps) {
+  const mapKey = map ? `mapFundamentals:${map}` : null
+
+  const [mapFundamentals, setMapFundamentals] = useState(vodReview.map_fundamentals_url || '')
   const [peakMoment, setPeakMoment] = useState(vodReview.peak_moment || '')
   const [keyLesson, setKeyLesson] = useState(vodReview.key_lesson || '')
   const [themes, setThemes] = useState<string[]>(vodReview.themes ? vodReview.themes.split(',').map(t => t.trim()).filter(Boolean) : [])
@@ -20,23 +25,33 @@ export default function InlineDebrief({ vodReview, onUpdate }: InlineDebriefProp
 
   // Reset when vodReview changes
   useEffect(() => {
+    setMapFundamentals(
+      vodReview.map_fundamentals_url
+        || (mapKey ? localStorage.getItem(mapKey) : null)
+        || ''
+    )
     setPeakMoment(vodReview.peak_moment || '')
     setKeyLesson(vodReview.key_lesson || '')
     setThemes(vodReview.themes ? vodReview.themes.split(',').map(t => t.trim()).filter(Boolean) : [])
     setQuality(vodReview.match_quality || 0)
     setNotes(vodReview.notes || '')
-  }, [vodReview.id])
+  }, [vodReview.id, mapKey])
+
+  const fundamentalsHref = normalizeUrl(mapFundamentals)
+  const fundamentalsInvalid = !isSafeUrl(mapFundamentals)
 
   const toggleTheme = (theme: string) => {
     setThemes(prev => prev.includes(theme) ? prev.filter(t => t !== theme) : [...prev, theme])
   }
 
   const handleSave = async () => {
+    if (fundamentalsInvalid) return
     setSaving(true)
     try {
       const { data, error } = await supabase
         .from('vod_reviews')
         .update({
+          map_fundamentals_url: normalizeUrl(mapFundamentals),
           peak_moment: peakMoment.trim() || null,
           key_lesson: keyLesson.trim() || null,
           themes: themes.length > 0 ? themes.join(', ') : null,
@@ -50,6 +65,8 @@ export default function InlineDebrief({ vodReview, onUpdate }: InlineDebriefProp
       if (error) throw error
       if (data) {
         onUpdate(data)
+        const normalized = normalizeUrl(mapFundamentals)
+        if (mapKey && normalized) localStorage.setItem(mapKey, normalized)
         setSaved(true)
         setTimeout(() => setSaved(false), 2000)
       }
@@ -63,6 +80,43 @@ export default function InlineDebrief({ vodReview, onUpdate }: InlineDebriefProp
   return (
     <div className="bg-bg-card border border-bg-elevated rounded-xl p-4 space-y-3">
       <h3 className="text-sm font-heading font-bold text-text-primary">Match Debrief</h3>
+
+      {/* Map fundamentals link */}
+      <div>
+        <label className="text-[10px] text-text-muted uppercase tracking-wider">Map fundamentals</label>
+        <div className="flex items-center gap-1.5 mt-1">
+          <input
+            type="url"
+            inputMode="url"
+            value={mapFundamentals}
+            onChange={(e) => setMapFundamentals(e.target.value)}
+            onBlur={() => {
+              const normalized = normalizeUrl(mapFundamentals)
+              if (normalized) setMapFundamentals(normalized)
+            }}
+            placeholder="Paste the Insights link for this map's fundamentals"
+            className={`flex-1 min-w-0 bg-bg-elevated border rounded-lg px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none ${
+              fundamentalsInvalid
+                ? 'border-val-red/50 focus:border-val-red/60'
+                : 'border-bg-card focus:border-val-cyan/30'
+            }`}
+          />
+          {fundamentalsHref && (
+            <a
+              href={fundamentalsHref}
+              target="_blank"
+              rel="noopener noreferrer"
+              title="Open map fundamentals in a new tab"
+              className="shrink-0 p-1.5 rounded-lg border border-val-cyan/20 bg-val-cyan/10 text-val-cyan hover:bg-val-cyan/20 transition-colors"
+            >
+              <ExternalLink className="w-4 h-4" />
+            </a>
+          )}
+        </div>
+        {fundamentalsInvalid && (
+          <p className="mt-1 text-[10px] text-val-red">Needs to be an http(s) link.</p>
+        )}
+      </div>
 
       {/* Peak moment */}
       <div>
@@ -141,7 +195,7 @@ export default function InlineDebrief({ vodReview, onUpdate }: InlineDebriefProp
       {/* Save button */}
       <button
         onClick={handleSave}
-        disabled={saving}
+        disabled={saving || fundamentalsInvalid}
         className="flex items-center gap-1.5 px-4 py-2 bg-val-cyan/10 text-val-cyan border border-val-cyan/20 rounded-lg text-sm font-medium hover:bg-val-cyan/20 disabled:opacity-40 transition-colors"
       >
         {saving ? (

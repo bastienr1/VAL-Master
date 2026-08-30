@@ -82,6 +82,7 @@ export interface VodReview {
   user_id: string
   match_id: string
   youtube_url: string
+  map_fundamentals_url: string | null
   peak_moment: string | null
   key_lesson: string | null
   themes: string | null
