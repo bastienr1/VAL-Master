@@ -9,6 +9,14 @@
 
 const HAS_SCHEME = /^[a-zA-Z][a-zA-Z\d+\-.]*:/
 
+// `new URL('https://ascent')` parses fine, so a bare word would otherwise
+// become a live link to nowhere. Require a dotted hostname (or localhost).
+function hasRealHost(hostname: string): boolean {
+  if (hostname === 'localhost') return true
+  const dot = hostname.indexOf('.')
+  return dot > 0 && dot < hostname.length - 1
+}
+
 /** Returns a canonical http(s) URL, or null if empty/unsafe/unparseable. */
 export function normalizeUrl(raw: string): string | null {
   const trimmed = raw.trim()
@@ -19,6 +27,7 @@ export function normalizeUrl(raw: string): string | null {
   try {
     const parsed = new URL(candidate)
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null
+    if (!hasRealHost(parsed.hostname)) return null
     return parsed.toString()
   } catch {
     return null
