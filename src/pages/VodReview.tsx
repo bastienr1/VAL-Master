@@ -762,7 +762,7 @@ export default function VodReview() {
             />
           )}
           {vodReview && (
-            <InlineDebrief vodReview={vodReview} onUpdate={setVodReview} />
+            <InlineDebrief vodReview={vodReview} map={match?.map} onUpdate={setVodReview} />
           )}
         </div>
       </div>
