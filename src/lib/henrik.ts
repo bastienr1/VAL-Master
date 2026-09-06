@@ -1,24 +1,8 @@
 import type { Match } from './types'
 import type { PlayerConfig } from './profile'
+import { loadGameContent, getAgentRole } from './gameContent'
 
 const HENRIK_API_KEY = import.meta.env.VITE_HENRIK_API_KEY
-
-const AGENT_ROLES: Record<string, string> = {
-  Jett: 'Duelist', Reyna: 'Duelist', Raze: 'Duelist', Phoenix: 'Duelist',
-  Neon: 'Duelist', Iso: 'Duelist', Waylay: 'Duelist',
-  Sova: 'Initiator', Breach: 'Initiator', Skye: 'Initiator', Fade: 'Initiator',
-  Gekko: 'Initiator', KAY_O: 'Initiator', Tejo: 'Initiator',
-  Omen: 'Controller', Brimstone: 'Controller', Viper: 'Controller', Astra: 'Controller',
-  Harbor: 'Controller', Clove: 'Controller',
-  Sage: 'Sentinel', Cypher: 'Sentinel', Killjoy: 'Sentinel', Chamber: 'Sentinel',
-  Deadlock: 'Sentinel', Vyse: 'Sentinel', Veto: 'Sentinel',
-}
-
-function getAgentRole(agent: string): string | null {
-  if (!agent) return null
-  const key = agent.replace('/', '_')
-  return AGENT_ROLES[key] ?? null
-}
 
 export interface HenrikMatchResult {
   match: Omit<Match, 'id' | 'created_at' | 'user_id' | 'match_checkin_id' | 'match_debrief_id'>
@@ -83,6 +67,16 @@ function getMapName(metadata: any): string {
   if (typeof metadata?.map === 'string') return metadata.map        // old
   if (metadata?.map?.name) return metadata.map.name                  // new
   return 'Unknown'
+}
+
+// Riot UUIDs. Only the object-shaped payload carries them; on the old string
+// shape these return null and the consumer falls back to name resolution.
+function getMapId(metadata: any): string | null {
+  return metadata?.map?.id ?? null
+}
+
+function getAgentId(player: any): string | null {
+  return player?.agent?.id ?? null
 }
 
 function getMatchId(metadata: any): string {
@@ -190,6 +184,14 @@ export async function fetchRecentMatches(
     throw new Error(`Henrik API error: ${res.status} ${res.statusText}`)
   }
 
+  // Roles come from the registry. A failure here must not block a sync — the
+  // match still saves, agent_role just stays null.
+  try {
+    await loadGameContent()
+  } catch (err) {
+    console.warn('[henrik] game content unavailable — agent_role will be null for this sync', err)
+  }
+
   const data = await res.json()
   const matches = data?.data ?? []
 
@@ -244,14 +246,17 @@ export async function fetchRecentMatches(
     }
 
     const agentName = getAgentName(ourPlayer)
+    const agentId = getAgentId(ourPlayer)
 
     results.push({
       match: {
         match_id: getMatchId(metadata),
         match_date: getMatchDate(metadata),
         map: getMapName(metadata),
+        map_id: getMapId(metadata),
         agent: agentName,
-        agent_role: getAgentRole(agentName),
+        agent_id: agentId,
+        agent_role: getAgentRole(agentId ?? agentName),
         mode: getMatchMode(metadata, mode),
         result,
         score: `${ours.rounds_won}-${theirs.rounds_won}`,

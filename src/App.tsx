@@ -11,6 +11,13 @@ import Settings from './pages/Settings'
 import AppShell from './components/AppShell'
 import { useSession } from './lib/auth'
 import { migrateLegacyLocalLinks } from './lib/mapFundamentals'
+import { loadGameContent } from './lib/gameContent'
+
+// Warm the registry as early as possible so name→UUID resolution is ready by
+// the time Match Library renders legacy rows that have no map_id/agent_id.
+loadGameContent().catch(err => {
+  console.warn('[gameContent] initial load failed — images will fall back to placeholders', err)
+})
 
 function App() {
   const { user, loading } = useSession()

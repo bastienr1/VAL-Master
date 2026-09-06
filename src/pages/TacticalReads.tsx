@@ -4,7 +4,8 @@ import { BookOpen, ChevronDown, ChevronUp } from 'lucide-react'
 import ScoreSlider from '../components/ui/ScoreSlider'
 import { supabase } from '../lib/supabase'
 import { useSession } from '../lib/auth'
-import { MAPS, AGENTS, WEAPONS, TACTICAL_INTENTS } from '../lib/constants'
+import { WEAPONS, TACTICAL_INTENTS } from '../lib/constants'
+import { useGameContentNames } from '../hooks/useGameContent'
 import type { TacticalRead } from '../lib/types'
 
 type Side = 'attack' | 'defense'
@@ -23,8 +24,13 @@ export default function TacticalReads() {
 
   // Form state — auto-fill from session
   const [roundNumber, setRoundNumber] = useState('1')
-  const [map, setMap] = useState<string>(() => localStorage.getItem('val_map') || MAPS[0])
+  const { mapNames, agentNames, loading: contentLoading } = useGameContentNames()
+  const [mapRaw, setMap] = useState<string>(() => localStorage.getItem('val_map') || '')
   const [agent, setAgent] = useState(() => localStorage.getItem('val_agent') || '')
+
+  // Nothing is picked until the registry lands, so fall back to the first entry
+  // rather than writing it into state from an effect.
+  const map = mapRaw || mapNames[0] || ''
   const [side, setSide] = useState<Side>('attack')
   const [roundType, setRoundType] = useState<RoundType>('full_buy')
   const [weaponsBought, setWeaponsBought] = useState<string[]>([])
@@ -170,26 +176,32 @@ export default function TacticalReads() {
         {/* Map & Agent */}
         <div className="grid grid-cols-2 gap-3">
           <label className="block space-y-2">
-            <span className="text-sm text-text-secondary">Map</span>
+            <span className="text-sm text-text-secondary">
+              Map{contentLoading && <span className="text-text-muted"> · loading content…</span>}
+            </span>
             <select
               value={map}
               onChange={(e) => setMap(e.target.value)}
-              className="w-full bg-bg-elevated border border-bg-elevated rounded-lg px-3 py-2.5 text-text-primary text-sm focus:outline-none focus:border-val-cyan/50 transition-colors"
+              disabled={contentLoading}
+              className="w-full bg-bg-elevated border border-bg-elevated rounded-lg px-3 py-2.5 text-text-primary text-sm focus:outline-none focus:border-val-cyan/50 disabled:opacity-40 transition-colors"
             >
-              {MAPS.map((m) => (
+              {mapNames.map((m) => (
                 <option key={m} value={m}>{m}</option>
               ))}
             </select>
           </label>
           <label className="block space-y-2">
-            <span className="text-sm text-text-secondary">Agent</span>
+            <span className="text-sm text-text-secondary">
+              Agent{contentLoading && <span className="text-text-muted"> · loading content…</span>}
+            </span>
             <select
               value={agent}
               onChange={(e) => setAgent(e.target.value)}
-              className="w-full bg-bg-elevated border border-bg-elevated rounded-lg px-3 py-2.5 text-text-primary text-sm focus:outline-none focus:border-val-cyan/50 transition-colors"
+              disabled={contentLoading}
+              className="w-full bg-bg-elevated border border-bg-elevated rounded-lg px-3 py-2.5 text-text-primary text-sm focus:outline-none focus:border-val-cyan/50 disabled:opacity-40 transition-colors"
             >
               <option value="">Select Agent</option>
-              {AGENTS.map((a) => (
+              {agentNames.map((a) => (
                 <option key={a} value={a}>{a}</option>
               ))}
             </select>

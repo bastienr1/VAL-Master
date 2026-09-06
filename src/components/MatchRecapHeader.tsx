@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Target, Crosshair, Swords, Percent, ChevronUp, ChevronDown } from 'lucide-react'
-import { getMapSplash, getAgentIcon } from '../lib/constants'
+import { mapImageFor, agentImageFor } from '../lib/gameContent'
+import GameImage from './GameImage'
 import TrnReportLink from './TrnReportLink'
 import type { Match } from '../lib/types'
 
@@ -54,8 +55,9 @@ export default function MatchRecapHeader({ match }: MatchRecapHeaderProps) {
     return (
       <div className="sticky top-0 z-30 bg-bg-card border-b border-bg-elevated">
         <div className="flex items-center gap-2 px-4 h-8 text-xs">
-          <img
-            src={getAgentIcon(match.agent)}
+          <GameImage
+            kind="agent"
+            src={agentImageFor(match)}
             alt={match.agent}
             className="w-6 h-6 rounded-full border border-bg-elevated shrink-0"
           />
@@ -83,8 +85,9 @@ export default function MatchRecapHeader({ match }: MatchRecapHeaderProps) {
 
   return (
     <div className="sticky top-0 z-30 relative overflow-hidden rounded-xl bg-gradient-to-b from-bg-elevated to-bg-primary border border-bg-elevated">
-      <img
-        src={getMapSplash(match.map)}
+      <GameImage
+        kind="map"
+        src={mapImageFor(match)}
         alt=""
         aria-hidden
         className="absolute inset-0 w-full h-full object-cover opacity-10 pointer-events-none"
@@ -94,8 +97,9 @@ export default function MatchRecapHeader({ match }: MatchRecapHeaderProps) {
       <div className="relative grid items-center gap-x-4" style={{ gridTemplateColumns: 'auto 1fr auto', padding: '14px 18px' }}>
         {/* LEFT — agent + meta */}
         <div className="flex items-center gap-3">
-          <img
-            src={getAgentIcon(match.agent)}
+          <GameImage
+            kind="agent"
+            src={agentImageFor(match)}
             alt={match.agent}
             className="w-14 h-14 rounded-full border-2 border-bg-card"
           />

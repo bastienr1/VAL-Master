@@ -4,7 +4,7 @@ import { ChevronRight, ChevronLeft, Crosshair, Brain, Target } from 'lucide-reac
 import ScoreSlider from '../components/ui/ScoreSlider'
 import { supabase } from '../lib/supabase'
 import { useSession } from '../lib/auth'
-import { AGENTS, MAPS } from '../lib/constants'
+import { useGameContentNames } from '../hooks/useGameContent'
 
 const WEEKLY_GOAL_KEY = 'val-master-weekly-goal'
 
@@ -22,9 +22,15 @@ export default function CheckIn() {
   const [tiltRisk, setTiltRisk] = useState(3)
 
   // Screen 2 — Agent & Map
-  const [agentPick, setAgentPick] = useState(AGENTS[0])
-  const [map, setMap] = useState(MAPS[0])
+  const { mapNames, agentNames, loading: contentLoading } = useGameContentNames()
+  const [agentPickRaw, setAgentPick] = useState('')
+  const [mapRaw, setMap] = useState('')
   const [notes, setNotes] = useState('')
+
+  // Nothing is picked until the registry lands, so fall back to the first entry
+  // rather than writing it into state from an effect.
+  const agentPick = agentPickRaw || agentNames[0] || ''
+  const map = mapRaw || mapNames[0] || ''
 
   // Screen 3 — Goal
   const [goal, setGoal] = useState('')
@@ -162,26 +168,32 @@ export default function CheckIn() {
 
           <div className="space-y-4">
             <label className="block space-y-2">
-              <span className="text-sm text-text-secondary">Agent</span>
+              <span className="text-sm text-text-secondary">
+                Agent{contentLoading && <span className="text-text-muted"> · loading content…</span>}
+              </span>
               <select
                 value={agentPick}
                 onChange={(e) => setAgentPick(e.target.value)}
-                className="w-full bg-bg-elevated border border-bg-elevated rounded-lg px-3 py-2.5 text-text-primary text-sm focus:outline-none focus:border-val-cyan/50 transition-colors"
+                disabled={contentLoading}
+                className="w-full bg-bg-elevated border border-bg-elevated rounded-lg px-3 py-2.5 text-text-primary text-sm focus:outline-none focus:border-val-cyan/50 disabled:opacity-40 transition-colors"
               >
-                {AGENTS.map((a) => (
+                {agentNames.map((a) => (
                   <option key={a} value={a}>{a}</option>
                 ))}
               </select>
             </label>
 
             <label className="block space-y-2">
-              <span className="text-sm text-text-secondary">Map</span>
+              <span className="text-sm text-text-secondary">
+                Map{contentLoading && <span className="text-text-muted"> · loading content…</span>}
+              </span>
               <select
                 value={map}
                 onChange={(e) => setMap(e.target.value)}
-                className="w-full bg-bg-elevated border border-bg-elevated rounded-lg px-3 py-2.5 text-text-primary text-sm focus:outline-none focus:border-val-cyan/50 transition-colors"
+                disabled={contentLoading}
+                className="w-full bg-bg-elevated border border-bg-elevated rounded-lg px-3 py-2.5 text-text-primary text-sm focus:outline-none focus:border-val-cyan/50 disabled:opacity-40 transition-colors"
               >
-                {MAPS.map((m) => (
+                {mapNames.map((m) => (
                   <option key={m} value={m}>{m}</option>
                 ))}
               </select>

@@ -5,7 +5,9 @@ import { fetchRecentMatches } from '../lib/henrik'
 import { useProfile, profileToPlayer } from '../lib/profile'
 import { signOut } from '../lib/auth'
 import { useSession } from '../lib/auth'
-import { getMapSplash, getAgentIcon, MAPS, AGENTS } from '../lib/constants'
+import { mapImageFor, agentImageFor } from '../lib/gameContent'
+import { useGameContent } from '../hooks/useGameContent'
+import GameImage from '../components/GameImage'
 import type { Match } from '../lib/types'
 import { RefreshCw, Swords, Filter, ChevronDown, Crosshair, Target, Percent, Trophy, Calendar, TrendingUp, FileDown, Star, Settings as SettingsIcon, LogOut } from 'lucide-react'
 import {
@@ -40,8 +42,9 @@ function MatchCard({ match, onClick }: { match: Match; onClick: () => void }) {
       className="group w-full text-left bg-bg-card border border-bg-elevated rounded-xl overflow-hidden hover:border-val-cyan/30 transition-all"
     >
       <div className="relative h-28">
-        <img
-          src={getMapSplash(match.map)}
+        <GameImage
+          kind="map"
+          src={mapImageFor(match)}
           alt={match.map}
           className="absolute inset-0 w-full h-full object-cover opacity-40 group-hover:opacity-50 transition-opacity"
         />
@@ -54,8 +57,9 @@ function MatchCard({ match, onClick }: { match: Match; onClick: () => void }) {
 
         {/* Agent + Map */}
         <div className="absolute bottom-2 left-3 flex items-center gap-2">
-          <img
-            src={getAgentIcon(match.agent)}
+          <GameImage
+            kind="agent"
+            src={agentImageFor(match)}
             alt={match.agent}
             className="w-10 h-10 rounded-full border-2 border-bg-card"
           />
@@ -245,6 +249,7 @@ export default function MatchLibrary() {
   const navigate = useNavigate()
   const { user } = useSession()
   const { profile } = useProfile()
+  const { registry } = useGameContent()
   const [matches, setMatches] = useState<Match[]>([])
   const [loading, setLoading] = useState(true)
   const [syncing, setSyncing] = useState(false)
@@ -338,8 +343,13 @@ export default function MatchLibrary() {
 
   const playedMaps = [...new Set(matches.map((m) => m.map))].sort()
   const playedAgents = [...new Set(matches.map((m) => m.agent))].sort()
-  const filteredMaps = MAPS.filter((m) => playedMaps.includes(m))
-  const filteredAgents = AGENTS.filter((a) => playedAgents.includes(a))
+
+  // The registry supplies canonical names/order; until it loads, fall back to
+  // the names on the matches themselves so the filters are never empty.
+  const registryMaps = registry ? [...registry.maps.byId.values()].map((m) => m.name).sort() : null
+  const registryAgents = registry ? [...registry.agents.byId.values()].map((a) => a.name).sort() : null
+  const filteredMaps = registryMaps ? registryMaps.filter((m) => playedMaps.includes(m)) : playedMaps
+  const filteredAgents = registryAgents ? registryAgents.filter((a) => playedAgents.includes(a)) : playedAgents
 
   const playedActCodes = new Set(
     matches
@@ -596,7 +606,7 @@ export default function MatchLibrary() {
                     agentFilter === agent ? 'text-val-cyan' : 'text-text-primary'
                   }`}
                 >
-                  <img src={getAgentIcon(agent)} alt={agent} className="w-4 h-4 rounded-full" />
+                  <GameImage kind="agent" src={agentImageFor({ agent })} alt={agent} className="w-4 h-4 rounded-full" />
                   {agent}
                 </button>
               ))}

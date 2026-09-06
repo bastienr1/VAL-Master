@@ -51,7 +51,9 @@ export interface Match {
   match_id: string
   match_date: string
   map: string
+  map_id: string | null
   agent: string
+  agent_id: string | null
   agent_role: string | null
   mode: string
   result: 'W' | 'L' | 'draw'
