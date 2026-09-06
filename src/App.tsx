@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import CheckIn from './pages/CheckIn'
 import Debrief from './pages/Debrief'
@@ -9,6 +10,7 @@ import Login from './pages/Login'
 import Settings from './pages/Settings'
 import AppShell from './components/AppShell'
 import { useSession } from './lib/auth'
+import { migrateLegacyLocalLinks } from './lib/mapFundamentals'
 import { loadGameContent } from './lib/gameContent'
 
 // Warm the registry as early as possible so name→UUID resolution is ready by
@@ -19,6 +21,14 @@ loadGameContent().catch(err => {
 
 function App() {
   const { user, loading } = useSession()
+
+  useEffect(() => {
+    if (!user) return
+    // One-time lift of the old per-device links into Supabase.
+    migrateLegacyLocalLinks().catch(err => {
+      console.warn('[mapFundamentals] migration failed', err)
+    })
+  }, [user])
 
   if (loading) {
     return (
