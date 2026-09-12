@@ -371,7 +371,9 @@ export default function VodReview() {
   }
 
   // Save the Valoplant replay link (match-level, like youtube_url above).
-  const handleSaveValoplantUrl = async (nextUrl: string | null) => {
+  // useCallback keeps the identity stable across player ticks so the memoized
+  // panel does not re-render with them.
+  const handleSaveValoplantUrl = useCallback(async (nextUrl: string | null) => {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) throw new Error('Not signed in')
 
@@ -383,7 +385,7 @@ export default function VodReview() {
 
     if (error) throw new Error(error.message)
     setMatch(prev => (prev ? { ...prev, valoplant_replay_url: nextUrl } : prev))
-  }
+  }, [matchId])
 
   // === MATCH SYNC (calibration) ===
   const handleBarrierSync = async () => {

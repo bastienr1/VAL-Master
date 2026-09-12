@@ -1,16 +1,12 @@
-import { useState } from 'react'
-import { ChevronDown, ChevronRight, ExternalLink, Map as MapIcon, Pencil } from 'lucide-react'
-import { normalizeUrl, isSafeUrl, isEmbeddableValoplantUrl } from '../lib/url'
+import { memo, useState } from 'react'
+import { ExternalLink, Map as MapIcon, Pencil } from 'lucide-react'
+import { normalizeUrl, isSafeUrl } from '../lib/url'
 
 interface ValoplantReplayPanelProps {
   matchId: string
   url: string | null
   onSave: (url: string | null) => Promise<void>
 }
-
-// Tuned against Valoplant's Flutter UI — below this the round selector crowds
-// the map. Raise here first if the panel ever feels cramped.
-const IFRAME_HEIGHT = 480
 
 function hostLabel(url: string): string {
   try {
@@ -21,22 +17,25 @@ function hostLabel(url: string): string {
 }
 
 /**
- * Collapsible 2D replay panel for the VOD workstation.
+ * Match-level Valoplant replay link — one slim row in the VOD workstation.
  *
- * The iframe is mounted only while expanded — Valoplant ships a Flutter web app
- * with a realtime socket and an audio engine, so it must not load alongside the
- * YouTube player by default, and collapsing has to actually tear it down rather
- * than hide it. Open/closed is component state only; nothing is persisted.
+ * Link-only by necessity, not by preference: valoplant.gg serves
+ * `frame-ancestors 'self' https://tracker2-ten.vercel.app`, a fixed partner
+ * allowlist VAL Master is not on, so an embed can never render from any of our
+ * origins. Investigation record and the revival path (ask them to allowlist the
+ * production domain) live in the vault note
+ * `2026-09-12-VAL-Master-Valoplant-Replay-Panel`.
+ *
+ * Memoized because the workstation re-renders on every player tick while this
+ * panel depends on none of that state.
  */
-export default function ValoplantReplayPanel({ matchId, url, onSave }: ValoplantReplayPanelProps) {
+function ValoplantReplayPanel({ matchId, url, onSave }: ValoplantReplayPanelProps) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(url ?? '')
-  const [expanded, setExpanded] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const invalid = !isSafeUrl(draft)
-  const embeddable = !!url && isEmbeddableValoplantUrl(url)
   const inputId = `valoplant-url-${matchId}`
 
   const openEditor = () => {
@@ -54,7 +53,6 @@ export default function ValoplantReplayPanel({ matchId, url, onSave }: Valoplant
       await onSave(next)
       setDraft(next ?? '')
       setEditing(false)
-      if (!next) setExpanded(false) // nothing left to show
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save link')
     } finally {
@@ -64,8 +62,6 @@ export default function ValoplantReplayPanel({ matchId, url, onSave }: Valoplant
 
   // --- Editing: also the entry point when nothing is linked yet ---
   if (editing) {
-    const savesAsLinkOnly = !invalid && draft.trim() !== '' && !isEmbeddableValoplantUrl(draft)
-
     return (
       <div className="bg-bg-card border border-bg-elevated rounded-lg px-3 py-2">
         <label htmlFor={inputId} className="text-[10px] text-text-muted uppercase tracking-wider">
@@ -108,11 +104,6 @@ export default function ValoplantReplayPanel({ matchId, url, onSave }: Valoplant
         {invalid && (
           <p className="mt-1 text-[10px] text-val-red">Needs to be an http(s) link with a real domain.</p>
         )}
-        {savesAsLinkOnly && (
-          <p className="mt-1 text-[10px] text-text-muted">
-            Only valoplant.gg links can be embedded — this one saves as an external link.
-          </p>
-        )}
         {error && <p className="mt-1 text-[10px] text-val-red">{error}</p>}
       </div>
     )
@@ -131,67 +122,32 @@ export default function ValoplantReplayPanel({ matchId, url, onSave }: Valoplant
     )
   }
 
-  // --- Linked: collapsed header, optionally the mounted frame ---
+  // --- Linked: the slim row ---
   return (
-    <div className="bg-bg-card border border-bg-elevated rounded-lg">
-      <div className="flex items-center gap-2 px-3 py-2">
-        <button
-          onClick={() => setExpanded(v => !v)}
-          disabled={!embeddable}
-          title={embeddable ? (expanded ? 'Collapse 2D replay' : 'Expand 2D replay') : 'This link cannot be embedded'}
-          className="flex items-center gap-2 min-w-0 flex-1 text-left text-text-secondary hover:text-text-primary disabled:hover:text-text-secondary disabled:cursor-default transition-colors"
-        >
-          {embeddable && (expanded
-            ? <ChevronDown className="w-3.5 h-3.5 shrink-0 text-val-cyan" />
-            : <ChevronRight className="w-3.5 h-3.5 shrink-0 text-val-cyan" />
-          )}
-          <span className="text-xs font-medium shrink-0">2D Replay</span>
-          <span className="text-[10px] text-text-muted truncate">{hostLabel(url)}</span>
-        </button>
+    <div className="bg-bg-card border border-bg-elevated rounded-lg flex items-center gap-2 px-3 py-2">
+      <MapIcon className="w-3.5 h-3.5 shrink-0 text-val-cyan" />
+      <span className="text-xs font-medium text-text-secondary shrink-0">2D Replay</span>
+      <span className="text-[10px] text-text-muted truncate">{hostLabel(url)}</span>
 
-        <a
-          href={url}
-          target="_blank"
-          rel="noopener noreferrer"
-          title="Open the replay in a new tab"
-          className="shrink-0 flex items-center gap-1 px-2 py-1 rounded-lg border border-val-cyan/20 bg-val-cyan/10 text-val-cyan text-[10px] font-medium hover:bg-val-cyan/20 transition-colors"
-        >
-          Open in Valoplant
-          <ExternalLink className="w-3 h-3" />
-        </a>
-        <button
-          onClick={openEditor}
-          title="Edit replay link"
-          className="shrink-0 p-1.5 rounded-lg text-text-muted hover:text-val-cyan transition-colors"
-        >
-          <Pencil className="w-3.5 h-3.5" />
-        </button>
-      </div>
-
-      {!embeddable && (
-        <p className="px-3 pb-2 text-[10px] text-text-muted">Only valoplant.gg links can be embedded.</p>
-      )}
-
-      {expanded && embeddable && (
-        <div className="px-3 pb-3 space-y-1.5">
-          <iframe
-            src={url}
-            title="Valoplant 2D replay"
-            sandbox="allow-scripts allow-same-origin allow-popups allow-forms"
-            allow="fullscreen"
-            loading="lazy"
-            referrerPolicy="no-referrer"
-            className="w-full rounded-lg"
-            style={{ height: IFRAME_HEIGHT }}
-          />
-          <p className="text-[10px] text-text-muted">
-            Not loading?{' '}
-            <a href={url} target="_blank" rel="noopener noreferrer" className="text-val-cyan hover:underline">
-              Open in Valoplant ↗
-            </a>
-          </p>
-        </div>
-      )}
+      <a
+        href={url}
+        target="_blank"
+        rel="noopener noreferrer"
+        title="Open the replay in a new tab"
+        className="ml-auto shrink-0 flex items-center gap-1 px-2 py-1 rounded-lg border border-val-cyan/20 bg-val-cyan/10 text-val-cyan text-[10px] font-medium hover:bg-val-cyan/20 transition-colors"
+      >
+        Open in Valoplant
+        <ExternalLink className="w-3 h-3" />
+      </a>
+      <button
+        onClick={openEditor}
+        title="Edit replay link"
+        className="shrink-0 p-1.5 rounded-lg text-text-muted hover:text-val-cyan transition-colors"
+      >
+        <Pencil className="w-3.5 h-3.5" />
+      </button>
     </div>
   )
 }
+
+export default memo(ValoplantReplayPanel)

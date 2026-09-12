@@ -45,6 +45,12 @@ export function isSafeUrl(raw: string): boolean {
 /**
  * True only for hosts we allow to mount in an iframe.
  *
+ * Nothing calls this in the render path today: valoplant.gg's CSP
+ * `frame-ancestors` is a fixed partner allowlist we are not on, so the embed
+ * was pivoted to a link-only row. Kept because it documents the allowlist and
+ * revives the embed unchanged if they ever allowlist us — see the vault note
+ * `2026-09-12-VAL-Master-Valoplant-Replay-Panel`.
+ *
  * Deliberately stricter than `isSafeUrl()`: a generic link only ever becomes an
  * `href`, while these URLs get embedded into the workstation. The check runs on
  * the parsed `hostname`, so `valoplant.gg.evil.com` and paths or query strings
