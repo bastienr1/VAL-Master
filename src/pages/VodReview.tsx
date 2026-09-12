@@ -8,6 +8,7 @@ import InlineDebrief from '../components/InlineDebrief'
 import MatchRecapHeader from '../components/MatchRecapHeader'
 import MatchTimeline from '../components/MatchTimeline'
 import CapturePanel from '../components/CapturePanel'
+import ValoplantReplayPanel from '../components/ValoplantReplayPanel'
 import NotesPanel from '../components/NotesPanel'
 import { useSplitter, SplitterHandle } from '../components/ColumnSplitter'
 import { resolveRoundFromTimestamp } from '../lib/roundResolver'
@@ -367,6 +368,21 @@ export default function VodReview() {
     } finally {
       setSaving(false)
     }
+  }
+
+  // Save the Valoplant replay link (match-level, like youtube_url above).
+  const handleSaveValoplantUrl = async (nextUrl: string | null) => {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) throw new Error('Not signed in')
+
+    const { error } = await supabase
+      .from('matches')
+      .update({ valoplant_replay_url: nextUrl })
+      .eq('match_id', matchId!)
+      .eq('user_id', user.id)
+
+    if (error) throw new Error(error.message)
+    setMatch(prev => (prev ? { ...prev, valoplant_replay_url: nextUrl } : prev))
   }
 
   // === MATCH SYNC (calibration) ===
@@ -737,6 +753,15 @@ export default function VodReview() {
                 screenshots={screenshots}
               />
             </div>
+          )}
+
+          {/* 2D replay — collapsed by default; the iframe mounts only when opened */}
+          {match && (
+            <ValoplantReplayPanel
+              matchId={match.match_id}
+              url={match.valoplant_replay_url}
+              onSave={handleSaveValoplantUrl}
+            />
           )}
         </div>
 
