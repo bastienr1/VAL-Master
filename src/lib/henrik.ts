@@ -5,7 +5,7 @@ import { loadGameContent, getAgentRole } from './gameContent'
 const HENRIK_API_KEY = import.meta.env.VITE_HENRIK_API_KEY
 
 export interface HenrikMatchResult {
-  match: Omit<Match, 'id' | 'created_at' | 'user_id' | 'match_checkin_id' | 'match_debrief_id'>
+  match: Omit<Match, 'id' | 'created_at' | 'user_id' | 'match_checkin_id' | 'match_debrief_id' | 'valoplant_replay_url'>
   raw: any
 }
 

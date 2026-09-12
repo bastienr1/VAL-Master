@@ -76,6 +76,8 @@ export interface Match {
   raw_score: number
   match_checkin_id: string | null
   match_debrief_id: string | null
+  /** Valoplant 2D replay for this match, embedded in the VOD workstation. */
+  valoplant_replay_url: string | null
 }
 
 export interface VodReview {
