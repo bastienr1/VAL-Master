@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
-import type { Playbook, PlaybookChapter } from '../lib/types'
+import { PLAYBOOKS_CHANGED_EVENT } from '../lib/playbooks'
+import type { Playbook, PlaybookChapter, PlaybookWithCount } from '../lib/types'
 
 interface PlaybookFilters {
   map?: string
@@ -8,18 +9,34 @@ interface PlaybookFilters {
   side?: Playbook['side']
 }
 
-/** The signed-in user's playbooks (RLS scopes the rows), newest first. */
+type PlaybookRowWithCount = Playbook & { playbook_chapters: { count: number }[] | null }
+
+/**
+ * The signed-in user's playbooks (RLS scopes the rows), newest first, with
+ * chapter counts. Reloads itself whenever any playbook is imported, renamed
+ * or deleted.
+ */
 export function usePlaybooks({ map, agent, side }: PlaybookFilters = {}) {
-  const [playbooks, setPlaybooks] = useState<Playbook[]>([])
+  const [playbooks, setPlaybooks] = useState<PlaybookWithCount[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [attempt, setAttempt] = useState(0)
+
+  const reload = useCallback(() => setAttempt(n => n + 1), [])
+
+  useEffect(() => {
+    window.addEventListener(PLAYBOOKS_CHANGED_EVENT, reload)
+    return () => window.removeEventListener(PLAYBOOKS_CHANGED_EVENT, reload)
+  }, [reload])
 
   useEffect(() => {
     let cancelled = false
 
     async function load() {
-      let query = supabase.from('playbooks').select('*').order('updated_at', { ascending: false })
+      let query = supabase
+        .from('playbooks')
+        .select('*, playbook_chapters(count)')
+        .order('updated_at', { ascending: false })
       if (map) query = query.eq('map', map)
       if (agent) query = query.eq('agent', agent)
       if (side) query = query.eq('side', side)
@@ -30,7 +47,8 @@ export function usePlaybooks({ map, agent, side }: PlaybookFilters = {}) {
         console.error('[usePlaybooks] load failed', error)
         setError(error.message)
       } else {
-        setPlaybooks(data ?? [])
+        const rows = (data ?? []) as PlaybookRowWithCount[]
+        setPlaybooks(rows.map(({ playbook_chapters, ...p }) => ({ ...p, chapter_count: playbook_chapters?.[0]?.count ?? 0 })))
         setError(null)
       }
       setLoading(false)
@@ -39,8 +57,6 @@ export function usePlaybooks({ map, agent, side }: PlaybookFilters = {}) {
     load()
     return () => { cancelled = true }
   }, [map, agent, side, attempt])
-
-  const reload = useCallback(() => setAttempt(n => n + 1), [])
 
   return { playbooks, loading, error, reload }
 }
