@@ -3,6 +3,9 @@ import { loadGameContent } from './gameContent'
 import { parsePlaybookMarkdown } from './playbookParser'
 import type { PlaybookImportLog } from './types'
 
+/** Fired on window after an import writes, so other views (e.g. global search) can reload. */
+export const PLAYBOOKS_CHANGED_EVENT = 'val-master:playbooks-changed'
+
 export interface PlaybookImportResult {
   success: boolean
   playbook_id?: string
@@ -84,5 +87,6 @@ export async function importPlaybookFile(file: File): Promise<PlaybookImportResu
     return fail(error.message || 'Import failed')
   }
 
+  window.dispatchEvent(new Event(PLAYBOOKS_CHANGED_EVENT))
   return data as PlaybookImportResult
 }

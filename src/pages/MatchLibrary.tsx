@@ -1,15 +1,13 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import { fetchRecentMatches } from '../lib/henrik'
-import { useProfile, profileToPlayer } from '../lib/profile'
-import { signOut } from '../lib/auth'
-import { useSession } from '../lib/auth'
+import { MATCHES_SYNCED_EVENT } from '../lib/loadLatest'
+import { useLoadLatest } from '../hooks/useLoadLatest'
 import { mapImageFor, agentImageFor } from '../lib/gameContent'
 import { useGameContent } from '../hooks/useGameContent'
 import GameImage from '../components/GameImage'
 import type { Match } from '../lib/types'
-import { RefreshCw, Swords, Filter, ChevronDown, Crosshair, Target, Percent, Trophy, Calendar, TrendingUp, FileDown, Star, Settings as SettingsIcon, LogOut } from 'lucide-react'
+import { RefreshCw, Swords, Filter, ChevronDown, Crosshair, Target, Percent, Trophy, Calendar, TrendingUp, FileDown, Star, Settings as SettingsIcon } from 'lucide-react'
 import {
   VALORANT_ACTS,
   getActForDate,
@@ -247,12 +245,10 @@ function HighlightTile({
 
 export default function MatchLibrary() {
   const navigate = useNavigate()
-  const { user } = useSession()
-  const { profile } = useProfile()
   const { registry } = useGameContent()
+  const { sync: handleSync, syncing, player } = useLoadLatest()
   const [matches, setMatches] = useState<Match[]>([])
   const [loading, setLoading] = useState(true)
-  const [syncing, setSyncing] = useState(false)
   const [resultFilter, setResultFilter] = useState<'all' | 'W' | 'L' | 'draw'>('all')
   const [mapFilter, setMapFilter] = useState('all')
   const [agentFilter, setAgentFilter] = useState('all')
@@ -260,22 +256,6 @@ export default function MatchLibrary() {
   const [showAgentDropdown, setShowAgentDropdown] = useState(false)
   const [actFilter, setActFilter] = useState<string>('all')
   const [showActDropdown, setShowActDropdown] = useState(false)
-  const [menuOpen, setMenuOpen] = useState(false)
-  const menuRef = useRef<HTMLDivElement | null>(null)
-
-  useEffect(() => {
-    if (!menuOpen) return
-    const handler = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setMenuOpen(false)
-      }
-    }
-    window.addEventListener('mousedown', handler)
-    return () => window.removeEventListener('mousedown', handler)
-  }, [menuOpen])
-
-  const player = profileToPlayer(profile)
-  const emailInitial = (user?.email?.[0] ?? '?').toUpperCase()
 
   const loadMatches = useCallback(async () => {
     try {
@@ -300,28 +280,11 @@ export default function MatchLibrary() {
     loadMatches()
   }, [loadMatches])
 
-  const handleSync = async () => {
-    if (!player) {
-      navigate('/settings')
-      return
-    }
-    setSyncing(true)
-    try {
-      const results = await fetchRecentMatches(player, 5, 'competitive')
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) return
-      for (const r of results) {
-        await supabase
-          .from('matches')
-          .upsert({ ...r.match, user_id: user.id }, { onConflict: 'match_id' })
-      }
-      await loadMatches()
-    } catch (err) {
-      console.error('Failed to sync matches:', err)
-    } finally {
-      setSyncing(false)
-    }
-  }
+  // Load Latest lives in the top bar now; reload when it finishes a sync.
+  useEffect(() => {
+    window.addEventListener(MATCHES_SYNCED_EVENT, loadMatches)
+    return () => window.removeEventListener(MATCHES_SYNCED_EVENT, loadMatches)
+  }, [loadMatches])
 
   const filtered = matches.filter((m) => {
     if (resultFilter !== 'all' && m.result !== resultFilter) return false
@@ -399,56 +362,6 @@ export default function MatchLibrary() {
               to sync your matches.
             </p>
           )}
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={handleSync}
-            disabled={syncing || !player}
-            title={!player ? 'Set your Riot ID in Settings first' : undefined}
-            className="flex items-center gap-2 px-4 py-2 bg-val-cyan/10 text-val-cyan border border-val-cyan/20 rounded-lg hover:bg-val-cyan/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
-            <span className="text-sm font-medium">Load Latest</span>
-          </button>
-          <div className="relative" ref={menuRef}>
-            <button
-              onClick={() => setMenuOpen((o) => !o)}
-              className="w-9 h-9 rounded-full bg-bg-elevated border border-bg-elevated hover:border-val-cyan/40 flex items-center justify-center text-sm font-medium text-text-primary transition-colors"
-              title={user?.email ?? 'Account'}
-              aria-label="Account menu"
-            >
-              {emailInitial}
-            </button>
-            {menuOpen && (
-              <div className="absolute right-0 top-full mt-1 z-50 min-w-[180px] bg-bg-elevated border border-bg-card rounded-lg shadow-xl overflow-hidden">
-                {user?.email && (
-                  <div className="px-3 py-2 text-[11px] text-text-muted border-b border-bg-card truncate">
-                    {user.email}
-                  </div>
-                )}
-                <button
-                  onClick={() => {
-                    setMenuOpen(false)
-                    navigate('/settings')
-                  }}
-                  className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-bg-card transition-colors text-text-primary"
-                >
-                  <SettingsIcon className="w-3.5 h-3.5" />
-                  Settings
-                </button>
-                <button
-                  onClick={() => {
-                    setMenuOpen(false)
-                    signOut()
-                  }}
-                  className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-bg-card transition-colors text-val-red"
-                >
-                  <LogOut className="w-3.5 h-3.5" />
-                  Sign out
-                </button>
-              </div>
-            )}
-          </div>
         </div>
       </div>
 
