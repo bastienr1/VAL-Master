@@ -29,16 +29,38 @@ export default function PlaybookReader() {
   const { playbook, loading: playbookLoading, error } = usePlaybookBySlug(slug)
   const { chapters, loading: chaptersLoading } = usePlaybookChapters(playbook?.id)
   const [userPicked, setUserPicked] = useState(false)
+  // Bumped on every jump so re-clicking the same moment restarts the video there.
+  const [playNonce, setPlayNonce] = useState(0)
 
   // ?chapter=N keeps the active chapter across reloads and makes it linkable.
   const requested = Number(searchParams.get('chapter'))
   const activeChapter = chapters.find(c => c.chapter_number === requested) ?? chapters[0] ?? null
+
+  // ?t=seconds is a jump target inside the active chapter (a moment or a clicked timestamp).
+  const rawT = searchParams.get('t')
+  const requestedT = rawT !== null && /^\d+$/.test(rawT) ? Number(rawT) : null
+  const jumpSeconds =
+    activeChapter && requestedT !== null && requestedT >= activeChapter.start_seconds && requestedT < activeChapter.end_seconds
+      ? requestedT
+      : null
 
   const selectChapter = (chapterId: string) => {
     const chapter = chapters.find(c => c.id === chapterId)
     if (!chapter) return
     setUserPicked(true)
     setSearchParams({ chapter: String(chapter.chapter_number) }, { replace: true })
+  }
+
+  /** Jumps the video to a time — in the given chapter, or whichever chapter contains it. */
+  const jumpTo = (seconds: number, chapterId?: string) => {
+    const target =
+      (chapterId && chapters.find(c => c.id === chapterId)) ||
+      chapters.find(c => seconds >= c.start_seconds && seconds < c.end_seconds) ||
+      activeChapter
+    if (!target) return
+    setUserPicked(true)
+    setPlayNonce(n => n + 1)
+    setSearchParams({ chapter: String(target.chapter_number), t: String(seconds) }, { replace: true })
   }
 
   if (playbookLoading) {
@@ -120,10 +142,19 @@ export default function PlaybookReader() {
               chapters={chapters}
               activeChapterId={activeChapter.id}
               onChapterSelect={selectChapter}
+              onMomentSelect={(chapterId, seconds) => jumpTo(seconds, chapterId)}
+              activeSeconds={jumpSeconds}
               totalSeconds={totalSeconds}
             />
           </div>
-          <PlaybookChapterReader chapter={activeChapter} playbook={playbook} autoplay={userPicked} />
+          <PlaybookChapterReader
+            chapter={activeChapter}
+            playbook={playbook}
+            autoplay={userPicked}
+            startSeconds={jumpSeconds}
+            playKey={playNonce}
+            onJump={seconds => jumpTo(seconds)}
+          />
         </div>
       )}
     </div>

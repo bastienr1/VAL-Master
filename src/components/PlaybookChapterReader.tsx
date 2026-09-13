@@ -3,6 +3,7 @@ import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { VideoOff } from 'lucide-react'
 import { extractYouTubeId, formatTimestamp } from '../lib/playbookParser'
+import { linkifyTimestamps, splitTimestamps, TIMESTAMP_HREF_PREFIX } from '../lib/playbookMoments'
 import type { Playbook, PlaybookChapter } from '../lib/types'
 
 interface PlaybookChapterReaderProps {
@@ -10,6 +11,12 @@ interface PlaybookChapterReaderProps {
   playbook: Playbook
   /** Start playing on load — true once the user has picked a chapter. */
   autoplay?: boolean
+  /** Start the embed here instead of at the chapter start (a moment or clicked timestamp). */
+  startSeconds?: number | null
+  /** Changes on every jump so the embed reloads even for the same start time. */
+  playKey?: number
+  /** Called when a timestamp inside the notes, takeaways or timeline is clicked. */
+  onJump?: (seconds: number) => void
 }
 
 type Tab = 'notes' | 'takeaways' | 'timeline' | 'clips'
@@ -20,6 +27,8 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'timeline', label: 'Timeline' },
   { id: 'clips', label: 'Related Clips' },
 ]
+
+const timestampClass = 'font-stats text-val-cyan hover:underline cursor-pointer'
 
 // Vault notes lean on tables and callout-style blockquotes. Raw HTML stays
 // disabled (react-markdown's default), same as NoteMarkdown.
@@ -37,11 +46,7 @@ const markdownComponents: Components = {
     <blockquote className="border-l-2 border-val-yellow bg-val-yellow/5 pl-3 py-1 text-text-secondary">{children}</blockquote>
   ),
   code: ({ children }) => <code className="font-stats text-[12px] bg-bg-elevated text-val-yellow px-1 py-0.5 rounded">{children}</code>,
-  a: ({ href, children }) => (
-    <a href={href} target="_blank" rel="noopener noreferrer" className="text-val-cyan hover:underline">
-      {children}
-    </a>
-  ),
+  a: ({ href, children }) => <ExternalAnchor href={href}>{children}</ExternalAnchor>,
   hr: () => <hr className="border-bg-elevated" />,
   table: ({ children }) => (
     <div className="overflow-x-auto">
@@ -52,21 +57,60 @@ const markdownComponents: Components = {
   td: ({ children }) => <td className="align-top border-b border-bg-elevated/50 px-2 py-1.5">{children}</td>,
 }
 
-function Markdown({ children }: { children: string }) {
+function ExternalAnchor({ href, children }: { href?: string; children?: React.ReactNode }) {
   return (
-    <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+    <a href={href} target="_blank" rel="noopener noreferrer" className="text-val-cyan hover:underline">
       {children}
+    </a>
+  )
+}
+
+function Markdown({ children, onJump }: { children: string; onJump?: (seconds: number) => void }) {
+  if (!onJump) {
+    return (
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+        {children}
+      </ReactMarkdown>
+    )
+  }
+
+  // Timestamps are rewritten as #t= links and rendered here as in-page jumps.
+  const components: Components = {
+    ...markdownComponents,
+    a: ({ href, children: label }) => {
+      if (href?.startsWith(TIMESTAMP_HREF_PREFIX)) {
+        const seconds = Number(href.slice(TIMESTAMP_HREF_PREFIX.length))
+        return (
+          <button type="button" onClick={() => onJump(seconds)} className={timestampClass} title={`Jump to ${formatTimestamp(seconds)}`}>
+            {label}
+          </button>
+        )
+      }
+      return <ExternalAnchor href={href}>{label}</ExternalAnchor>
+    },
+  }
+
+  return (
+    <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
+      {linkifyTimestamps(children)}
     </ReactMarkdown>
   )
 }
 
-export default function PlaybookChapterReader({ chapter, playbook, autoplay = false }: PlaybookChapterReaderProps) {
+export default function PlaybookChapterReader({
+  chapter,
+  playbook,
+  autoplay = false,
+  startSeconds = null,
+  playKey = 0,
+  onJump,
+}: PlaybookChapterReaderProps) {
   const [tab, setTab] = useState<Tab>('notes')
   const videoId = playbook.video_url ? extractYouTubeId(playbook.video_url) : null
   const takeaways = chapter.key_takeaways ?? []
 
   const embedSrc = videoId
-    ? `https://www.youtube.com/embed/${videoId}?start=${chapter.start_seconds}&end=${chapter.end_seconds}&rel=0${autoplay ? '&autoplay=1' : ''}`
+    ? `https://www.youtube.com/embed/${videoId}?start=${startSeconds ?? chapter.start_seconds}&end=${chapter.end_seconds}&rel=0${autoplay ? '&autoplay=1' : ''}`
     : null
 
   return (
@@ -86,7 +130,7 @@ export default function PlaybookChapterReader({ chapter, playbook, autoplay = fa
       <div className="aspect-video rounded-lg overflow-hidden border border-bg-elevated bg-gradient-to-b from-bg-elevated to-bg-primary">
         {embedSrc ? (
           <iframe
-            key={chapter.id}
+            key={`${chapter.id}-${playKey}`}
             src={embedSrc}
             title={`${playbook.title} — ${chapter.title}`}
             className="w-full h-full"
@@ -126,7 +170,7 @@ export default function PlaybookChapterReader({ chapter, playbook, autoplay = fa
         {tab === 'notes' &&
           (chapter.notes_markdown ? (
             <div className="text-text-primary text-[15px] font-normal leading-relaxed space-y-3">
-              <Markdown>{chapter.notes_markdown}</Markdown>
+              <Markdown onJump={onJump}>{chapter.notes_markdown}</Markdown>
             </div>
           ) : (
             <p className="text-sm text-text-muted">No notes for this chapter.</p>
@@ -139,7 +183,7 @@ export default function PlaybookChapterReader({ chapter, playbook, autoplay = fa
                 <li key={i} className="flex gap-2.5 text-text-primary text-[14px] leading-relaxed">
                   <span className="mt-2 w-1.5 h-1.5 shrink-0 rounded-full bg-val-cyan" />
                   <div className="space-y-1">
-                    <Markdown>{t}</Markdown>
+                    <Markdown onJump={onJump}>{t}</Markdown>
                   </div>
                 </li>
               ))}
@@ -153,7 +197,21 @@ export default function PlaybookChapterReader({ chapter, playbook, autoplay = fa
         {tab === 'timeline' &&
           (chapter.transcript_excerpt ? (
             <div className="max-h-[420px] overflow-y-auto whitespace-pre-wrap text-text-secondary text-sm leading-relaxed pr-2">
-              {chapter.transcript_excerpt}
+              {splitTimestamps(chapter.transcript_excerpt).map((segment, i) =>
+                'seconds' in segment && onJump ? (
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={() => onJump(segment.seconds)}
+                    className={timestampClass}
+                    title={`Jump to ${formatTimestamp(segment.seconds)}`}
+                  >
+                    {segment.text}
+                  </button>
+                ) : (
+                  <span key={i}>{segment.text}</span>
+                ),
+              )}
             </div>
           ) : (
             <p className="text-sm text-text-muted">No transcript for this chapter.</p>
