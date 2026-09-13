@@ -1,20 +1,25 @@
 /**
- * Map fundamentals links — one reference URL per map, per user.
+ * Map fundamentals — one choice per map, per user: an external URL or a saved
+ * playbook (Sprint 6b).
  *
  * These belong to the map, not to a review: the fundamentals for Ascent are
  * the same whichever Ascent match you are reviewing. Stored in Supabase so the
- * link follows the account across devices, replacing the original per-review
+ * choice follows the account across devices, replacing the original per-review
  * column plus its localStorage carry-forward.
  */
 
 import { supabase } from './supabase'
 import { normalizeUrl } from './url'
+import { fromFundamentalsRow, toFundamentalsRow, type FundamentalsChoice } from './fundamentalsChoice'
+
+export type { FundamentalsChoice } from './fundamentalsChoice'
 
 export interface MapFundamentals {
   id: string
   user_id: string
   map: string
-  url: string
+  url: string | null
+  playbook_id: string | null
   updated_at: string
 }
 
@@ -26,60 +31,60 @@ async function currentUserId(): Promise<string | null> {
   return data?.user?.id ?? null
 }
 
-/** The stored link for a map, or null when none is set. */
-export async function getMapFundamentals(map: string): Promise<string | null> {
-  if (!map) return null
+/** The stored choice for a map — { kind: 'none' } when nothing is set. */
+export async function getMapFundamentals(map: string): Promise<FundamentalsChoice> {
+  if (!map) return { kind: 'none' }
 
   // Scoped explicitly rather than leaning on RLS alone — a policy gap should
-  // not turn into reading someone else's link.
+  // not turn into reading someone else's choice.
   const userId = await currentUserId()
-  if (!userId) return null
+  if (!userId) return { kind: 'none' }
 
   const { data, error } = await supabase
     .from('map_fundamentals')
-    .select('url')
+    .select('url, playbook_id')
     .eq('user_id', userId)
     .eq('map', map)
     .maybeSingle()
 
   if (error) {
-    console.warn(`[mapFundamentals] read failed for "${map}":`, error.message)
-    return null
+    // Surface it — silently showing "None" would invite overwriting a real choice.
+    throw new Error(error.message)
   }
-  return data?.url ?? null
+  return fromFundamentalsRow(data)
 }
 
 /**
- * Writes the link for a map. A blank value deletes the row, so clearing the
- * field actually forgets the link rather than leaving a stale one behind.
- * Returns the normalized URL that was stored, or null when cleared.
+ * Writes the choice for a map. None (or a blank / unsafe URL) deletes the row,
+ * so clearing actually forgets the choice rather than leaving a stale one.
+ * Returns the choice as stored.
  */
-export async function saveMapFundamentals(map: string, rawUrl: string): Promise<string | null> {
+export async function saveMapFundamentals(map: string, choice: FundamentalsChoice): Promise<FundamentalsChoice> {
   if (!map) throw new Error('Cannot save map fundamentals without a map')
 
   const userId = await currentUserId()
   if (!userId) throw new Error('Not signed in')
 
-  const url = normalizeUrl(rawUrl)
+  const row = toFundamentalsRow(choice)
 
-  if (!url) {
+  if (!row) {
     const { error } = await supabase
       .from('map_fundamentals')
       .delete()
       .eq('user_id', userId)
       .eq('map', map)
     if (error) throw new Error(error.message)
-    return null
+    return { kind: 'none' }
   }
 
   const { error } = await supabase
     .from('map_fundamentals')
     .upsert(
-      { user_id: userId, map, url, updated_at: new Date().toISOString() },
+      { user_id: userId, map, ...row, updated_at: new Date().toISOString() },
       { onConflict: 'user_id,map' },
     )
   if (error) throw new Error(error.message)
-  return url
+  return fromFundamentalsRow(row)
 }
 
 /**

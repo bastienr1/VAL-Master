@@ -81,7 +81,12 @@ export default function PlaybookReader() {
               {playbook.map}
             </Link>
           </nav>
-          <h1 className="font-heading text-3xl font-bold leading-tight">{playbook.title}</h1>
+          <h1 className="font-heading text-3xl font-bold leading-tight">{playbook.name}</h1>
+          {playbook.name !== playbook.title && (
+            <p className="text-xs text-text-muted truncate" title={playbook.title}>
+              {playbook.title}
+            </p>
+          )}
           <p className="text-sm text-text-secondary">
             <span className="font-stats text-text-muted">{subtitle}</span>
             {playbook.description && (

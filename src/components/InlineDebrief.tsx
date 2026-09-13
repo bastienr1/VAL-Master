@@ -1,10 +1,9 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { DEBRIEF_THEMES } from '../lib/commentTags'
-import { normalizeUrl, isSafeUrl } from '../lib/url'
-import { getMapFundamentals, saveMapFundamentals } from '../lib/mapFundamentals'
 import type { VodReview } from '../lib/types'
-import { Star, Save, Check, ExternalLink } from 'lucide-react'
+import { Star, Save, Check } from 'lucide-react'
+import MapFundamentalsPicker from './MapFundamentalsPicker'
 
 interface InlineDebriefProps {
   vodReview: VodReview
@@ -13,13 +12,6 @@ interface InlineDebriefProps {
 }
 
 export default function InlineDebrief({ vodReview, map, onUpdate }: InlineDebriefProps) {
-  // The map link lives on the map, not the review, so it loads and saves on its
-  // own — a bad URL here must never block the rest of the debrief.
-  const [mapFundamentals, setMapFundamentals] = useState('')
-  const [storedFundamentals, setStoredFundamentals] = useState<string | null>(null)
-  const [fundamentalsSaving, setFundamentalsSaving] = useState(false)
-  const [fundamentalsError, setFundamentalsError] = useState<string | null>(null)
-
   const [peakMoment, setPeakMoment] = useState(vodReview.peak_moment || '')
   const [keyLesson, setKeyLesson] = useState(vodReview.key_lesson || '')
   const [themes, setThemes] = useState<string[]>(vodReview.themes ? vodReview.themes.split(',').map(t => t.trim()).filter(Boolean) : [])
@@ -36,41 +28,6 @@ export default function InlineDebrief({ vodReview, map, onUpdate }: InlineDebrie
     setQuality(vodReview.match_quality || 0)
     setNotes(vodReview.notes || '')
   }, [vodReview.id])
-
-  // Load the link for whichever map this match was played on.
-  useEffect(() => {
-    let cancelled = false
-    if (!map) {
-      setMapFundamentals('')
-      setStoredFundamentals(null)
-      return
-    }
-    getMapFundamentals(map).then(url => {
-      if (cancelled) return
-      setStoredFundamentals(url)
-      setMapFundamentals(url ?? '')
-    })
-    return () => { cancelled = true }
-  }, [map])
-
-  const fundamentalsHref = normalizeUrl(mapFundamentals)
-  const fundamentalsInvalid = !isSafeUrl(mapFundamentals)
-  const fundamentalsDirty = mapFundamentals.trim() !== (storedFundamentals ?? '')
-
-  const handleSaveFundamentals = async () => {
-    if (!map || fundamentalsInvalid || !fundamentalsDirty) return
-    setFundamentalsSaving(true)
-    setFundamentalsError(null)
-    try {
-      const saved = await saveMapFundamentals(map, mapFundamentals)
-      setStoredFundamentals(saved)
-      setMapFundamentals(saved ?? '')
-    } catch (err) {
-      setFundamentalsError(err instanceof Error ? err.message : 'Failed to save link')
-    } finally {
-      setFundamentalsSaving(false)
-    }
-  }
 
   const toggleTheme = (theme: string) => {
     setThemes(prev => prev.includes(theme) ? prev.filter(t => t !== theme) : [...prev, theme])
@@ -109,59 +66,8 @@ export default function InlineDebrief({ vodReview, map, onUpdate }: InlineDebrie
     <div className="bg-bg-card border border-bg-elevated rounded-xl p-4 space-y-3">
       <h3 className="text-sm font-heading font-bold text-text-primary">Match Debrief</h3>
 
-      {/* Map fundamentals link — saved per map, not per review */}
-      {map && (
-        <div>
-          <label className="text-[10px] text-text-muted uppercase tracking-wider">
-            Map fundamentals — {map}
-          </label>
-          <div className="flex items-center gap-1.5 mt-1">
-            <input
-              type="url"
-              inputMode="url"
-              value={mapFundamentals}
-              onChange={(e) => setMapFundamentals(e.target.value)}
-              onBlur={() => {
-                const normalized = normalizeUrl(mapFundamentals)
-                if (normalized) setMapFundamentals(normalized)
-              }}
-              placeholder={`Reference link for ${map} — shared by every ${map} review`}
-              className={`flex-1 min-w-0 bg-bg-elevated border rounded-lg px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none ${
-                fundamentalsInvalid
-                  ? 'border-val-red/50 focus:border-val-red/60'
-                  : 'border-bg-card focus:border-val-cyan/30'
-              }`}
-            />
-            {fundamentalsDirty && (
-              <button
-                onClick={handleSaveFundamentals}
-                disabled={fundamentalsInvalid || fundamentalsSaving}
-                title={`Save this link for ${map}`}
-                className="shrink-0 px-2 py-1.5 rounded-lg border border-val-cyan/20 bg-val-cyan/10 text-val-cyan text-[10px] font-medium hover:bg-val-cyan/20 disabled:opacity-40 transition-colors"
-              >
-                {fundamentalsSaving ? 'Saving…' : 'Save link'}
-              </button>
-            )}
-            {fundamentalsHref && (
-              <a
-                href={fundamentalsHref}
-                target="_blank"
-                rel="noopener noreferrer"
-                title="Open map fundamentals in a new tab"
-                className="shrink-0 p-1.5 rounded-lg border border-val-cyan/20 bg-val-cyan/10 text-val-cyan hover:bg-val-cyan/20 transition-colors"
-              >
-                <ExternalLink className="w-4 h-4" />
-              </a>
-            )}
-          </div>
-          {fundamentalsInvalid && (
-            <p className="mt-1 text-[10px] text-val-red">Needs to be an http(s) link with a real domain.</p>
-          )}
-          {fundamentalsError && (
-            <p className="mt-1 text-[10px] text-val-red">{fundamentalsError}</p>
-          )}
-        </div>
-      )}
+      {/* Map fundamentals — a saved playbook or link, per map not per review. Loads and saves on its own. */}
+      {map && <MapFundamentalsPicker map={map} />}
 
       {/* Peak moment */}
       <div>

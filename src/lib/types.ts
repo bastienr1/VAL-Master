@@ -161,6 +161,8 @@ export interface Playbook {
   id: string
   user_id: string
   visibility: 'private' | 'unlisted' | 'public'
+  /** User-chosen display name. Identity stays with slug (from the note title). */
+  name: string
   title: string
   slug: string
   map: string
@@ -176,6 +178,8 @@ export interface Playbook {
   created_at: string
   updated_at: string
 }
+
+export type PlaybookWithCount = Playbook & { chapter_count: number }
 
 export interface PlaybookChapter {
   id: string

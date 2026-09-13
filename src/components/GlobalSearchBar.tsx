@@ -5,7 +5,6 @@ import { BookOpen, Map as MapIcon, Search, Swords } from 'lucide-react'
 import { usePlaybooks } from '../hooks/usePlaybooks'
 import { useMatchSearch } from '../hooks/useMatchSearch'
 import { useGameContent } from '../hooks/useGameContent'
-import { PLAYBOOKS_CHANGED_EVENT } from '../lib/playbookImport'
 
 type ResultType = 'playbook' | 'match' | 'map'
 
@@ -41,7 +40,7 @@ function isTypingTarget(target: EventTarget | null) {
 export default function GlobalSearchBar() {
   const navigate = useNavigate()
   const inputRef = useRef<HTMLInputElement>(null)
-  const { playbooks, reload: reloadPlaybooks } = usePlaybooks()
+  const { playbooks } = usePlaybooks()
   const { matches } = useMatchSearch()
   const { registry } = useGameContent()
 
@@ -49,11 +48,6 @@ export default function GlobalSearchBar() {
   const [query, setQuery] = useState('')
   const [focused, setFocused] = useState(false)
   const [selected, setSelected] = useState(0)
-
-  useEffect(() => {
-    window.addEventListener(PLAYBOOKS_CHANGED_EVENT, reloadPlaybooks)
-    return () => window.removeEventListener(PLAYBOOKS_CHANGED_EVENT, reloadPlaybooks)
-  }, [reloadPlaybooks])
 
   // Debounce typing → query.
   useEffect(() => {
@@ -80,10 +74,10 @@ export default function GlobalSearchBar() {
       ...playbooks.map(p => ({
         type: 'playbook' as const,
         id: p.id,
-        label: p.title,
+        label: p.name,
         sub: [p.map, p.agent, p.side].filter(Boolean).join(' · '),
         route: `/playbook/${p.slug}`,
-        keywords: [p.title, p.map, p.agent].filter(Boolean).join(' '),
+        keywords: [p.name, p.title, p.map, p.agent].filter(Boolean).join(' '),
       })),
       ...matches.map(m => {
         const date = new Date(m.match_date)
