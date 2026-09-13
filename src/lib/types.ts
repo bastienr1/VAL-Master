@@ -157,3 +157,52 @@ export interface RoundScreenshot {
   width: number | null
   height: number | null
 }
+export interface Playbook {
+  id: string
+  user_id: string
+  visibility: 'private' | 'unlisted' | 'public'
+  title: string
+  slug: string
+  map: string
+  agent: string | null
+  side: 'attack' | 'defense' | 'both' | null
+  video_url: string | null
+  video_duration_seconds: number | null
+  description: string | null
+  source: 'obsidian_import' | 'manual' | 'coach_import'
+  source_path: string | null
+  source_last_synced_at: string | null
+  content_hash: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface PlaybookChapter {
+  id: string
+  playbook_id: string
+  chapter_number: number
+  title: string
+  subtitle: string | null
+  start_seconds: number
+  end_seconds: number
+  notes_markdown: string | null
+  key_takeaways: string[] | null
+  transcript_excerpt: string | null
+  related_clip_urls: string[] | null
+  role_context: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface PlaybookImportLog {
+  id: string
+  playbook_id: string | null
+  user_id: string
+  source_path: string
+  action: 'created' | 'updated' | 'unchanged' | 'failed'
+  chapters_added: number
+  chapters_updated: number
+  chapters_removed: number
+  error_message: string | null
+  synced_at: string
+}
