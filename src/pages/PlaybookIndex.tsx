@@ -7,7 +7,8 @@ import { useGameContent } from '../hooks/useGameContent'
 import { usePlaybooks } from '../hooks/usePlaybooks'
 import PlaybookImportButton from '../components/PlaybookImportButton'
 import PlaybookMapCard from '../components/PlaybookMapCard'
-import type { Playbook } from '../lib/types'
+import PlaybookLibrary from '../components/PlaybookLibrary'
+import type { PlaybookWithCount } from '../lib/types'
 
 /** Match counts per map name, for the signed-in user. */
 function useMatchCountsByMap() {
@@ -44,7 +45,7 @@ export default function PlaybookIndex() {
   const cardRefs = useRef(new Map<string, HTMLButtonElement>())
 
   const playbooksByMap = useMemo(() => {
-    const byMap = new Map<string, Playbook[]>()
+    const byMap = new Map<string, PlaybookWithCount[]>()
     for (const p of playbooks) byMap.set(p.map, [...(byMap.get(p.map) ?? []), p])
     return byMap
   }, [playbooks])
@@ -81,6 +82,8 @@ export default function PlaybookIndex() {
         </div>
       )}
 
+      <PlaybookLibrary playbooks={playbooks} loading={loading} />
+
       {selectedMap && selectedPlaybooks.length > 0 && (
         <div className="bg-bg-card border border-bg-elevated rounded-xl p-4">
           <div className="flex items-center justify-between mb-3">
@@ -104,7 +107,7 @@ export default function PlaybookIndex() {
                 className="flex items-center gap-3 py-2 hover:text-val-cyan transition-colors"
               >
                 <BookOpen className="w-4 h-4 text-val-cyan shrink-0" />
-                <span className="flex-1 truncate text-sm">{p.title}</span>
+                <span className="flex-1 truncate text-sm">{p.name}</span>
                 {p.side && <span className="text-[10px] uppercase tracking-wider text-text-muted">{p.side}</span>}
                 {p.video_duration_seconds != null && (
                   <span className="font-stats text-xs text-text-muted">{formatTimestamp(p.video_duration_seconds)}</span>
