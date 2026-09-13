@@ -8,6 +8,8 @@ import MatchLibrary from './pages/MatchLibrary'
 import VodReview from './pages/VodReview'
 import Login from './pages/Login'
 import Settings from './pages/Settings'
+import PlaybookIndex from './pages/PlaybookIndex'
+import PlaybookReader from './pages/PlaybookReader'
 import AppShell from './components/AppShell'
 import { useSession } from './lib/auth'
 import { migrateLegacyLocalLinks } from './lib/mapFundamentals'
@@ -50,6 +52,8 @@ function App() {
           <Route path="/settings" element={<Settings />} />
           <Route path="/review/:matchId" element={<VodReview />} />
           <Route path="/analytics" element={<Dashboard />} />
+          <Route path="/playbook" element={<PlaybookIndex />} />
+          <Route path="/playbook/:slug" element={<PlaybookReader />} />
           {/* Preserved legacy routes — accessible via direct URL */}
           <Route path="/checkin" element={<CheckIn />} />
           <Route path="/tactical" element={<TacticalReads />} />

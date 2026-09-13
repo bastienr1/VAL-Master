@@ -7,6 +7,8 @@ import type { Match } from '../lib/types'
 interface MatchSearchPanelProps {
   isOpen: boolean
   onClose: () => void
+  /** Pre-fills the query when the panel opens (e.g. a map from Playbook). Undefined keeps the last query. */
+  initialQuery?: string
 }
 
 function relativeDate(iso: string): string {
@@ -23,7 +25,7 @@ function relativeDate(iso: string): string {
   return 'just now'
 }
 
-export default function MatchSearchPanel({ isOpen, onClose }: MatchSearchPanelProps) {
+export default function MatchSearchPanel({ isOpen, onClose, initialQuery }: MatchSearchPanelProps) {
   const navigate = useNavigate()
   const location = useLocation()
   const { filtered } = useMatchSearch()
@@ -37,6 +39,13 @@ export default function MatchSearchPanel({ isOpen, onClose }: MatchSearchPanelPr
     const match = location.pathname.match(/^\/review\/(.+)$/)
     return match ? match[1] : null
   }, [location.pathname])
+
+  // A new pre-fill request replaces the query — adjusted during render, not in an effect.
+  const [appliedQuery, setAppliedQuery] = useState(initialQuery)
+  if (isOpen && initialQuery !== appliedQuery) {
+    setAppliedQuery(initialQuery)
+    if (initialQuery !== undefined) setQuery(initialQuery)
+  }
 
   // Auto-focus input + reset selection when panel opens
   useEffect(() => {
