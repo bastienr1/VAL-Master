@@ -25,6 +25,9 @@ const GROUPS: { type: ResultType; label: string; icon: React.ElementType }[] = [
 ]
 
 const MAX_RESULTS = 6
+// Each type keeps a couple of slots so short match labels ("Haven · Raze")
+// can't crowd out a playbook with a long title.
+const RESERVED_PER_TYPE = 2
 
 function isTypingTarget(target: EventTarget | null) {
   return (
@@ -113,10 +116,20 @@ export default function GlobalSearchBar() {
     })
   }, [playbooks, matches, registry])
 
-  // Best MAX_RESULTS hits overall, then grouped for display in a fixed order.
+  // Up to RESERVED_PER_TYPE hits of each type first, then the best remaining
+  // hits overall, capped at MAX_RESULTS and grouped in a fixed order.
   const grouped = useMemo(() => {
     if (!query) return []
-    const hits = fuse.search(query, { limit: MAX_RESULTS }).map(r => r.item)
+    const ranked = fuse.search(query).map(r => r.item)
+    const picked = new Set<SearchItem>()
+    for (const g of GROUPS) {
+      ranked.filter(h => h.type === g.type).slice(0, RESERVED_PER_TYPE).forEach(h => picked.add(h))
+    }
+    for (const h of ranked) {
+      if (picked.size >= MAX_RESULTS) break
+      picked.add(h)
+    }
+    const hits = ranked.filter(h => picked.has(h)).slice(0, MAX_RESULTS)
     return GROUPS.map(g => ({ ...g, items: hits.filter(h => h.type === g.type) })).filter(g => g.items.length)
   }, [fuse, query])
 

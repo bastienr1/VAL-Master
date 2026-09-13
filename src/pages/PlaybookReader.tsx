@@ -1,5 +1,6 @@
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { useState } from 'react'
+import ReactMarkdown from 'react-markdown'
 import { formatTimestamp } from '../lib/playbookParser'
 import { usePlaybookBySlug, usePlaybookChapters } from '../hooks/usePlaybooks'
 import PlaybookChapterList from '../components/PlaybookChapterList'
@@ -83,7 +84,21 @@ export default function PlaybookReader() {
           <h1 className="font-heading text-3xl font-bold leading-tight">{playbook.title}</h1>
           <p className="text-sm text-text-secondary">
             <span className="font-stats text-text-muted">{subtitle}</span>
-            {playbook.description && <span className="block mt-1 line-clamp-2">{playbook.description}</span>}
+            {playbook.description && (
+              <span className="block mt-1 line-clamp-2">
+                {/* Descriptions come from the note's Essence callout, so they carry inline markdown. */}
+                <ReactMarkdown
+                  allowedElements={['p', 'strong', 'em', 'code']}
+                  unwrapDisallowed
+                  components={{
+                    p: ({ children }) => <>{children}</>,
+                    strong: ({ children }) => <strong className="font-semibold text-text-primary">{children}</strong>,
+                  }}
+                >
+                  {playbook.description}
+                </ReactMarkdown>
+              </span>
+            )}
           </p>
         </div>
         <MatchContextCard playbookMap={playbook.map} />
