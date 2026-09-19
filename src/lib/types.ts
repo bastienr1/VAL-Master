@@ -210,3 +210,54 @@ export interface PlaybookImportLog {
   error_message: string | null
   synced_at: string
 }
+
+/**
+ * A pro VOD in the Pro Study section — seeded from Notion, never written by the
+ * app. Carries no Henrik data: a pro match has no round timeline of ours.
+ */
+export interface ReferenceReview {
+  id: string
+  title: string | null
+  player: string
+  team: string | null
+  agent: string | null
+  map: string | null
+  event: string | null
+  /** Bare 11-char YouTube id — the player component wants it unwrapped. */
+  video_id: string
+  youtube_url: string
+  played_at: string | null
+  notes: string | null
+  /** Upsert key for re-seeding from Notion. */
+  notion_page_id: string | null
+  created_at: string
+  updated_at: string | null
+}
+
+/**
+ * A note on a pro VOD. Mirrors the frozen note card anatomy — timestamp,
+ * category chip, text, label — so PPTX exports both review types unchanged.
+ */
+export interface ReferenceNote {
+  id: string
+  reference_review_id: string
+  timestamp_seconds: number
+  category: string | null
+  /** Markdown source, same as `VodComment.free_text`. */
+  text: string
+  label: ReferenceLabel | null
+  /** Schema only in v1 — no linking UI yet. */
+  linked_match_id: string | null
+  linked_tag_id: string | null
+  created_at: string
+}
+
+export type ReferenceLabel = 'Replicate' | 'Concept' | 'Setup' | 'Util'
+
+export interface ReferenceNoteInput {
+  reference_review_id: string
+  timestamp_seconds: number
+  category?: string | null
+  text: string
+  label?: ReferenceLabel | null
+}

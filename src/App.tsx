@@ -10,6 +10,8 @@ import Login from './pages/Login'
 import Settings from './pages/Settings'
 import PlaybookIndex from './pages/PlaybookIndex'
 import PlaybookReader from './pages/PlaybookReader'
+import ProStudyLibrary from './pages/ProStudyLibrary'
+import ProStudyReview from './pages/ProStudyReview'
 import AppShell from './components/AppShell'
 import { useSession } from './lib/auth'
 import { migrateLegacyLocalLinks } from './lib/mapFundamentals'
@@ -54,6 +56,8 @@ function App() {
           <Route path="/analytics" element={<Dashboard />} />
           <Route path="/playbook" element={<PlaybookIndex />} />
           <Route path="/playbook/:slug" element={<PlaybookReader />} />
+          <Route path="/study" element={<ProStudyLibrary />} />
+          <Route path="/study/:id" element={<ProStudyReview />} />
           {/* Preserved legacy routes — accessible via direct URL */}
           <Route path="/checkin" element={<CheckIn />} />
           <Route path="/tactical" element={<TacticalReads />} />
