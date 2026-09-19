@@ -2,7 +2,23 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { GraduationCap } from 'lucide-react'
 import { getAllReviews } from '../lib/referenceReviews'
+import { agentImageFor, mapImageFor } from '../lib/gameContent'
+import { useGameContent } from '../hooks/useGameContent'
+import GameImage from '../components/GameImage'
 import type { ReferenceReview } from '../lib/types'
+
+/**
+ * Seeded rows carry map/agent names only — no ids — so the registry resolves
+ * them by name, exactly as it does for pre-registry match rows. A name it does
+ * not know returns null and `GameImage` shows its placeholder.
+ */
+function mapSrcFor(review: ReferenceReview): string | null {
+  return review.map ? mapImageFor({ map: review.map }) : null
+}
+
+function agentSrcFor(review: ReferenceReview): string | null {
+  return review.agent ? agentImageFor({ agent: review.agent }) : null
+}
 
 /** "12 Mar 2026", or a dash when the Notion row carried no date. */
 function formatPlayedAt(played: string | null): string {
@@ -17,9 +33,11 @@ interface FilterRowProps {
   options: string[]
   selected: string | null
   onSelect: (value: string | null) => void
+  /** Optional per-option thumbnail — agents are quicker to spot by face. */
+  iconFor?: (option: string) => string | null
 }
 
-function FilterRow({ label, options, selected, onSelect }: FilterRowProps) {
+function FilterRow({ label, options, selected, onSelect, iconFor }: FilterRowProps) {
   if (options.length === 0) return null
 
   return (
@@ -33,13 +51,21 @@ function FilterRow({ label, options, selected, onSelect }: FilterRowProps) {
             type="button"
             // Clicking the active chip clears it — no separate "All" chip needed.
             onClick={() => onSelect(active ? null : option)}
-            className={`px-2.5 py-1 rounded-full text-[11px] font-medium border transition-colors ${
+            className={`pl-1 pr-2.5 py-1 rounded-full text-[11px] font-medium border transition-colors flex items-center gap-1.5 ${
               active
                 ? 'bg-val-cyan/10 text-val-cyan border-val-cyan/30'
                 : 'bg-transparent text-text-muted border-bg-elevated hover:border-text-muted'
             }`}
           >
-            {option}
+            {iconFor && (
+              <GameImage
+                kind="agent"
+                src={iconFor(option)}
+                alt=""
+                className="w-4 h-4 rounded-full shrink-0"
+              />
+            )}
+            <span className={iconFor ? '' : 'pl-1.5'}>{option}</span>
           </button>
         )
       })}
@@ -48,40 +74,52 @@ function FilterRow({ label, options, selected, onSelect }: FilterRowProps) {
 }
 
 function ReviewCard({ review }: { review: ReferenceReview }) {
+  // Only 5 of 70 seeded rows carry a date and none carry an event, so neither
+  // gets a permanent slot — they sit over the splash when they exist, and the
+  // card keeps one height either way.
+  const stamp = review.played_at ? formatPlayedAt(review.played_at) : review.event
+
   return (
     <Link
       to={`/study/${review.id}`}
-      className="block bg-bg-card border border-bg-elevated rounded-xl p-4 hover:border-val-cyan/40 transition-colors"
+      className="group block bg-bg-card border border-bg-elevated rounded-xl overflow-hidden hover:border-val-cyan/30 transition-all"
     >
-      <div className="flex items-start gap-2 mb-2">
-        <h3 className="font-heading font-bold text-lg leading-tight text-text-primary min-w-0 truncate">
-          {review.player}
-        </h3>
+      <div className="relative h-28">
+        <GameImage
+          kind="map"
+          src={mapSrcFor(review)}
+          alt={review.map ?? 'Unknown map'}
+          className="absolute inset-0 w-full h-full object-cover opacity-40 group-hover:opacity-50 transition-opacity"
+        />
+        <div className="absolute inset-0 bg-gradient-to-t from-bg-card to-transparent" />
+
         {review.team && (
-          <span className="shrink-0 px-1.5 py-0.5 rounded bg-bg-elevated text-text-secondary text-[10px] font-medium">
+          <span className="absolute top-2 left-3 px-1.5 py-0.5 rounded bg-bg-primary/70 text-text-secondary text-[10px] font-medium">
             {review.team}
           </span>
         )}
-      </div>
-
-      <div className="flex flex-wrap gap-1.5 mb-3">
-        {review.agent && (
-          <span className="px-2 py-0.5 rounded-full bg-val-cyan/10 text-val-cyan border border-val-cyan/20 text-[10px] font-medium">
-            {review.agent}
+        {stamp && (
+          <span className="absolute top-2 right-3 font-stats text-[10px] text-text-secondary">
+            {stamp}
           </span>
         )}
-        {review.map && (
-          <span className="px-2 py-0.5 rounded-full bg-bg-elevated text-text-secondary text-[10px] font-medium">
-            {review.map}
-          </span>
-        )}
-      </div>
 
-      <div className="flex items-center gap-2">
-        <span className="font-stats text-[10px] text-text-muted">{formatPlayedAt(review.played_at)}</span>
-        {review.event && (
-          <span className="text-[10px] text-text-muted truncate min-w-0">· {review.event}</span>
-        )}
+        <div className="absolute bottom-2 left-3 right-3 flex items-center gap-2 min-w-0">
+          <GameImage
+            kind="agent"
+            src={agentSrcFor(review)}
+            alt={review.agent ?? 'Unknown agent'}
+            className="w-10 h-10 rounded-full border-2 border-bg-card shrink-0"
+          />
+          <div className="min-w-0">
+            <div className="font-heading font-bold text-base leading-tight text-text-primary truncate">
+              {review.player}
+            </div>
+            <div className="text-[11px] text-text-secondary truncate">
+              {[review.agent, review.map].filter(Boolean).join(' · ') || 'Pro VOD'}
+            </div>
+          </div>
+        </div>
       </div>
     </Link>
   )
@@ -91,6 +129,10 @@ export default function ProStudyLibrary() {
   const [reviews, setReviews] = useState<ReferenceReview[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+
+  // Mounted so the grid re-renders once the registry lands; resolution itself
+  // is synchronous against the shared cache.
+  useGameContent()
 
   const [player, setPlayer] = useState<string | null>(null)
   const [map, setMap] = useState<string | null>(null)
@@ -177,7 +219,13 @@ export default function ProStudyLibrary() {
           <div className="space-y-2">
             <FilterRow label="Player" options={options.players} selected={player} onSelect={setPlayer} />
             <FilterRow label="Map" options={options.maps} selected={map} onSelect={setMap} />
-            <FilterRow label="Agent" options={options.agents} selected={agent} onSelect={setAgent} />
+            <FilterRow
+              label="Agent"
+              options={options.agents}
+              selected={agent}
+              onSelect={setAgent}
+              iconFor={name => agentImageFor({ agent: name })}
+            />
           </div>
 
           {filtered.length === 0 ? (

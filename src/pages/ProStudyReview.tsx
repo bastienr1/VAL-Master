@@ -4,6 +4,9 @@ import { ArrowLeft, Clock, ExternalLink, Pause, Play, SkipBack, SkipForward } fr
 import ReferenceCapturePanel from '../components/ReferenceCapturePanel'
 import ReferenceNotesPanel from '../components/ReferenceNotesPanel'
 import { useSplitter, SplitterHandle } from '../components/ColumnSplitter'
+import GameImage from '../components/GameImage'
+import { agentImageFor, mapImageFor } from '../lib/gameContent'
+import { useGameContent } from '../hooks/useGameContent'
 import { useYouTubePlayer } from '../hooks/useYouTubePlayer'
 import { deleteNote, getNotes, getReview } from '../lib/referenceReviews'
 import { REFERENCE_LABEL_COLORS, hexWithAlpha } from '../lib/tagColors'
@@ -78,6 +81,9 @@ export default function ProStudyReview() {
 
   const [captureOpen, setCaptureOpen] = useState(false)
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null)
+
+  // Mounted so the header re-renders once the registry lands.
+  useGameContent()
 
   const {
     containerRef, ready, isPlaying, currentTime, duration, embedBlocked,
@@ -234,28 +240,45 @@ export default function ProStudyReview() {
         </span>
       </div>
 
-      {/* Header card */}
-      <div className="bg-bg-card border border-bg-elevated rounded-xl px-4 py-3 flex flex-wrap items-center gap-2">
-        <h1 className="font-heading text-lg font-bold tracking-wide">{review.player}</h1>
-        {review.team && (
-          <span className="px-1.5 py-0.5 rounded bg-bg-elevated text-text-secondary text-[10px] font-medium">
-            {review.team}
-          </span>
-        )}
-        {review.agent && (
-          <span className="px-2 py-0.5 rounded-full bg-val-cyan/10 text-val-cyan border border-val-cyan/20 text-[10px] font-medium">
-            {review.agent}
-          </span>
-        )}
-        {review.map && (
-          <span className="px-2 py-0.5 rounded-full bg-bg-elevated text-text-secondary text-[10px] font-medium">
-            {review.map}
-          </span>
-        )}
-        {review.event && <span className="text-[11px] text-text-muted">{review.event}</span>}
-        {review.played_at && (
-          <span className="font-stats text-[10px] text-text-muted ml-auto">{review.played_at}</span>
-        )}
+      {/* Header card — map splash behind, agent portrait in front */}
+      <div className="relative bg-bg-card border border-bg-elevated rounded-xl overflow-hidden">
+        <GameImage
+          kind="map"
+          src={review.map ? mapImageFor({ map: review.map }) : null}
+          alt=""
+          className="absolute inset-0 w-full h-full object-cover opacity-45"
+        />
+        {/* Opaque under the text, clearing to the right so the map stays readable. */}
+        <div className="absolute inset-0 bg-gradient-to-r from-bg-card via-bg-card/90 to-bg-card/25" />
+
+        <div className="relative px-4 py-3 flex flex-wrap items-center gap-2.5">
+          <GameImage
+            kind="agent"
+            src={review.agent ? agentImageFor({ agent: review.agent }) : null}
+            alt={review.agent ?? 'Unknown agent'}
+            className="w-11 h-11 rounded-full border-2 border-bg-elevated shrink-0"
+          />
+          <h1 className="font-heading text-lg font-bold tracking-wide">{review.player}</h1>
+          {review.team && (
+            <span className="px-1.5 py-0.5 rounded bg-bg-elevated text-text-secondary text-[10px] font-medium">
+              {review.team}
+            </span>
+          )}
+          {review.agent && (
+            <span className="px-2 py-0.5 rounded-full bg-val-cyan/10 text-val-cyan border border-val-cyan/20 text-[10px] font-medium">
+              {review.agent}
+            </span>
+          )}
+          {review.map && (
+            <span className="px-2 py-0.5 rounded-full bg-bg-elevated text-text-secondary text-[10px] font-medium">
+              {review.map}
+            </span>
+          )}
+          {review.event && <span className="text-[11px] text-text-muted">{review.event}</span>}
+          {review.played_at && (
+            <span className="font-stats text-[10px] text-text-muted ml-auto">{review.played_at}</span>
+          )}
+        </div>
       </div>
 
       <div className="flex gap-4">
