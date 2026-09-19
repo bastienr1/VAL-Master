@@ -12,12 +12,19 @@ import type { ReferenceNote, ReferenceNoteInput, ReferenceReview } from './types
  * the other seeded content tables. Revisit at Phase 2 auth.
  */
 
-/** Newest pro VODs first; rows with no date sort last. */
+/**
+ * Newest pro VODs first; rows with no date sort last.
+ *
+ * Most of the Notion rows carry no Date (5 of 70 at first seed), so the tail of
+ * the list is really ordered by player — without that secondary key the bulk of
+ * the library would shuffle between loads.
+ */
 export async function getAllReviews(): Promise<ReferenceReview[]> {
   const { data, error } = await supabase
     .from('reference_reviews')
     .select('*')
     .order('played_at', { ascending: false, nullsFirst: false })
+    .order('player', { ascending: true })
 
   if (error) throw new Error(error.message)
   return data ?? []

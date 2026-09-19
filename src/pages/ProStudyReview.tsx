@@ -10,8 +10,6 @@ import { REFERENCE_LABEL_COLORS, hexWithAlpha } from '../lib/tagColors'
 import { formatTime } from '../lib/youtube'
 import type { ReferenceNote, ReferenceReview } from '../lib/types'
 
-const PLAYER_ELEMENT_ID = 'pro-study-player'
-
 /**
  * Note-anchored timeline.
  *
@@ -82,9 +80,9 @@ export default function ProStudyReview() {
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null)
 
   const {
-    ready, isPlaying, currentTime, duration, embedBlocked,
+    containerRef, ready, isPlaying, currentTime, duration, embedBlocked,
     togglePlay, seek, seekTo, pause,
-  } = useYouTubePlayer(PLAYER_ELEMENT_ID, review?.video_id ?? null)
+  } = useYouTubePlayer(review?.video_id ?? null)
 
   useEffect(() => {
     if (!id) return
@@ -264,7 +262,7 @@ export default function ProStudyReview() {
         {/* === LEFT: video + controls === */}
         <div className="flex-1 min-w-0 space-y-3">
           <div className="relative w-full bg-black rounded-xl overflow-hidden" style={{ paddingBottom: '56.25%' }}>
-            <div id={PLAYER_ELEMENT_ID} className="absolute inset-0 w-full h-full" />
+            <div ref={containerRef} className="absolute inset-0 w-full h-full" />
           </div>
 
           {/* Embed refused by the channel — link out, same pattern as the Valoplant row. */}
@@ -273,7 +271,7 @@ export default function ProStudyReview() {
               <ExternalLink className="w-4 h-4 text-val-yellow shrink-0" />
               <div className="min-w-0">
                 <p className="text-xs text-text-secondary">
-                  <strong className="text-val-yellow">This channel blocks embedding.</strong> Notes still save — watch it on YouTube.
+                  <strong className="text-val-yellow">This one won't play here.</strong> The channel blocks embedding, or the video is gone. Notes still save.
                 </p>
                 <a
                   href={review.youtube_url}

@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { EMBED_BLOCKED_CODES, loadYouTubeApi, type YTPlayer } from '../lib/youtube'
 
 interface UseYouTubePlayerResult {
+  /** Attach to the element the player should mount into. */
+  containerRef: (node: HTMLDivElement | null) => void
   ready: boolean
   isPlaying: boolean
   currentTime: number
@@ -16,15 +18,26 @@ interface UseYouTubePlayerResult {
 }
 
 /**
- * Mounts a YouTube IFrame player into `elementId` and tracks its state.
+ * Mounts a YouTube IFrame player into the element given `containerRef` and
+ * tracks its state.
  *
  * The same player lifecycle the VOD workstation has run since Sprint 5b, with
- * an `onError` hook added: pro broadcast channels disable embedding, and the
- * Pro Study screen needs to notice and link out instead of showing a dead box.
+ * two changes. An `onError` hook, because pro broadcast channels disable
+ * embedding and the Pro Study screen needs to notice and link out rather than
+ * show a dead box. And the mount target arrives as a callback ref rather than
+ * an element id, so the effect waits for the element to actually exist: a page
+ * that sets its video before it drops its loading spinner would otherwise run
+ * this effect one render too early, find nothing by id, and never retry.
  */
-export function useYouTubePlayer(elementId: string, videoId: string | null): UseYouTubePlayerResult {
+export function useYouTubePlayer(videoId: string | null): UseYouTubePlayerResult {
   const playerRef = useRef<YTPlayer | null>(null)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  // State, not a ref: the mount effect has to re-run when the element appears.
+  const [container, setContainer] = useState<HTMLDivElement | null>(null)
+  const containerRef = useCallback((node: HTMLDivElement | null) => {
+    setContainer(node)
+  }, [])
 
   const [ready, setReady] = useState(false)
   const [isPlaying, setIsPlaying] = useState(false)
@@ -46,20 +59,20 @@ export function useYouTubePlayer(elementId: string, videoId: string | null): Use
   }
 
   useEffect(() => {
-    if (!videoId) return
+    if (!videoId || !container) return
 
     let disposed = false
 
     const initPlayer = () => {
       // The effect can be torn down while the API script is still loading.
-      if (disposed || !document.getElementById(elementId)) return
+      if (disposed) return
 
       if (playerRef.current) {
         try { playerRef.current.destroy() } catch { /* ignore */ }
         playerRef.current = null
       }
 
-      playerRef.current = new window.YT.Player(elementId, {
+      playerRef.current = new window.YT.Player(container, {
         videoId,
         playerVars: {
           autoplay: 0,
@@ -82,16 +95,17 @@ export function useYouTubePlayer(elementId: string, videoId: string | null): Use
       })
     }
 
-    loadYouTubeApi(initPlayer)
+    const cancelApiWait = loadYouTubeApi(initPlayer)
 
     return () => {
       disposed = true
+      cancelApiWait()
       if (playerRef.current) {
         try { playerRef.current.destroy() } catch { /* ignore */ }
         playerRef.current = null
       }
     }
-  }, [elementId, videoId])
+  }, [container, videoId])
 
   // Poll the playhead only while it is actually moving.
   useEffect(() => {
@@ -131,5 +145,8 @@ export function useYouTubePlayer(elementId: string, videoId: string | null): Use
     playerRef.current?.pauseVideo()
   }, [])
 
-  return { ready, isPlaying, currentTime, duration, embedBlocked, togglePlay, seek, seekTo, pause }
+  return {
+    containerRef, ready, isPlaying, currentTime, duration, embedBlocked,
+    togglePlay, seek, seekTo, pause,
+  }
 }

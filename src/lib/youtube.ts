@@ -12,7 +12,9 @@ declare global {
   interface Window {
     YT: {
       Player: new (
-        elementId: string,
+        // The API accepts an id or the element itself; callers that can hold a
+        // ref should pass the element and skip the id lookup entirely.
+        element: string | HTMLElement,
         config: {
           videoId: string
           playerVars?: Record<string, unknown>
@@ -60,17 +62,56 @@ export function formatTime(seconds: number): string {
   return `${mins}:${secs.toString().padStart(2, '0')}`
 }
 
-/** Loads the IFrame API once, then runs `onReady` (immediately if already loaded). */
-export function loadYouTubeApi(onReady: () => void): void {
-  if (window.YT && window.YT.Player) {
+/**
+ * Loads the IFrame API once, then runs `onReady` (immediately if already loaded).
+ * Returns a canceller — call it from an effect cleanup so a torn-down mount
+ * stops waiting.
+ *
+ * `onYouTubeIframeAPIReady` is a one-shot global, which is not enough on its
+ * own. Under StrictMode every component mounts twice, and once the script is
+ * warm in cache it can finish loading *between* the two mounts: YouTube then
+ * fires the callback at the first mount's handler, which has already been torn
+ * down, and never fires again — leaving the second, live mount waiting forever
+ * on a black box. So we also chain any handler already registered (several
+ * players may be waiting) and poll for readiness as the backstop. Whichever
+ * path wins, `onReady` runs exactly once.
+ */
+export function loadYouTubeApi(onReady: () => void): () => void {
+  let settled = false
+  let stopPolling = () => {}
+
+  const fire = () => {
+    if (settled) return
+    settled = true
+    stopPolling()
     onReady()
-    return
   }
-  window.onYouTubeIframeAPIReady = onReady
+
+  if (window.YT && window.YT.Player) {
+    fire()
+    return () => {}
+  }
+
+  const previous = window.onYouTubeIframeAPIReady
+  window.onYouTubeIframeAPIReady = () => {
+    previous?.()
+    fire()
+  }
+
   if (!document.getElementById('yt-api-script')) {
     const tag = document.createElement('script')
     tag.id = 'yt-api-script'
     tag.src = 'https://www.youtube.com/iframe_api'
     document.head.appendChild(tag)
+  }
+
+  const poll = setInterval(() => {
+    if (window.YT && window.YT.Player) fire()
+  }, 50)
+  stopPolling = () => clearInterval(poll)
+
+  return () => {
+    settled = true
+    clearInterval(poll)
   }
 }

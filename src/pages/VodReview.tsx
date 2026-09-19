@@ -213,9 +213,10 @@ export default function VodReview() {
       })
     }
 
-    loadYouTubeApi(initPlayer)
+    const cancelApiWait = loadYouTubeApi(initPlayer)
 
     return () => {
+      cancelApiWait()
       if (playerRef.current) {
         try { playerRef.current.destroy() } catch { /* ignore */ }
         playerRef.current = null
