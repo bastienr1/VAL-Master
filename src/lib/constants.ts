@@ -47,3 +47,10 @@ export const TACTICAL_INTENTS = [
 
 // tracker.gg match reports are keyed by the Riot match UUID alone — no region segment.
 export const TRN_MATCH_BASE = 'https://tracker.gg/valorant/match'
+
+/**
+ * Pro Study note labels — replication-oriented, unlike the own-match tag types
+ * in `tagColors.ts`. Studying a pro is about modeling what to copy, not
+ * cataloguing mistakes.
+ */
+export const REFERENCE_LABELS = ['Replicate', 'Concept', 'Setup', 'Util'] as const

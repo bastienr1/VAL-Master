@@ -49,3 +49,15 @@ export function hexWithAlpha(hex: string, alpha: number): string {
   const byte = Math.round(a * 255).toString(16).padStart(2, '0')
   return `${hex}${byte}`
 }
+
+/**
+ * Pro Study label colours. Reuses the existing palette so a reference note card
+ * reads as the same object as a match note card — Util borrows the utility
+ * orange, Replicate the strength green.
+ */
+export const REFERENCE_LABEL_COLORS: Record<string, string> = {
+  Replicate: '#3DD598',
+  Concept: '#53CADC',
+  Setup: '#FFCA3A',
+  Util: '#F97316',
+}

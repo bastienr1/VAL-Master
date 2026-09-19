@@ -12,68 +12,14 @@ import ValoplantReplayPanel from '../components/ValoplantReplayPanel'
 import NotesPanel from '../components/NotesPanel'
 import { useSplitter, SplitterHandle } from '../components/ColumnSplitter'
 import { resolveRoundFromTimestamp } from '../lib/roundResolver'
+// Player plumbing moved to lib/youtube.ts in the Pro Study sprint so both
+// review screens share one implementation. Behaviour here is unchanged.
+import { extractYouTubeId, formatTime, loadYouTubeApi, type YTPlayer } from '../lib/youtube'
 import {
   ArrowLeft, Play, Pause,
   SkipBack, SkipForward, Link as LinkIcon, Check, Clock, Film,
   Zap,
 } from 'lucide-react'
-
-// YouTube IFrame API types
-declare global {
-  interface Window {
-    YT: {
-      Player: new (
-        elementId: string,
-        config: {
-          videoId: string
-          playerVars?: Record<string, unknown>
-          events?: {
-            onReady?: (event: { target: YTPlayer }) => void
-            onStateChange?: (event: { data: number; target: YTPlayer }) => void
-          }
-        }
-      ) => YTPlayer
-      PlayerState: {
-        PLAYING: number
-        PAUSED: number
-        BUFFERING: number
-        ENDED: number
-        CUED: number
-      }
-    }
-    onYouTubeIframeAPIReady: (() => void) | undefined
-  }
-}
-
-interface YTPlayer {
-  seekTo: (seconds: number, allowSeekAhead: boolean) => void
-  getCurrentTime: () => number
-  getDuration: () => number
-  getPlayerState: () => number
-  pauseVideo: () => void
-  playVideo: () => void
-  destroy: () => void
-}
-
-function extractYouTubeId(url: string): string | null {
-  const patterns = [
-    /(?:youtube\.com\/watch\?v=)([\w-]{11})/,
-    /(?:youtu\.be\/)([\w-]{11})/,
-    /(?:youtube\.com\/embed\/)([\w-]{11})/,
-    /(?:youtube\.com\/shorts\/)([\w-]{11})/,
-  ]
-  for (const pattern of patterns) {
-    const match = url.match(pattern)
-    if (match) return match[1]
-  }
-  return null
-}
-
-function formatTime(seconds: number): string {
-  const mins = Math.floor(seconds / 60)
-  const secs = Math.floor(seconds % 60)
-  return `${mins}:${secs.toString().padStart(2, '0')}`
-}
 
 export default function VodReview() {
   const { matchId } = useParams<{ matchId: string }>()
@@ -267,19 +213,10 @@ export default function VodReview() {
       })
     }
 
-    if (window.YT && window.YT.Player) {
-      initPlayer()
-    } else {
-      window.onYouTubeIframeAPIReady = initPlayer
-      if (!document.getElementById('yt-api-script')) {
-        const tag = document.createElement('script')
-        tag.id = 'yt-api-script'
-        tag.src = 'https://www.youtube.com/iframe_api'
-        document.head.appendChild(tag)
-      }
-    }
+    const cancelApiWait = loadYouTubeApi(initPlayer)
 
     return () => {
+      cancelApiWait()
       if (playerRef.current) {
         try { playerRef.current.destroy() } catch { /* ignore */ }
         playerRef.current = null

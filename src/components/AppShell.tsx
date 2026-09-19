@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
-import { List, BarChart3, BookOpen, Tag, LogOut, RefreshCw, Settings as SettingsIcon } from 'lucide-react'
+import { List, BarChart3, BookOpen, GraduationCap, Tag, LogOut, RefreshCw, Settings as SettingsIcon } from 'lucide-react'
 import { signOut, useSession } from '../lib/auth'
 import { useLoadLatest } from '../hooks/useLoadLatest'
 import { MatchSearchPanelContext } from '../hooks/useMatchSearchPanel'
@@ -165,6 +165,9 @@ export default function AppShell({ children }: AppShellProps) {
             </NavLink>
             <NavLink to="/playbook" className={railLinkClass} title="Playbook">
               <BookOpen className="w-4 h-4" />
+            </NavLink>
+            <NavLink to="/study" className={railLinkClass} title="Pro Study">
+              <GraduationCap className="w-4 h-4" />
             </NavLink>
             <NavLink to="/settings" className={railLinkClass} title="Settings">
               <SettingsIcon className="w-4 h-4" />
