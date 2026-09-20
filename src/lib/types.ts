@@ -368,3 +368,50 @@ export interface ReferenceNoteInput {
   text: string
   label?: ReferenceLabel | null
 }
+
+// ----------------------------------------------------------------- moment tags
+
+/** The two review surfaces a moment tag can be applied on. */
+export type ReviewSurface = 'vod' | 'reference'
+
+/**
+ * Which review a moment belongs to.
+ *
+ * `id` is text on both sides because the two surfaces key differently: a vod
+ * review is addressed by `matches.match_id` (a Riot UUID string), a Pro Study
+ * review by `reference_reviews.id`. One text supertype covers both.
+ */
+export interface ReviewRef {
+  type: ReviewSurface
+  id: string
+}
+
+/**
+ * A tag in the user's own vocabulary — one pool shared by both surfaces, so a
+ * tag created while reviewing a pro VOD is there on an own-match review too.
+ */
+export interface ReviewTag {
+  id: string
+  created_at: string
+  user_id: string
+  name: string
+  color: string
+}
+
+/**
+ * One application of a tag to a moment in a review.
+ *
+ * `note_id` is nullable and carries no foreign key: it points at `vod_comments`
+ * or `reference_notes` depending on `review_type`, and a column cannot reference
+ * two tables. A moment tag with no note is the quick-drop case.
+ */
+export interface MomentTag {
+  id: string
+  created_at: string
+  user_id: string
+  tag_id: string
+  review_type: ReviewSurface
+  review_id: string
+  video_ts: number
+  note_id: string | null
+}
