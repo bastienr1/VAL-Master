@@ -194,8 +194,31 @@ export interface PlaybookChapter {
   transcript_excerpt: string | null
   related_clip_urls: string[] | null
   role_context: string | null
+  /**
+   * 1 = chapter, 2 = sub-chapter. Two levels, hard cap.
+   *
+   * `chapter_number` stays a flat sequence across both depths — it is the
+   * re-import matching key and what `?chapter=N` addresses — so a sub-chapter
+   * points at its parent by number rather than by id.
+   */
+  depth: 1 | 2
+  parent_chapter_number: number | null
   created_at: string
   updated_at: string
+}
+
+/**
+ * A pro VOD attached to one of the user's matches.
+ *
+ * `match_id` is text (`matches.match_id`, a Riot UUID) rather than a key into
+ * `matches.id`, matching how the other match-scoped tables address a match.
+ */
+export interface MatchProReference {
+  id: string
+  user_id: string | null
+  match_id: string
+  reference_review_id: string
+  created_at: string
 }
 
 export interface PlaybookImportLog {

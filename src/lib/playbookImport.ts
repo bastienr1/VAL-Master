@@ -1,6 +1,11 @@
 import { supabase } from './supabase'
 import { loadGameContent } from './gameContent'
-import { parsePlaybookMarkdown, type ParsedChapter, type ParsedPlaybook } from './playbookParser'
+import {
+  PARSER_VERSION,
+  parsePlaybookMarkdown,
+  type ParsedChapter,
+  type ParsedPlaybook,
+} from './playbookParser'
 import { notifyPlaybooksChanged, validatePlaybookName } from './playbooks'
 import type { PlaybookImportLog } from './types'
 
@@ -102,7 +107,10 @@ export async function preparePlaybookImport(
       playbook: { ...playbook, map },
       chapters,
       sourcePath,
-      contentHash: await sha256Base64(markdown),
+      // The parser version joins the hash input, so a parser change that alters
+      // the chapter shape re-imports every existing playbook once instead of
+      // no-opping on an unchanged note.
+      contentHash: await sha256Base64(`v${PARSER_VERSION}\n${markdown}`),
       existing: existing
         ? { id: existing.id, name: existing.name, slug: existing.slug, contentHash: existing.content_hash }
         : null,
