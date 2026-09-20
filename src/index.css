@@ -40,3 +40,20 @@
     font-weight: 600;
   }
 }
+
+/**
+ * While a column splitter is dragging.
+ *
+ * The iframe rule is the important one: a YouTube player sits beside every
+ * splitter in this app, and once the pointer crosses it the iframe swallows the
+ * events and the drag dies mid-gesture. Disabling pointer events on iframes for
+ * the duration keeps the pointer stream on the handle.
+ */
+body.vm-resizing {
+  cursor: col-resize;
+  user-select: none;
+}
+
+body.vm-resizing iframe {
+  pointer-events: none;
+}
