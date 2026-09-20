@@ -5,6 +5,7 @@ import {
   listCandidateReferences,
   listProReferencesForMatch,
   listReviewMarkers,
+  markerSummary,
   removeProReference,
   type CandidateGroups,
   type ProReferenceRow,
@@ -86,8 +87,6 @@ function AttachedProVod({ row, onRemove }: { row: ProReferenceRow; onRemove: () 
     }
   }, [open, markers, row.reference_review_id])
 
-  const noteMarkers = markers?.filter(m => m.kind === 'note') ?? []
-  const tagMarkers = markers?.filter(m => m.kind === 'tag') ?? []
 
   return (
     <div className="bg-bg-elevated border border-bg-card rounded-lg">
@@ -146,24 +145,14 @@ function AttachedProVod({ row, onRemove }: { row: ProReferenceRow; onRemove: () 
               className="w-full bg-bg-card border border-bg-elevated rounded-lg px-2.5 py-1 text-[12px] text-text-primary focus:outline-none focus:border-val-cyan/30"
             >
               <option value="">Start from the beginning</option>
-              {noteMarkers.length > 0 && (
-                <optgroup label={`Notes (${noteMarkers.length})`}>
-                  {noteMarkers.map(m => (
-                    <option key={m.key} value={m.seconds}>
-                      {formatTimestamp(m.seconds)} · {m.label}
-                    </option>
-                  ))}
-                </optgroup>
-              )}
-              {tagMarkers.length > 0 && (
-                <optgroup label={`Tags (${tagMarkers.length})`}>
-                  {tagMarkers.map(m => (
-                    <option key={m.key} value={m.seconds}>
-                      {formatTimestamp(m.seconds)} · {m.label}
-                    </option>
-                  ))}
-                </optgroup>
-              )}
+              {/* One row per marked second — a moment tagged DEFENSE, A and
+                  ATTACK is one moment described three ways, not three rows
+                  that all seek to the same place. */}
+              {markers.map(m => (
+                <option key={m.key} value={m.seconds}>
+                  {formatTimestamp(m.seconds)} · {markerSummary(m)}
+                </option>
+              ))}
             </select>
           ) : (
             <p className="text-[11px] text-text-muted">
