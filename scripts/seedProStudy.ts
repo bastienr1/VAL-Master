@@ -168,6 +168,57 @@ function column(page: NotionPage, name: string): NotionProperty | undefined {
   return key ? page.properties[key] : undefined
 }
 
+/**
+ * Notion's map and agent names, canonicalised against the game content registry.
+ *
+ * The Notion database is typed in caps (`HAVEN`, `JETT`) while every other table
+ * carries Riot's own casing (`Haven`, `Jett`). Left alone, the two never compare
+ * equal — measured at 0 of 11 maps and 0 of 10 agents — which silently empties
+ * anything that joins pro VODs to a match. Normalising on import is the same
+ * thing `playbookImport.ts` does with its map name.
+ *
+ * Only maps and agents are touched. Player handles and team names have no
+ * registry and no derivable casing (`yay` is lowercase, `TenZ` is camel, `NRG`
+ * and `100T` are genuinely upper), so guessing would make them worse.
+ *
+ * Names are read straight from valorant-api.com rather than through
+ * `src/lib/gameContent.ts`: that module reads `import.meta.env` and pulls in the
+ * browser Supabase client, neither of which exists under Node.
+ */
+type Canonicaliser = (kind: 'map' | 'agent', name: string | null) => string | null
+
+async function fetchDisplayNames(endpoint: string): Promise<Map<string, string>> {
+  const res = await fetch(`https://valorant-api.com/v1/${endpoint}`)
+  if (!res.ok) throw new Error(`valorant-api ${endpoint} → ${res.status} ${res.statusText}`)
+  const body = (await res.json()) as { data?: Array<{ displayName?: string }> }
+
+  const names = new Map<string, string>()
+  for (const entry of body.data ?? []) {
+    const name = entry.displayName?.trim()
+    if (name) names.set(name.toLowerCase(), name)
+  }
+  return names
+}
+
+async function buildCanonicaliser(): Promise<Canonicaliser> {
+  let maps = new Map<string, string>()
+  let agents = new Map<string, string>()
+
+  try {
+    ;[maps, agents] = await Promise.all([fetchDisplayNames('maps'), fetchDisplayNames('agents')])
+    console.log(`  canonical names: ${maps.size} maps / ${agents.size} agents from valorant-api`)
+  } catch (err) {
+    // A naming pass is not worth failing a seed over.
+    console.warn(`  warn  valorant-api unreachable — names kept as Notion has them (${err})`)
+  }
+
+  return (kind, name) => {
+    if (!name) return name
+    const table = kind === 'map' ? maps : agents
+    return table.get(name.trim().toLowerCase()) ?? name
+  }
+}
+
 interface ReferenceReviewRow {
   title: string
   player: string
@@ -183,7 +234,11 @@ interface ReferenceReviewRow {
   updated_at: string
 }
 
-function mapRow(page: NotionPage, warnings: string[]): ReferenceReviewRow | { skip: string } {
+function mapRow(
+  page: NotionPage,
+  warnings: string[],
+  canonical: Canonicaliser,
+): ReferenceReviewRow | { skip: string } {
   const linkProperty =
     column(page, 'Match Link') ?? Object.values(page.properties).find(p => p.type === 'title')
   const youtubeUrl = extractUrl(linkProperty)
@@ -214,12 +269,16 @@ function mapRow(page: NotionPage, warnings: string[]): ReferenceReviewRow | { sk
   const playerName = player.value ?? 'Unknown'
   const dateProperty = column(page, 'Date')
 
+  // Notion types these in caps; the rest of the database uses Riot's casing.
+  const mapName = canonical('map', map.value)
+  const agentName = canonical('agent', agent.value)
+
   return {
-    title: `${playerName} — ${map.value ?? 'Unknown map'}`,
+    title: `${playerName} — ${mapName ?? 'Unknown map'}`,
     player: playerName,
     team: team.value,
-    agent: agent.value,
-    map: map.value,
+    agent: agentName,
+    map: mapName,
     event: event.value,
     video_id: videoId,
     youtube_url: youtubeUrl,
@@ -236,12 +295,14 @@ async function main() {
   console.log('Fetching rows from Notion…')
   const pages = await fetchAllRows()
 
+  const canonical = await buildCanonicaliser()
+
   const warnings: string[] = []
   const skipped: string[] = []
   const rows: ReferenceReviewRow[] = []
 
   for (const page of pages) {
-    const mapped = mapRow(page, warnings)
+    const mapped = mapRow(page, warnings, canonical)
     if ('skip' in mapped) {
       skipped.push(`${page.id}: ${mapped.skip}`)
       continue
