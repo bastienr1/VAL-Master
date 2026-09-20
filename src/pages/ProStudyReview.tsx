@@ -175,11 +175,17 @@ export default function ProStudyReview() {
   }, [])
 
   const handleMomentTagAdded = useCallback((moment: MomentTag) => {
+    // Replace rather than skip on a known id: applying a tag that already
+    // exists can return the same row with a `note_id` it did not have before.
     setMoments(prev =>
-      prev.some(m => m.id === moment.id)
-        ? prev
-        : [...prev, moment].sort((a, b) => a.video_ts - b.video_ts),
+      [...prev.filter(m => m.id !== moment.id), moment].sort((a, b) => a.video_ts - b.video_ts),
     )
+  }, [])
+
+  /** Deleting a tag cascades its moments server-side; mirror that locally. */
+  const handleTagDeleted = useCallback((tagId: string) => {
+    setMoments(prev => prev.filter(m => m.tag_id !== tagId))
+    setTagFilter(prev => (prev === tagId ? null : prev))
   }, [])
 
   const handleRemoveMomentTag = useCallback(async (moment: MomentTag) => {
@@ -536,6 +542,7 @@ export default function ProStudyReview() {
                     setQuickDropOpen(false)
                   }}
                   onVocabularyChange={setTags}
+                  onTagDeleted={handleTagDeleted}
                   onClose={() => setQuickDropOpen(false)}
                 />
               </div>
@@ -556,6 +563,7 @@ export default function ProStudyReview() {
               tags={tags}
               onTagsChange={setTags}
               onMomentTagAdded={handleMomentTagAdded}
+              onTagDeleted={handleTagDeleted}
             />
           )}
 

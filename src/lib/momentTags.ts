@@ -166,6 +166,12 @@ export async function listMomentTags(ref: ReviewRef): Promise<MomentTag[]> {
  * The same tag at the same second in the same review is blocked by a unique
  * index; rather than surface that as an error, the existing row is returned —
  * from the user's side the tag is simply already there.
+ *
+ * If that existing row carries no note and this call supplies one, the row is
+ * adopted by the note. Quick-dropping a tag and then writing a note at the same
+ * second is an ordinary sequence, and without this the note would silently show
+ * no chip: the insert is refused, and the row it collided with belongs to
+ * nothing.
  */
 export async function addMomentTag(
   ref: ReviewRef,
@@ -196,7 +202,20 @@ export async function addMomentTag(
         .limit(1)
         .maybeSingle()
       if (findError) throw new Error(findError.message)
-      if (found) return found
+
+      if (found) {
+        if (row.note_id && !found.note_id) {
+          const { data: adopted, error: adoptError } = await supabase
+            .from('moment_tags')
+            .update({ note_id: row.note_id })
+            .eq('id', found.id)
+            .select()
+            .single()
+          if (adoptError) throw new Error(adoptError.message)
+          return adopted
+        }
+        return found
+      }
     }
     throw new Error(error.message)
   }

@@ -30,6 +30,12 @@ interface TagPickerProps {
   onToggle: (tag: ReviewTag) => void
   /** A tag was created, renamed or deleted — the page owns the vocabulary. */
   onVocabularyChange: (tags: ReviewTag[] | ((prev: ReviewTag[]) => ReviewTag[])) => void
+  /**
+   * A tag was deleted. Deleting the tag cascades its `moment_tags` rows in the
+   * database, so the page has to drop them from its own state or the lane keeps
+   * rendering dots for a tag that no longer exists.
+   */
+  onTagDeleted?: (tagId: string) => void
   onClose: () => void
   /** Shown in `apply` mode so the user knows which moment they are marking. */
   timestampLabel?: string
@@ -41,6 +47,7 @@ export default function TagPicker({
   mode,
   onToggle,
   onVocabularyChange,
+  onTagDeleted,
   onClose,
   timestampLabel,
 }: TagPickerProps) {
@@ -156,6 +163,7 @@ export default function TagPicker({
     try {
       await deleteReviewTag(tag.id)
       onVocabularyChange(prev => prev.filter(t => t.id !== tag.id))
+      onTagDeleted?.(tag.id)
       setConfirmDelete(null)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not delete the tag.')

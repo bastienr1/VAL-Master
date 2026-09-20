@@ -42,6 +42,7 @@ interface ReferenceCapturePanelProps {
   tags: ReviewTag[]
   onTagsChange: (tags: ReviewTag[] | ((prev: ReviewTag[]) => ReviewTag[])) => void
   onMomentTagAdded: (moment: MomentTag) => void
+  onTagDeleted: (tagId: string) => void
 }
 
 interface ChipProps {
@@ -87,6 +88,7 @@ export default function ReferenceCapturePanel({
   tags,
   onTagsChange,
   onMomentTagAdded,
+  onTagDeleted,
 }: ReferenceCapturePanelProps) {
   const [text, setText] = useState('')
   const [label, setLabel] = useState<ReferenceLabel | null>(null)
@@ -314,6 +316,11 @@ export default function ReferenceCapturePanel({
                 mode="select"
                 onToggle={tag => togglePendingTag(tag.id)}
                 onVocabularyChange={onTagsChange}
+                onTagDeleted={tagId => {
+                  // A tag deleted mid-capture must not stay a pending chip.
+                  setPendingTagIds(prev => prev.filter(id => id !== tagId))
+                  onTagDeleted(tagId)
+                }}
                 onClose={() => setPickerOpen(false)}
               />
             </div>

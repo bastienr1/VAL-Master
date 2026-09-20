@@ -45,6 +45,7 @@ interface CapturePanelProps {
   tags: ReviewTag[]
   onTagsChange: (tags: ReviewTag[] | ((prev: ReviewTag[]) => ReviewTag[])) => void
   onMomentTagAdded: (moment: MomentTag) => void
+  onTagDeleted: (tagId: string) => void
 }
 
 function formatTime(seconds: number): string {
@@ -102,6 +103,7 @@ export default function CapturePanel({
   tags,
   onTagsChange,
   onMomentTagAdded,
+  onTagDeleted,
 }: CapturePanelProps) {
   // Tags chosen before the note exists — written on save, once there is an id
   // to link them to.
@@ -420,6 +422,11 @@ export default function CapturePanel({
                 mode="select"
                 onToggle={tag => togglePendingTag(tag.id)}
                 onVocabularyChange={onTagsChange}
+                onTagDeleted={tagId => {
+                  // A tag deleted mid-capture must not stay a pending chip.
+                  setPendingTagIds(prev => prev.filter(id => id !== tagId))
+                  onTagDeleted(tagId)
+                }}
                 onClose={() => setPickerOpen(false)}
               />
             </div>
