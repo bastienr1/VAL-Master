@@ -7,7 +7,7 @@ import ChapterRail from '../components/ChapterRail'
 import MomentTagLane from '../components/MomentTagLane'
 import TagPicker from '../components/TagPicker'
 import { useSplitter, SplitterHandle } from '../components/ColumnSplitter'
-import { RAIL_MAX_RATIO } from '../lib/constants'
+import { MIN_OTHER_COLUMN, RAIL_MAX_PX, RAIL_MIN } from '../lib/constants'
 import GameImage from '../components/GameImage'
 import { agentImageFor, mapImageFor } from '../lib/gameContent'
 import { useGameContent } from '../hooks/useGameContent'
@@ -257,19 +257,20 @@ export default function ProStudyReview() {
 
   const { dragHandlers, panelProps: notesPanelProps } = useSplitter({
     initialWidth: 320,
-    minWidth: 240,
-    maxWidth: 480,
-    maxRatio: RAIL_MAX_RATIO,
+    minWidth: RAIL_MIN,
+    maxWidth: RAIL_MAX_PX,
+    minOtherSide: MIN_OTHER_COLUMN,
     storageKey: 'proStudyReview.notesPanelWidth',
     label: 'Resize notes panel',
   })
 
-  // Its own key, so widening the chapters does not narrow the notes.
+  // Its own key, so widening the chapters does not narrow the notes. This rail
+  // competes with two others, so it reserves more than the usual floor.
   const { dragHandlers: chapterDragHandlers, panelProps: chapterRailProps } = useSplitter({
     initialWidth: 300,
-    minWidth: 220,
-    maxWidth: 460,
-    maxRatio: RAIL_MAX_RATIO,
+    minWidth: RAIL_MIN,
+    maxWidth: RAIL_MAX_PX,
+    minOtherSide: MIN_OTHER_COLUMN * 2,
     storageKey: 'proStudyReview.chapterRailWidth',
     side: 'left',
     label: 'Resize chapter rail',

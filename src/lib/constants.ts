@@ -63,10 +63,23 @@ export const REFERENCE_LABELS = ['Replicate', 'Concept', 'Setup', 'Util'] as con
  * studying (two stacked embeds in the Study Dock), somewhere between while
  * writing notes. One fixed width is wrong for all three.
  */
-export const RAIL_MIN = 320
-/** Past this the video drops below about half the width at 1440px. */
-export const RAIL_MAX_PX = 680
-/** Container-relative cap, so a small window can't be crushed by a saved width. */
-export const RAIL_MAX_RATIO = 0.45
+export const RAIL_MIN = 240
+/**
+ * A sanity bound on a stored value, not a design constraint.
+ *
+ * `MIN_OTHER_COLUMN` is what actually governs: the divider is bounded by the
+ * column opposite it, so either side can take the space. Set this high enough
+ * that it never bites on a real display.
+ */
+export const RAIL_MAX_PX = 4000
+/**
+ * Pixels reserved for whichever column the divider is *not* sizing.
+ *
+ * This is what lets either side take over: the rail grows until the video is
+ * down to this, and shrinks to `RAIL_MIN` so the video takes nearly everything.
+ * A floor rather than zero, so neither side can be dragged into nothing and
+ * left there with no content to grab.
+ */
+export const MIN_OTHER_COLUMN = 280
 /** Today's fixed width — nothing moves until the user drags. */
 export const DEFAULT_RAIL_W = 430
