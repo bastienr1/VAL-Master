@@ -25,19 +25,30 @@ export interface ProReferenceRow extends MatchProReference {
 }
 
 /**
- * A timestamped marker on a pro VOD — a note you captured there, or a moment
- * tag you dropped.
+ * One marked second of a pro VOD, with everything captured there.
  *
- * Both are points in the same tape, so the picker merges them into one ordered
- * list rather than making you guess which surface a given moment came from.
+ * Grouped by timestamp rather than listed per row: a moment you tagged
+ * `DEFENSE`, `A` and `ATTACK` is one moment described three ways, not three
+ * moments. Listing them separately gave three dropdown rows that all seek to the
+ * same second and made the real count of marked moments impossible to read.
+ *
+ * Notes and tags share the grouping for the same reason — a note and the tags
+ * dropped alongside it describe the same instant.
  */
 export interface ReviewMarker {
   key: string
   seconds: number
-  label: string
-  kind: 'note' | 'tag'
-  /** The tag's colour, for a tag marker. */
+  /** Note text captured at this second; usually none or one. */
+  notes: string[]
+  /** Tag names applied at this second, in the order they were created. */
+  tags: string[]
+  /** The first tag's colour, for a dot in the row. */
   color: string | null
+}
+
+/** "16:14 · Round 1 · DEFENSE, A, ATTACK" — the whole moment on one line. */
+export function markerSummary(marker: ReviewMarker): string {
+  return [marker.notes.join(' / '), marker.tags.join(', ')].filter(Boolean).join(' · ')
 }
 
 /** Trimmed to a dropdown-sized line; the full text lives on the review screen. */
@@ -68,27 +79,30 @@ export async function listReviewMarkers(reviewId: string): Promise<ReviewMarker[
   if (notes.error) throw new Error(notes.error.message)
   if (tags.error) throw new Error(tags.error.message)
 
-  const fromNotes: ReviewMarker[] = (notes.data ?? []).map(n => ({
-    key: `note:${n.id}`,
-    seconds: n.timestamp_seconds,
-    label: markerLabel(n.text || n.label || n.category || 'Note'),
-    kind: 'note',
-    color: null,
-  }))
+  // One bucket per second, so everything marked at that instant travels together.
+  const bySecond = new Map<number, ReviewMarker>()
+  const bucket = (seconds: number) => {
+    const existing = bySecond.get(seconds)
+    if (existing) return existing
+    const fresh: ReviewMarker = { key: `t${seconds}`, seconds, notes: [], tags: [], color: null }
+    bySecond.set(seconds, fresh)
+    return fresh
+  }
 
-  const fromTags: ReviewMarker[] = (tags.data ?? []).flatMap(t => {
+  for (const n of notes.data ?? []) {
+    const text = markerLabel(n.text || n.label || n.category || 'Note')
+    if (text) bucket(n.timestamp_seconds).notes.push(text)
+  }
+
+  for (const t of tags.data ?? []) {
     const tag = Array.isArray(t.tag) ? t.tag[0] : t.tag
-    if (!tag) return []
-    return [{
-      key: `tag:${t.id}`,
-      seconds: t.video_ts,
-      label: tag.name,
-      kind: 'tag' as const,
-      color: tag.color,
-    }]
-  })
+    if (!tag) continue
+    const entry = bucket(t.video_ts)
+    entry.tags.push(tag.name)
+    entry.color ??= tag.color
+  }
 
-  return [...fromNotes, ...fromTags].sort((a, b) => a.seconds - b.seconds)
+  return [...bySecond.values()].sort((a, b) => a.seconds - b.seconds)
 }
 
 /**
