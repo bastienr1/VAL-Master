@@ -97,16 +97,10 @@ export default function PlaybookChapterList({
                     onChapterSelect(chapter.id)
                   }
                 }}
-                // A sub-chapter is indented on a smaller number circle, so the
-                // hierarchy reads at a glance. The numbering itself stays flat.
-                className={`flex items-center gap-3 py-3 pr-2 cursor-pointer transition-colors ${
-                  chapter.depth === 2 ? 'pl-8' : 'pl-2'
-                } ${active ? '' : 'hover:bg-bg-elevated/30'}`}
+                className={`flex items-center gap-3 py-3 pr-2 pl-2 cursor-pointer transition-colors ${active ? '' : 'hover:bg-bg-elevated/30'}`}
               >
                 <span
-                  className={`shrink-0 rounded-full border flex items-center justify-center ${
-                    chapter.depth === 2 ? 'w-5 h-5 text-xs' : 'w-6 h-6 text-sm'
-                  } ${
+                  className={`w-6 h-6 shrink-0 rounded-full border flex items-center justify-center text-sm ${
                     active ? 'bg-val-red border-val-red text-white' : 'border-bg-elevated text-text-secondary'
                   }`}
                 >
