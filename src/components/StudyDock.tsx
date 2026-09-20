@@ -74,10 +74,13 @@ export default function StudyDock({ map, agent, matchId }: StudyDockProps) {
 
   const videoId = playbook?.video_url ? extractYouTubeId(playbook.video_url) : null
 
+  // The video deliberately stays open across chapter and sub-chapter changes:
+  // it re-mounts at the new range on its own, and closing it every time would
+  // mean re-opening it at each step of exactly the loop this dock exists for.
+  // Only a playbook change collapses it, since that is a different video.
   const handleChapterChange = (value: string) => {
     setChapterNumber(value === '' ? null : Number(value))
     setChildNumber(null)
-    setVideoOpen(false)
   }
 
   if (!map) return null
@@ -122,10 +125,9 @@ export default function StudyDock({ map, agent, matchId }: StudyDockProps) {
               <select
                 id={`study-dock-subchapter-${playbook.id}`}
                 value={childNumber ?? WHOLE_CHAPTER}
-                onChange={e => {
+                onChange={e =>
                   setChildNumber(e.target.value === WHOLE_CHAPTER ? null : Number(e.target.value))
-                  setVideoOpen(false)
-                }}
+                }
                 className="w-full mt-1 bg-bg-elevated border border-bg-card rounded-lg px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-val-cyan/30"
               >
                 <option value={WHOLE_CHAPTER}>All of chapter</option>
