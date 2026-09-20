@@ -1,18 +1,28 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { ArrowLeft, Clock, ExternalLink, Pause, Play, SkipBack, SkipForward, VideoOff } from 'lucide-react'
 import ReferenceCapturePanel from '../components/ReferenceCapturePanel'
 import ReferenceNotesPanel from '../components/ReferenceNotesPanel'
 import ChapterRail from '../components/ChapterRail'
+import MomentTagLane from '../components/MomentTagLane'
+import TagPicker from '../components/TagPicker'
 import { useSplitter, SplitterHandle } from '../components/ColumnSplitter'
 import GameImage from '../components/GameImage'
 import { agentImageFor, mapImageFor } from '../lib/gameContent'
 import { useGameContent } from '../hooks/useGameContent'
 import { useYouTubePlayer } from '../hooks/useYouTubePlayer'
 import { deleteNote, getNotes, getReviewWithGuide } from '../lib/referenceReviews'
+import { addMomentTag, listMomentTags, listReviewTags, removeMomentTag } from '../lib/momentTags'
 import { REFERENCE_LABEL_COLORS, hexWithAlpha } from '../lib/tagColors'
 import { formatTime } from '../lib/youtube'
-import type { ReferenceNote, ReferenceReview, ReferenceSection } from '../lib/types'
+import type {
+  MomentTag,
+  ReferenceNote,
+  ReferenceReview,
+  ReferenceSection,
+  ReviewRef,
+  ReviewTag,
+} from '../lib/types'
 
 /**
  * Note-anchored timeline.
@@ -84,6 +94,12 @@ export default function ProStudyReview() {
   const [captureOpen, setCaptureOpen] = useState(false)
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null)
 
+  // Moment tags: the vocabulary is global, the applications are this review's.
+  const [tags, setTags] = useState<ReviewTag[]>([])
+  const [moments, setMoments] = useState<MomentTag[]>([])
+  const [tagFilter, setTagFilter] = useState<string | null>(null)
+  const [quickDropOpen, setQuickDropOpen] = useState(false)
+
   // Mounted so the header re-renders once the registry lands.
   useGameContent()
 
@@ -108,8 +124,16 @@ export default function ProStudyReview() {
         }
         setReview(found.review)
         setSections(found.sections)
-        const loadedNotes = await getNotes(found.review.id)
-        if (!cancelled) setNotes(loadedNotes)
+        const [loadedNotes, loadedTags, loadedMoments] = await Promise.all([
+          getNotes(found.review.id),
+          listReviewTags(),
+          listMomentTags({ type: 'reference', id: found.review.id }),
+        ])
+        if (!cancelled) {
+          setNotes(loadedNotes)
+          setTags(loadedTags)
+          setMoments(loadedMoments)
+        }
       } catch (err) {
         console.error('Failed to load pro VOD:', err)
         if (!cancelled) setNotFound(true)
@@ -150,6 +174,32 @@ export default function ProStudyReview() {
     setNotes(prev => prev.map(n => (n.id === note.id ? note : n)))
   }, [])
 
+  const handleMomentTagAdded = useCallback((moment: MomentTag) => {
+    // Replace rather than skip on a known id: applying a tag that already
+    // exists can return the same row with a `note_id` it did not have before.
+    setMoments(prev =>
+      [...prev.filter(m => m.id !== moment.id), moment].sort((a, b) => a.video_ts - b.video_ts),
+    )
+  }, [])
+
+  /** Deleting a tag cascades its moments server-side; mirror that locally. */
+  const handleTagDeleted = useCallback((tagId: string) => {
+    setMoments(prev => prev.filter(m => m.tag_id !== tagId))
+    setTagFilter(prev => (prev === tagId ? null : prev))
+  }, [])
+
+  const handleRemoveMomentTag = useCallback(async (moment: MomentTag) => {
+    // Optimistic: the row is the user's own and the only failure is a network
+    // one, in which case the reload puts it back.
+    setMoments(prev => prev.filter(m => m.id !== moment.id))
+    try {
+      await removeMomentTag(moment.id)
+    } catch (err) {
+      console.error('Failed to remove the moment tag:', err)
+      setMoments(prev => [...prev, moment].sort((a, b) => a.video_ts - b.video_ts))
+    }
+  }, [])
+
   const handleDelete = useCallback(async (note: ReferenceNote) => {
     try {
       await deleteNote(note.id)
@@ -184,8 +234,17 @@ export default function ProStudyReview() {
           e.preventDefault()
           openCapture()
           break
+        case 'g':
+        case 'G':
+          // Quick-drop: a tag with no note. Pauses like T does, so the moment
+          // being marked is the one on screen.
+          e.preventDefault()
+          pause()
+          setQuickDropOpen(true)
+          break
         case 'Escape':
           e.preventDefault()
+          setQuickDropOpen(false)
           closeCapture()
           break
       }
@@ -193,7 +252,7 @@ export default function ProStudyReview() {
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [togglePlay, seek, openCapture, closeCapture])
+  }, [togglePlay, seek, openCapture, closeCapture, pause])
 
   const { width: notesPanelWidth, dragHandlers } = useSplitter({
     initialWidth: 320,
@@ -214,6 +273,26 @@ export default function ProStudyReview() {
   const editingNote = useMemo(
     () => (editingNoteId ? notes.find(n => n.id === editingNoteId) ?? null : null),
     [editingNoteId, notes],
+  )
+
+  // `?t=90` seeks once the player is ready — the deep-link shape a tag explorer
+  // would link to. Guarded by a ref so it fires once and never fights the user.
+  const [searchParams] = useSearchParams()
+  const deepLinkDone = useRef(false)
+  useEffect(() => {
+    if (deepLinkDone.current || !ready) return
+    const raw = searchParams.get('t')
+    if (!raw) return
+    const seconds = Number.parseInt(raw, 10)
+    if (Number.isFinite(seconds) && seconds >= 0) {
+      deepLinkDone.current = true
+      seekTo(seconds)
+    }
+  }, [ready, searchParams, seekTo])
+
+  const reviewRef = useMemo<ReviewRef | null>(
+    () => (review ? { type: 'reference', id: review.id } : null),
+    [review],
   )
 
   // A vault guide gets the chapter rail; a Notion pro VOD keeps the v1 layout.
@@ -425,21 +504,68 @@ export default function ProStudyReview() {
               <span><kbd className="px-1 py-0.5 bg-bg-elevated rounded text-[10px]">Space</kbd> play/pause</span>
               <span><kbd className="px-1 py-0.5 bg-bg-elevated rounded text-[10px]">←→</kbd> ±5s</span>
               <span><kbd className="px-1 py-0.5 bg-bg-elevated rounded text-[10px]">T</kbd> capture</span>
+              <span><kbd className="px-1 py-0.5 bg-bg-elevated rounded text-[10px]">G</kbd> tag</span>
             </div>
           </div>
 
           <NoteTimeline notes={notes} duration={duration} currentTime={currentTime} onSeek={seekTo} />
 
-          <ReferenceCapturePanel
-            reviewId={review.id}
-            currentTime={currentTime}
-            isPaused={!isPlaying}
-            isOpen={captureOpen}
-            editingNote={editingNote}
-            onClose={closeCapture}
-            onNoteAdded={handleNoteAdded}
-            onNoteUpdated={handleNoteUpdated}
+          <MomentTagLane
+            moments={moments}
+            tags={tags}
+            duration={duration}
+            onSeek={seekTo}
+            activeTagId={tagFilter}
           />
+
+          {/* Quick-drop, anchored under the player where the eye already is. */}
+          {quickDropOpen && reviewRef && (
+            <div className="relative">
+              <div className="absolute left-0 top-0 z-30">
+                <TagPicker
+                  tags={tags}
+                  selectedIds={
+                    new Set(
+                      moments
+                        .filter(m => m.video_ts === Math.floor(currentTime))
+                        .map(m => m.tag_id),
+                    )
+                  }
+                  mode="apply"
+                  timestampLabel={formatTime(currentTime)}
+                  onToggle={async tag => {
+                    try {
+                      handleMomentTagAdded(await addMomentTag(reviewRef, tag.id, currentTime))
+                    } catch (err) {
+                      console.error('Failed to apply the moment tag:', err)
+                    }
+                    setQuickDropOpen(false)
+                  }}
+                  onVocabularyChange={setTags}
+                  onTagDeleted={handleTagDeleted}
+                  onClose={() => setQuickDropOpen(false)}
+                />
+              </div>
+            </div>
+          )}
+
+          {reviewRef && (
+            <ReferenceCapturePanel
+              reviewId={review.id}
+              currentTime={currentTime}
+              isPaused={!isPlaying}
+              isOpen={captureOpen}
+              editingNote={editingNote}
+              onClose={closeCapture}
+              onNoteAdded={handleNoteAdded}
+              onNoteUpdated={handleNoteUpdated}
+              reviewRef={reviewRef}
+              tags={tags}
+              onTagsChange={setTags}
+              onMomentTagAdded={handleMomentTagAdded}
+              onTagDeleted={handleTagDeleted}
+            />
+          )}
 
           {review.notes && (
             <div className="bg-bg-card border border-bg-elevated rounded-lg px-4 py-3">
@@ -459,6 +585,11 @@ export default function ProStudyReview() {
             onSeek={seekTo}
             onEdit={openEdit}
             onDelete={handleDelete}
+            moments={moments}
+            tags={tags}
+            onRemoveMomentTag={handleRemoveMomentTag}
+            tagFilter={tagFilter}
+            onTagFilterChange={setTagFilter}
           />
         </div>
       </div>

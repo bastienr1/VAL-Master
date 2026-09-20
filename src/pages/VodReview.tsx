@@ -1,12 +1,25 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
+import { useParams, useSearchParams, Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import type { Match, VodReview as VodReviewType, VodTag, MatchRound, VodComment, RoundScreenshot } from '../lib/types'
+import type {
+  Match,
+  MomentTag,
+  ReviewRef,
+  ReviewTag,
+  VodReview as VodReviewType,
+  VodTag,
+  MatchRound,
+  VodComment,
+  RoundScreenshot,
+} from '../lib/types'
 import { fetchMatchRoundData, generateAutoTags, saveAutoTags } from '../lib/matchSync'
+import { addMomentTag, listMomentTags, listReviewTags, removeMomentTag } from '../lib/momentTags'
 import { useProfile, profileToPlayer } from '../lib/profile'
 import InlineDebrief from '../components/InlineDebrief'
 import MatchRecapHeader from '../components/MatchRecapHeader'
 import MatchTimeline from '../components/MatchTimeline'
+import MomentTagLane from '../components/MomentTagLane'
+import TagPicker from '../components/TagPicker'
 import CapturePanel from '../components/CapturePanel'
 import ValoplantReplayPanel from '../components/ValoplantReplayPanel'
 import NotesPanel from '../components/NotesPanel'
@@ -52,6 +65,13 @@ export default function VodReview() {
   // Comments state
   const [comments, setComments] = useState<VodComment[]>([])
   const [screenshots, setScreenshots] = useState<RoundScreenshot[]>([])
+
+  // Moment tags: the vocabulary is global, the applications are this match's.
+  // Named `reviewTags` because `tags` above is the legacy auto `vod_tags` list.
+  const [reviewTags, setReviewTags] = useState<ReviewTag[]>([])
+  const [moments, setMoments] = useState<MomentTag[]>([])
+  const [tagFilter, setTagFilter] = useState<string | null>(null)
+  const [quickDropOpen, setQuickDropOpen] = useState(false)
 
   // Capture / focus state (Sprint 5b)
   const [captureOpen, setCaptureOpen] = useState(false)
@@ -135,6 +155,33 @@ export default function VodReview() {
     }
     loadComments()
   }, [vodReview])
+
+  // Moment tags key off the match, not the vod_review row — the ReviewRef is
+  // `matches.match_id` so a tag lands on the same review on any surface.
+  useEffect(() => {
+    const reviewId = match?.match_id
+    if (!reviewId) return
+    let cancelled = false
+
+    async function loadMomentTags() {
+      try {
+        const [vocabulary, applied] = await Promise.all([
+          listReviewTags(),
+          listMomentTags({ type: 'vod', id: reviewId! }),
+        ])
+        if (cancelled) return
+        setReviewTags(vocabulary)
+        setMoments(applied)
+      } catch (err) {
+        console.error('Failed to load moment tags:', err)
+      }
+    }
+
+    loadMomentTags()
+    return () => {
+      cancelled = true
+    }
+  }, [match?.match_id])
 
   // Load screenshots when match is available
   useEffect(() => {
@@ -410,6 +457,32 @@ export default function VodReview() {
     setEditingCommentId(null)
   }, [])
 
+  const handleMomentTagAdded = useCallback((moment: MomentTag) => {
+    // Replace rather than skip on a known id: applying a tag that already
+    // exists can return the same row with a `note_id` it did not have before.
+    setMoments(prev =>
+      [...prev.filter(m => m.id !== moment.id), moment].sort((a, b) => a.video_ts - b.video_ts),
+    )
+  }, [])
+
+  /** Deleting a tag cascades its moments server-side; mirror that locally. */
+  const handleTagDeleted = useCallback((tagId: string) => {
+    setMoments(prev => prev.filter(m => m.tag_id !== tagId))
+    setTagFilter(prev => (prev === tagId ? null : prev))
+  }, [])
+
+  const handleRemoveMomentTag = useCallback(async (moment: MomentTag) => {
+    // Optimistic: the row is the user's own and the only failure is a network
+    // one, in which case the reload puts it back.
+    setMoments(prev => prev.filter(m => m.id !== moment.id))
+    try {
+      await removeMomentTag(moment.id)
+    } catch (err) {
+      console.error('Failed to remove the moment tag:', err)
+      setMoments(prev => [...prev, moment].sort((a, b) => a.video_ts - b.video_ts))
+    }
+  }, [])
+
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -433,8 +506,17 @@ export default function VodReview() {
           e.preventDefault()
           openCapture()
           break
+        case 'g':
+        case 'G':
+          // Quick-drop: a tag with no note. Pauses like T does, so the moment
+          // being marked is the one on screen.
+          e.preventDefault()
+          playerRef.current?.pauseVideo()
+          setQuickDropOpen(true)
+          break
         case 'Escape':
           e.preventDefault()
+          setQuickDropOpen(false)
           closeCapture()
           break
       }
@@ -443,6 +525,26 @@ export default function VodReview() {
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [togglePlay, seek, openCapture, closeCapture])
+
+  // `?t=90` seeks once the player is ready — the deep-link shape a tag explorer
+  // would link to. Guarded by a ref so it fires once and never fights the user.
+  const [searchParams] = useSearchParams()
+  const deepLinkDone = useRef(false)
+  useEffect(() => {
+    if (deepLinkDone.current || !playerReady) return
+    const raw = searchParams.get('t')
+    if (!raw) return
+    const seconds = Number.parseInt(raw, 10)
+    if (Number.isFinite(seconds) && seconds >= 0) {
+      deepLinkDone.current = true
+      seekToTimestamp(seconds)
+    }
+  }, [playerReady, searchParams, seekToTimestamp])
+
+  const reviewRef = useMemo<ReviewRef | null>(
+    () => (match?.match_id ? { type: 'vod', id: match.match_id } : null),
+    [match?.match_id],
+  )
 
   // Resizable notes panel (right column)
   const { width: notesPanelWidth, dragHandlers } = useSplitter({
@@ -551,6 +653,7 @@ export default function VodReview() {
                   <span><kbd className="px-1 py-0.5 bg-bg-elevated rounded text-[10px]">Space</kbd> play/pause</span>
                   <span><kbd className="px-1 py-0.5 bg-bg-elevated rounded text-[10px]">←→</kbd> ±5s</span>
                   <span><kbd className="px-1 py-0.5 bg-bg-elevated rounded text-[10px]">T</kbd> capture</span>
+                  <span><kbd className="px-1 py-0.5 bg-bg-elevated rounded text-[10px]">G</kbd> tag</span>
                 </div>
               </div>
             </div>
@@ -674,6 +777,45 @@ export default function VodReview() {
                 />
               )}
 
+              <MomentTagLane
+                moments={moments}
+                tags={reviewTags}
+                duration={duration}
+                onSeek={seekToTimestamp}
+                activeTagId={tagFilter}
+              />
+
+              {/* Quick-drop, anchored under the player where the eye already is. */}
+              {quickDropOpen && reviewRef && (
+                <div className="relative">
+                  <div className="absolute left-0 top-0 z-30">
+                    <TagPicker
+                      tags={reviewTags}
+                      selectedIds={
+                        new Set(
+                          moments
+                            .filter(m => m.video_ts === Math.floor(currentTime))
+                            .map(m => m.tag_id),
+                        )
+                      }
+                      mode="apply"
+                      timestampLabel={formatTime(currentTime)}
+                      onToggle={async tag => {
+                        try {
+                          handleMomentTagAdded(await addMomentTag(reviewRef, tag.id, currentTime))
+                        } catch (err) {
+                          console.error('Failed to apply the moment tag:', err)
+                        }
+                        setQuickDropOpen(false)
+                      }}
+                      onVocabularyChange={setReviewTags}
+                      onTagDeleted={handleTagDeleted}
+                      onClose={() => setQuickDropOpen(false)}
+                    />
+                  </div>
+                </div>
+              )}
+
               {/* Capture panel */}
               <CapturePanel
                 vodReviewId={vodReview.id}
@@ -690,6 +832,11 @@ export default function VodReview() {
                 onScreenshotAdded={handleScreenshotAdded}
                 onScreenshotDeleted={handleScreenshotDeleted}
                 screenshots={screenshots}
+                reviewRef={reviewRef ?? { type: 'vod', id: match.match_id }}
+                tags={reviewTags}
+                onTagsChange={setReviewTags}
+                onMomentTagAdded={handleMomentTagAdded}
+                onTagDeleted={handleTagDeleted}
               />
             </div>
           )}
@@ -710,6 +857,11 @@ export default function VodReview() {
         <div style={{ width: notesPanelWidth, flexShrink: 0 }} className="space-y-3">
           {vodReview && (
             <NotesPanel
+              moments={moments}
+              tags={reviewTags}
+              onRemoveMomentTag={handleRemoveMomentTag}
+              tagFilter={tagFilter}
+              onTagFilterChange={setTagFilter}
               comments={comments}
               screenshots={screenshots}
               rounds={matchRounds}

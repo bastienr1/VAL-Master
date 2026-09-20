@@ -1,7 +1,16 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
-import { ChevronDown, ChevronRight, Camera, Pencil } from 'lucide-react'
+import { ChevronDown, ChevronRight, Camera, Pencil, Tag as TagIcon, X } from 'lucide-react'
 import { supabase } from '../lib/supabase'
-import type { MatchRound, VodComment, RoundScreenshot } from '../lib/types'
+import TagPicker from './TagPicker'
+import { addMomentTag } from '../lib/momentTags'
+import type {
+  MatchRound,
+  MomentTag,
+  ReviewRef,
+  ReviewTag,
+  VodComment,
+  RoundScreenshot,
+} from '../lib/types'
 import {
   PRIMARY_TAG_TYPES,
   SECONDARY_TAG_TYPES,
@@ -31,6 +40,12 @@ interface CapturePanelProps {
   onScreenshotAdded: (screenshot: RoundScreenshot) => void
   onScreenshotDeleted: (screenshotId: string) => void
   screenshots: RoundScreenshot[]
+  /** Moment tags — the page owns the vocabulary and the applied rows. */
+  reviewRef: ReviewRef
+  tags: ReviewTag[]
+  onTagsChange: (tags: ReviewTag[] | ((prev: ReviewTag[]) => ReviewTag[])) => void
+  onMomentTagAdded: (moment: MomentTag) => void
+  onTagDeleted: (tagId: string) => void
 }
 
 function formatTime(seconds: number): string {
@@ -84,7 +99,16 @@ export default function CapturePanel({
   onScreenshotAdded,
   onScreenshotDeleted,
   screenshots,
+  reviewRef,
+  tags,
+  onTagsChange,
+  onMomentTagAdded,
+  onTagDeleted,
 }: CapturePanelProps) {
+  // Tags chosen before the note exists — written on save, once there is an id
+  // to link them to.
+  const [pendingTagIds, setPendingTagIds] = useState<string[]>([])
+  const [pickerOpen, setPickerOpen] = useState(false)
   const [text, setText] = useState('')
   const [primary, setPrimary] = useState<Set<string>>(new Set())
   const [secondary, setSecondary] = useState<Set<string>>(new Set())
@@ -131,6 +155,8 @@ export default function CapturePanel({
       setShowSecondary(false)
       setShowDetail(false)
       setPastedFile(null)
+      setPendingTagIds([])
+      setPickerOpen(false)
     }
   }, [isOpen, editingComment])
 
@@ -219,6 +245,19 @@ export default function CapturePanel({
       if (error) throw error
       if (data) {
         onCommentAdded(data)
+
+        // The moment takes the note's captured timestamp, not the live
+        // playhead — the video has usually moved on while the note was typed.
+        for (const tagId of pendingTagIds) {
+          try {
+            onMomentTagAdded(
+              await addMomentTag(reviewRef, tagId, data.timestamp_seconds, data.id),
+            )
+          } catch (tagError) {
+            // The note is already saved; a failed tag must not read as a lost note.
+            console.error('Failed to apply a moment tag:', tagError)
+          }
+        }
         onClose()
       }
     } catch (err) {
@@ -247,6 +286,15 @@ export default function CapturePanel({
   const roundLabel = resolvedRound ? `R${resolvedRound.round_number}` : null
 
   const canSave = text.trim().length > 0 || primary.size > 0 || secondary.size > 0 || detailTags.length > 0
+
+  const pendingTags = pendingTagIds
+    .map(id => tags.find(t => t.id === id))
+    .filter((t): t is ReviewTag => !!t)
+
+  const togglePendingTag = (tagId: string) =>
+    setPendingTagIds(prev =>
+      prev.includes(tagId) ? prev.filter(id => id !== tagId) : [...prev, tagId],
+    )
 
   return (
     <div className={`bg-bg-card border rounded-lg overflow-hidden ${isEditing ? 'border-val-yellow/40' : 'border-val-cyan/30'}`}>
@@ -331,6 +379,60 @@ export default function CapturePanel({
           {saving ? 'Saving…' : isEditing ? 'Update · ⌘↵' : 'Save · ⌘↵'}
         </button>
       </div>
+
+      {/* Moment tags — only on a new note: an edit does not re-open the moment. */}
+      {!isEditing && (
+        <div className="px-3 pb-2 flex flex-wrap items-center gap-1.5 relative">
+          <button
+            type="button"
+            onClick={() => setPickerOpen(o => !o)}
+            className="inline-flex items-center gap-1 px-2 py-1 rounded-full border border-bg-elevated text-[11px] text-text-muted hover:border-text-muted hover:text-text-secondary transition-colors"
+          >
+            <TagIcon className="w-3 h-3" />
+            Tag
+          </button>
+
+          {pendingTags.map(tag => (
+            <span
+              key={tag.id}
+              style={{
+                backgroundColor: hexWithAlpha(tag.color, 0.12),
+                color: tag.color,
+                borderColor: hexWithAlpha(tag.color, 0.3),
+              }}
+              className="inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded-full border text-[11px] font-medium"
+            >
+              {tag.name}
+              <button
+                type="button"
+                onClick={() => togglePendingTag(tag.id)}
+                title={`Remove ${tag.name}`}
+                className="opacity-60 hover:opacity-100 transition-opacity"
+              >
+                <X className="w-2.5 h-2.5" />
+              </button>
+            </span>
+          ))}
+
+          {pickerOpen && (
+            <div className="absolute bottom-full left-3 mb-1 z-30">
+              <TagPicker
+                tags={tags}
+                selectedIds={new Set(pendingTagIds)}
+                mode="select"
+                onToggle={tag => togglePendingTag(tag.id)}
+                onVocabularyChange={onTagsChange}
+                onTagDeleted={tagId => {
+                  // A tag deleted mid-capture must not stay a pending chip.
+                  setPendingTagIds(prev => prev.filter(id => id !== tagId))
+                  onTagDeleted(tagId)
+                }}
+                onClose={() => setPickerOpen(false)}
+              />
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Secondary chips */}
       {showSecondary && (
