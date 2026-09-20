@@ -1,13 +1,16 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ExternalLink, Film, X } from 'lucide-react'
+import { ChevronDown, ChevronRight, ExternalLink, Film, X } from 'lucide-react'
 import {
   addProReference,
   listCandidateReferences,
   listProReferencesForMatch,
+  listReviewMarkers,
   removeProReference,
   type CandidateGroups,
   type ProReferenceRow,
+  type ReviewMarker,
 } from '../lib/proReferences'
+import { formatTimestamp } from '../lib/playbookParser'
 import type { ReferenceReview } from '../lib/types'
 
 /**
@@ -42,6 +45,153 @@ function optionLabel(review: ReferenceReview): string {
   return [review.player, review.team && `(${review.team})`, review.agent, review.map]
     .filter(Boolean)
     .join(' · ')
+}
+
+/**
+ * One attached pro VOD: the row, and behind a toggle the video itself plus the
+ * moments already marked on it.
+ *
+ * Same shape as the playbook half of the dock — collapsed by default, iframe
+ * mounted only on expand, no IFrame API. The marker dropdown is what makes it
+ * more than an embed: a pro VOD you have already reviewed carries your notes
+ * and tags at specific seconds, so the useful entry point is "jump to the
+ * retake I marked", not "play from zero".
+ */
+function AttachedProVod({ row, onRemove }: { row: ProReferenceRow; onRemove: () => void }) {
+  const [open, setOpen] = useState(false)
+  const [markers, setMarkers] = useState<ReviewMarker[] | null>(null)
+  const [markersError, setMarkersError] = useState<string | null>(null)
+  const [seconds, setSeconds] = useState<number | null>(null)
+
+  const videoId = row.review.video_id
+
+  // Fetched on first expand, not with the row: four attached VODs should not
+  // pull four sets of notes nobody has opened.
+  useEffect(() => {
+    if (!open || markers !== null) return
+    let cancelled = false
+
+    listReviewMarkers(row.reference_review_id)
+      .then(found => {
+        if (!cancelled) setMarkers(found)
+      })
+      .catch((err: Error) => {
+        if (cancelled) return
+        setMarkers([])
+        setMarkersError(err.message)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [open, markers, row.reference_review_id])
+
+  const noteMarkers = markers?.filter(m => m.kind === 'note') ?? []
+  const tagMarkers = markers?.filter(m => m.kind === 'tag') ?? []
+
+  return (
+    <div className="bg-bg-elevated border border-bg-card rounded-lg">
+      <div className="flex items-center gap-2 px-2.5 py-1.5">
+        {videoId ? (
+          <button
+            type="button"
+            onClick={() => setOpen(o => !o)}
+            title={open ? 'Hide video' : 'Show video'}
+            className="text-text-muted hover:text-val-cyan transition-colors shrink-0"
+          >
+            {open ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+          </button>
+        ) : (
+          <Film className="w-3.5 h-3.5 text-val-cyan shrink-0" />
+        )}
+
+        <span className="min-w-0 flex-1 text-sm text-text-primary truncate">
+          {row.review.player}
+          <span className="text-text-secondary">
+            {row.review.agent || row.review.map ? ' — ' : ''}
+            {[row.review.agent, row.review.map].filter(Boolean).join(' · ')}
+          </span>
+        </span>
+
+        {stamp(row.review) && (
+          <span className="font-stats text-[10px] text-text-muted shrink-0">{stamp(row.review)}</span>
+        )}
+        <a
+          href={`/study/${row.reference_review_id}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          title="Open in Pro Study"
+          className="text-text-muted hover:text-val-cyan transition-colors shrink-0"
+        >
+          <ExternalLink className="w-3.5 h-3.5" />
+        </a>
+        <button
+          type="button"
+          onClick={onRemove}
+          title="Remove this pro reference"
+          className="text-text-muted hover:text-val-red transition-colors shrink-0"
+        >
+          <X className="w-3.5 h-3.5" />
+        </button>
+      </div>
+
+      {open && videoId && (
+        <div className="px-2.5 pb-2.5 space-y-1.5">
+          {markers === null ? (
+            <p className="text-[11px] text-text-muted">Loading moments…</p>
+          ) : markers.length > 0 ? (
+            <select
+              value={seconds ?? ''}
+              onChange={e => setSeconds(e.target.value === '' ? null : Number(e.target.value))}
+              className="w-full bg-bg-card border border-bg-elevated rounded-lg px-2.5 py-1 text-[12px] text-text-primary focus:outline-none focus:border-val-cyan/30"
+            >
+              <option value="">Start from the beginning</option>
+              {noteMarkers.length > 0 && (
+                <optgroup label={`Notes (${noteMarkers.length})`}>
+                  {noteMarkers.map(m => (
+                    <option key={m.key} value={m.seconds}>
+                      {formatTimestamp(m.seconds)} · {m.label}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
+              {tagMarkers.length > 0 && (
+                <optgroup label={`Tags (${tagMarkers.length})`}>
+                  {tagMarkers.map(m => (
+                    <option key={m.key} value={m.seconds}>
+                      {formatTimestamp(m.seconds)} · {m.label}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
+            </select>
+          ) : (
+            <p className="text-[11px] text-text-muted">
+              {markersError
+                ? `Couldn't load moments — ${markersError}`
+                : 'No notes or tags on this VOD yet — capture some in Pro Study.'}
+            </p>
+          )}
+
+          <div
+            className="relative w-full bg-black rounded-lg overflow-hidden"
+            style={{ paddingBottom: '56.25%' }}
+          >
+            {/* Keyed on the chosen second so picking a moment re-mounts the
+                iframe there — the embed only reads `start` on load. */}
+            <iframe
+              key={`${videoId}-${seconds ?? 'start'}`}
+              src={`https://www.youtube.com/embed/${videoId}?rel=0${seconds != null ? `&start=${seconds}` : ''}`}
+              title={`${row.review.player} — ${row.review.map ?? 'pro VOD'}`}
+              allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+              allowFullScreen
+              className="absolute inset-0 w-full h-full border-0"
+            />
+          </div>
+        </div>
+      )}
+    </div>
+  )
 }
 
 export default function ProReferencePicker({ matchId, map, agent }: ProReferencePickerProps) {
@@ -142,41 +292,7 @@ export default function ProReferencePicker({ matchId, map, agent }: ProReference
       {rows.length > 0 && (
         <div className="mt-1 space-y-1">
           {rows.map(row => (
-            <div
-              key={row.id}
-              className="flex items-center gap-2 bg-bg-elevated border border-bg-card rounded-lg px-2.5 py-1.5"
-            >
-              <Film className="w-3.5 h-3.5 text-val-cyan shrink-0" />
-              <span className="min-w-0 flex-1 text-sm text-text-primary truncate">
-                {row.review.player}
-                <span className="text-text-secondary">
-                  {row.review.agent || row.review.map ? ' — ' : ''}
-                  {[row.review.agent, row.review.map].filter(Boolean).join(' · ')}
-                </span>
-              </span>
-              {stamp(row.review) && (
-                <span className="font-stats text-[10px] text-text-muted shrink-0">
-                  {stamp(row.review)}
-                </span>
-              )}
-              <a
-                href={`/study/${row.reference_review_id}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                title="Open in Pro Study"
-                className="text-text-muted hover:text-val-cyan transition-colors shrink-0"
-              >
-                <ExternalLink className="w-3.5 h-3.5" />
-              </a>
-              <button
-                type="button"
-                onClick={() => handleRemove(row)}
-                title="Remove this pro reference"
-                className="text-text-muted hover:text-val-red transition-colors shrink-0"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            </div>
+            <AttachedProVod key={row.id} row={row} onRemove={() => handleRemove(row)} />
           ))}
         </div>
       )}

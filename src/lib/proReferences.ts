@@ -20,8 +20,75 @@ import type { MatchProReference, ReferenceReview } from './types'
 export interface ProReferenceRow extends MatchProReference {
   review: Pick<
     ReferenceReview,
-    'id' | 'player' | 'team' | 'agent' | 'map' | 'event' | 'played_at'
+    'id' | 'player' | 'team' | 'agent' | 'map' | 'event' | 'played_at' | 'video_id'
   >
+}
+
+/**
+ * A timestamped marker on a pro VOD — a note you captured there, or a moment
+ * tag you dropped.
+ *
+ * Both are points in the same tape, so the picker merges them into one ordered
+ * list rather than making you guess which surface a given moment came from.
+ */
+export interface ReviewMarker {
+  key: string
+  seconds: number
+  label: string
+  kind: 'note' | 'tag'
+  /** The tag's colour, for a tag marker. */
+  color: string | null
+}
+
+/** Trimmed to a dropdown-sized line; the full text lives on the review screen. */
+function markerLabel(text: string): string {
+  const oneLine = text.replace(/\s+/g, ' ').trim()
+  return oneLine.length > 60 ? `${oneLine.slice(0, 59)}…` : oneLine
+}
+
+/**
+ * Notes and moment tags on one pro VOD, in tape order.
+ *
+ * Loaded on demand — a review screen with four attached VODs should not fetch
+ * four sets of notes nobody has asked to see.
+ */
+export async function listReviewMarkers(reviewId: string): Promise<ReviewMarker[]> {
+  const [notes, tags] = await Promise.all([
+    supabase
+      .from('reference_notes')
+      .select('id, timestamp_seconds, text, category, label')
+      .eq('reference_review_id', reviewId),
+    supabase
+      .from('moment_tags')
+      .select('id, video_ts, tag:review_tags(name, color)')
+      .eq('review_type', 'reference')
+      .eq('review_id', reviewId),
+  ])
+
+  if (notes.error) throw new Error(notes.error.message)
+  if (tags.error) throw new Error(tags.error.message)
+
+  const fromNotes: ReviewMarker[] = (notes.data ?? []).map(n => ({
+    key: `note:${n.id}`,
+    seconds: n.timestamp_seconds,
+    label: markerLabel(n.text || n.label || n.category || 'Note'),
+    kind: 'note',
+    color: null,
+  }))
+
+  const fromTags: ReviewMarker[] = (tags.data ?? []).flatMap(t => {
+    const tag = Array.isArray(t.tag) ? t.tag[0] : t.tag
+    if (!tag) return []
+    return [{
+      key: `tag:${t.id}`,
+      seconds: t.video_ts,
+      label: tag.name,
+      kind: 'tag' as const,
+      color: tag.color,
+    }]
+  })
+
+  return [...fromNotes, ...fromTags].sort((a, b) => a.seconds - b.seconds)
 }
 
 /**
@@ -56,7 +123,7 @@ export async function listProReferencesForMatch(matchId: string): Promise<ProRef
   const { data, error } = await supabase
     .from('match_pro_references')
     .select(
-      'id, user_id, match_id, reference_review_id, created_at, review:reference_reviews(id, player, team, agent, map, event, played_at)',
+      'id, user_id, match_id, reference_review_id, created_at, review:reference_reviews(id, player, team, agent, map, event, played_at, video_id)',
     )
     .eq('match_id', matchId)
     .order('created_at', { ascending: false })
