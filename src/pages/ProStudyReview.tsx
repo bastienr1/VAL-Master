@@ -281,7 +281,9 @@ export default function ProStudyReview() {
           <h1 className="font-heading text-lg font-bold tracking-wide">
             {isGuide ? review.creator ?? review.player : review.player}
           </h1>
-          {review.team && (
+          {/* The team belongs to the player in the note, not to the creator —
+              badging "Zasko (NRG)" on a guide about mada would be wrong. */}
+          {review.team && (!isGuide || !review.creator) && (
             <span className="px-1.5 py-0.5 rounded bg-bg-elevated text-text-secondary text-[10px] font-medium">
               {review.team}
             </span>
@@ -309,14 +311,17 @@ export default function ProStudyReview() {
       </div>
 
       <div className="flex gap-4">
-        {/* === FAR LEFT: chapter rail, vault guides only === */}
-        {isGuide && (
+        {/* === FAR LEFT: chapter rail, beside a video ===
+            With no video there is nothing for the rail to sit beside, so the
+            chapters move into the main column below and take its full width —
+            a 300px column of prose against an empty page is not a reading view. */}
+        {isGuide && hasVideo && (
           <>
             <div style={{ width: chapterRailWidth, flexShrink: 0 }}>
               <ChapterRail
                 sections={sections}
                 currentTime={currentTime}
-                readingMode={!hasVideo}
+                readingMode={false}
                 onSeek={seekTo}
               />
             </div>
@@ -345,6 +350,10 @@ export default function ProStudyReview() {
                 meanwhile, but nothing can seek.
               </p>
             </div>
+          )}
+
+          {isGuide && !hasVideo && (
+            <ChapterRail sections={sections} currentTime={0} readingMode onSeek={seekTo} />
           )}
 
           {/* Embed refused by the channel — link out, same pattern as the Valoplant row. */}
