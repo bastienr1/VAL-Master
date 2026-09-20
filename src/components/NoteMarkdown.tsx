@@ -33,6 +33,21 @@ export default function NoteMarkdown({ children }: { children: string }) {
               {children}
             </a>
           ),
+          // Vault chapter bodies carry small two-column tables; without these
+          // they render as unspaced runs of text in a narrow rail.
+          table: ({ children }) => (
+            <div className="overflow-x-auto">
+              <table className="w-full text-[12px] border-collapse">{children}</table>
+            </div>
+          ),
+          th: ({ children }) => (
+            <th className="text-left font-medium text-text-secondary border-b border-bg-elevated px-1.5 py-1">
+              {children}
+            </th>
+          ),
+          td: ({ children }) => (
+            <td className="align-top border-b border-bg-elevated/50 px-1.5 py-1">{children}</td>
+          ),
           input: ({ checked }) => (
             <input
               type="checkbox"

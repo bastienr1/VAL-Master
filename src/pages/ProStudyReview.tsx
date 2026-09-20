@@ -1,17 +1,18 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { ArrowLeft, Clock, ExternalLink, Pause, Play, SkipBack, SkipForward } from 'lucide-react'
+import { ArrowLeft, Clock, ExternalLink, Pause, Play, SkipBack, SkipForward, VideoOff } from 'lucide-react'
 import ReferenceCapturePanel from '../components/ReferenceCapturePanel'
 import ReferenceNotesPanel from '../components/ReferenceNotesPanel'
+import ChapterRail from '../components/ChapterRail'
 import { useSplitter, SplitterHandle } from '../components/ColumnSplitter'
 import GameImage from '../components/GameImage'
 import { agentImageFor, mapImageFor } from '../lib/gameContent'
 import { useGameContent } from '../hooks/useGameContent'
 import { useYouTubePlayer } from '../hooks/useYouTubePlayer'
-import { deleteNote, getNotes, getReview } from '../lib/referenceReviews'
+import { deleteNote, getNotes, getReviewWithGuide } from '../lib/referenceReviews'
 import { REFERENCE_LABEL_COLORS, hexWithAlpha } from '../lib/tagColors'
 import { formatTime } from '../lib/youtube'
-import type { ReferenceNote, ReferenceReview } from '../lib/types'
+import type { ReferenceNote, ReferenceReview, ReferenceSection } from '../lib/types'
 
 /**
  * Note-anchored timeline.
@@ -75,6 +76,7 @@ export default function ProStudyReview() {
   const { id } = useParams<{ id: string }>()
 
   const [review, setReview] = useState<ReferenceReview | null>(null)
+  const [sections, setSections] = useState<ReferenceSection[]>([])
   const [notes, setNotes] = useState<ReferenceNote[]>([])
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
@@ -96,14 +98,17 @@ export default function ProStudyReview() {
 
     async function load() {
       try {
-        const found = await getReview(id!)
+        // One call for both shapes: a Notion row simply comes back with no
+        // chapters, and the screen renders its v1 layout unchanged.
+        const found = await getReviewWithGuide(id!)
         if (cancelled) return
         if (!found) {
           setNotFound(true)
           return
         }
-        setReview(found)
-        const loadedNotes = await getNotes(found.id)
+        setReview(found.review)
+        setSections(found.sections)
+        const loadedNotes = await getNotes(found.review.id)
         if (!cancelled) setNotes(loadedNotes)
       } catch (err) {
         console.error('Failed to load pro VOD:', err)
@@ -197,10 +202,24 @@ export default function ProStudyReview() {
     storageKey: 'proStudyReview.notesPanelWidth',
   })
 
+  // Its own key, so widening the chapters does not narrow the notes.
+  const { width: chapterRailWidth, dragHandlers: chapterDragHandlers } = useSplitter({
+    initialWidth: 300,
+    minWidth: 220,
+    maxWidth: 460,
+    storageKey: 'proStudyReview.chapterRailWidth',
+    side: 'left',
+  })
+
   const editingNote = useMemo(
     () => (editingNoteId ? notes.find(n => n.id === editingNoteId) ?? null : null),
     [editingNoteId, notes],
   )
+
+  // A vault guide gets the chapter rail; a Notion pro VOD keeps the v1 layout.
+  const isGuide = review?.source === 'vault'
+  // A guide whose note has no `video_url` yet still opens, as a reading view.
+  const hasVideo = !!review?.video_id
 
   if (loading) {
     return (
@@ -230,12 +249,13 @@ export default function ProStudyReview() {
           Pro Study
         </Link>
         <span className="text-text-muted text-xs">/</span>
-        <span className="text-text-primary text-xs font-medium">
-          {review.player}
-          {review.agent ? ` · ${review.agent}` : ''}
-          {review.map ? ` on ${review.map}` : ''}
+        <span className="text-text-primary text-xs font-medium truncate">
+          {isGuide
+            ? review.title ?? review.creator ?? 'Study guide'
+            : `${review.player}${review.agent ? ` · ${review.agent}` : ''}${review.map ? ` on ${review.map}` : ''}`}
         </span>
-        <span className="ml-auto text-text-muted text-xs">
+        <span className="ml-auto text-text-muted text-xs shrink-0">
+          {isGuide && `${sections.length} chapter${sections.length === 1 ? '' : 's'} · `}
           {notes.length} note{notes.length === 1 ? '' : 's'}
         </span>
       </div>
@@ -258,10 +278,17 @@ export default function ProStudyReview() {
             alt={review.agent ?? 'Unknown agent'}
             className="w-11 h-11 rounded-full border-2 border-bg-elevated shrink-0"
           />
-          <h1 className="font-heading text-lg font-bold tracking-wide">{review.player}</h1>
+          <h1 className="font-heading text-lg font-bold tracking-wide">
+            {isGuide ? review.creator ?? review.player : review.player}
+          </h1>
           {review.team && (
             <span className="px-1.5 py-0.5 rounded bg-bg-elevated text-text-secondary text-[10px] font-medium">
               {review.team}
+            </span>
+          )}
+          {review.content_type && (
+            <span className="px-2 py-0.5 rounded-full bg-val-yellow/10 text-val-yellow border border-val-yellow/20 text-[10px] font-medium">
+              {review.content_type}
             </span>
           )}
           {review.agent && (
@@ -282,14 +309,46 @@ export default function ProStudyReview() {
       </div>
 
       <div className="flex gap-4">
-        {/* === LEFT: video + controls === */}
+        {/* === FAR LEFT: chapter rail, vault guides only === */}
+        {isGuide && (
+          <>
+            <div style={{ width: chapterRailWidth, flexShrink: 0 }}>
+              <ChapterRail
+                sections={sections}
+                currentTime={currentTime}
+                readingMode={!hasVideo}
+                onSeek={seekTo}
+              />
+            </div>
+            <SplitterHandle {...chapterDragHandlers} />
+          </>
+        )}
+
+        {/* === CENTRE: video + controls === */}
         <div className="flex-1 min-w-0 space-y-3">
-          <div className="relative w-full bg-black rounded-xl overflow-hidden" style={{ paddingBottom: '56.25%' }}>
-            <div ref={containerRef} className="absolute inset-0 w-full h-full" />
-          </div>
+          {hasVideo && (
+            <div className="relative w-full bg-black rounded-xl overflow-hidden" style={{ paddingBottom: '56.25%' }}>
+              <div ref={containerRef} className="absolute inset-0 w-full h-full" />
+            </div>
+          )}
+
+          {/* A guide whose note never got its link. The chapters are still worth
+              reading, so the screen degrades to a reading view rather than 404ing. */}
+          {!hasVideo && (
+            <div className="bg-bg-card border border-val-yellow/30 rounded-lg px-4 py-3 flex items-start gap-3">
+              <VideoOff className="w-4 h-4 text-val-yellow shrink-0 mt-0.5" />
+              <p className="text-xs text-text-secondary">
+                <strong className="text-val-yellow">No video linked.</strong> Add{' '}
+                <code className="font-stats text-val-cyan">video_url</code> to{' '}
+                <code className="font-stats text-text-secondary">{review.vault_path ?? 'the note'}</code> and re-run{' '}
+                <code className="font-stats text-val-cyan">npm run import:guides</code> — the chapters below read fine
+                meanwhile, but nothing can seek.
+              </p>
+            </div>
+          )}
 
           {/* Embed refused by the channel — link out, same pattern as the Valoplant row. */}
-          {embedBlocked && (
+          {embedBlocked && review.youtube_url && (
             <div className="bg-bg-card border border-val-yellow/30 rounded-lg px-4 py-2.5 flex items-center gap-3">
               <ExternalLink className="w-4 h-4 text-val-yellow shrink-0" />
               <div className="min-w-0">
@@ -318,7 +377,10 @@ export default function ProStudyReview() {
           )}
 
           {/* Playback controls */}
-          <div className="bg-bg-card border border-bg-elevated rounded-lg px-4 py-2 flex items-center gap-3">
+          <div
+            className="bg-bg-card border border-bg-elevated rounded-lg px-4 py-2 flex items-center gap-3"
+            hidden={!hasVideo}
+          >
             <button
               onClick={() => seek(-5)}
               className="text-text-muted hover:text-val-cyan transition-colors"

@@ -11,57 +11,9 @@
  * bundle it into the client.
  */
 
-import { readFileSync } from 'node:fs'
 import { createClient } from '@supabase/supabase-js'
 import { extractYouTubeId } from '../src/lib/youtubeId'
-
-// ---------------------------------------------------------------- env loading
-
-/**
- * Minimal `.env` reader — avoids a dotenv dependency for a script that runs a
- * handful of times. Later files win, so `.env` (the Notion token) overrides
- * `.env.local` (the Vite client vars we borrow the Supabase creds from).
- */
-function loadEnvFiles(files: string[]): Record<string, string> {
-  const env: Record<string, string> = {}
-  for (const file of files) {
-    let raw: string
-    try {
-      raw = readFileSync(file, 'utf8')
-    } catch {
-      continue // absent file is fine — the var may come from the real environment
-    }
-    for (const line of raw.split(/\r?\n/)) {
-      const trimmed = line.trim()
-      if (!trimmed || trimmed.startsWith('#')) continue
-      const eq = trimmed.indexOf('=')
-      if (eq === -1) continue
-      const key = trimmed.slice(0, eq).trim()
-      let value = trimmed.slice(eq + 1).trim()
-      const quoted =
-        (value.startsWith('"') && value.endsWith('"')) ||
-        (value.startsWith("'") && value.endsWith("'"))
-      if (quoted) value = value.slice(1, -1)
-      env[key] = value
-    }
-  }
-  return env
-}
-
-const fileEnv = loadEnvFiles(['.env.local', '.env'])
-
-function env(name: string): string | undefined {
-  return process.env[name] ?? fileEnv[name]
-}
-
-function requireEnv(name: string, hint: string): string {
-  const value = env(name)
-  if (!value) {
-    console.error(`Missing ${name}. ${hint}`)
-    process.exit(1)
-  }
-  return value
-}
+import { env, requireEnv } from './env'
 
 const NOTION_API_KEY = requireEnv(
   'NOTION_API_KEY',
