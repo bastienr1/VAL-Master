@@ -47,26 +47,46 @@ function optionLabel(review: ReferenceReview): string {
 export default function ProReferencePicker({ matchId, map, agent }: ProReferencePickerProps) {
   const [rows, setRows] = useState<ProReferenceRow[]>([])
   const [candidates, setCandidates] = useState<CandidateGroups>({ exact: [], sameMap: [] })
+  /** The candidate query failed — "unknown", not "none". */
+  const [candidatesFailed, setCandidatesFailed] = useState(false)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  // Settled independently, not with Promise.all: the two reads hit different
+  // tables and one failing must not blank the other. A rejected junction read
+  // used to empty the candidate list, which rendered as "no pro VODs for this
+  // map" — a wrong answer to a question the user did not ask.
   useEffect(() => {
     let cancelled = false
     setLoading(true)
+    setError(null)
 
-    Promise.all([listProReferencesForMatch(matchId), listCandidateReferences(map, agent)])
-      .then(([attached, groups]) => {
-        if (cancelled) return
-        setRows(attached)
-        setCandidates(groups)
+    const failures: string[] = []
+
+    const attached = listProReferencesForMatch(matchId)
+      .then(rows => {
+        if (!cancelled) setRows(rows)
       })
       .catch((err: Error) => {
-        if (!cancelled) setError(err.message)
+        failures.push(`attached pro VODs: ${err.message}`)
       })
-      .finally(() => {
-        if (!cancelled) setLoading(false)
+
+    const candidates = listCandidateReferences(map, agent)
+      .then(groups => {
+        if (!cancelled) setCandidates(groups)
       })
+      .catch((err: Error) => {
+        failures.push(`pro VOD list: ${err.message}`)
+        // Unknown, which is not the same as none — keep the empty state honest.
+        if (!cancelled) setCandidatesFailed(true)
+      })
+
+    Promise.all([attached, candidates]).finally(() => {
+      if (cancelled) return
+      setLoading(false)
+      if (failures.length > 0) setError(failures.join(' · '))
+    })
 
     return () => {
       cancelled = true
@@ -111,8 +131,9 @@ export default function ProReferencePicker({ matchId, map, agent }: ProReference
   if (!map) return null
 
   const heading = `Pro reference — ${map}${agent ? ` · ${agent}` : ''}`
+  // Only claim there are none when the query actually answered.
   const nothingOnThisMap =
-    !loading && candidates.exact.length === 0 && candidates.sameMap.length === 0
+    !loading && !candidatesFailed && candidates.exact.length === 0 && candidates.sameMap.length === 0
 
   return (
     <div>
