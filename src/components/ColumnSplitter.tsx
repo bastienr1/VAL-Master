@@ -33,10 +33,13 @@ interface UseSplitterOptions {
    */
   side?: 'left' | 'right'
   /**
-   * Cap the width at this fraction of the parent's width as well as at
-   * `maxWidth`. Omitted, only `maxWidth` applies.
+   * Pixels to keep for the *other* column.
+   *
+   * With this set, the panel can grow until the other side is down to this
+   * floor — which is what lets either column take the space when the task
+   * calls for it. Without it, only `maxWidth` applies.
    */
-  maxRatio?: number
+  minOtherSide?: number
   /** Announced by the handle to screen readers. */
   label?: string
 }
@@ -73,7 +76,7 @@ export function useSplitter({
   storageKey,
   onResize,
   side = 'right',
-  maxRatio,
+  minOtherSide,
   label = 'Resize panel',
 }: UseSplitterOptions) {
   /** The element being sized — written to directly while dragging. */
@@ -81,10 +84,36 @@ export function useSplitter({
   const dragRef = useRef<{ startX: number; startWidth: number; pointerId: number } | null>(null)
 
   const effectiveMax = useCallback(() => {
-    const parent = panelRef.current?.parentElement
-    if (!maxRatio || !parent) return maxWidth
-    return Math.min(maxWidth, Math.max(minWidth, parent.clientWidth * maxRatio))
-  }, [maxWidth, maxRatio, minWidth])
+    const panel = panelRef.current
+    const parent = panel?.parentElement
+    if (!minOtherSide || !panel || !parent) return maxWidth
+
+    // What the container has left once every *other* fixed element is paid for
+    // — sibling rails and the divider handles themselves — minus the floor the
+    // flexible column keeps.
+    //
+    // Derived from the container rather than measured off the flex column: on
+    // the Pro Study page two fixed rails share one flex column, and once that
+    // column is squeezed its width is a symptom of the over-commitment, so
+    // measuring it makes the bound shrink by a step per pass instead of landing
+    // on the right answer.
+    const otherFixed = [...parent.children].reduce((total, child) => {
+      if (child === panel) return total
+      if (Number.parseFloat(getComputedStyle(child).flexGrow) > 0) return total
+      return total + child.getBoundingClientRect().width
+    }, 0)
+
+    // The flex gaps are real width too; ignoring them lets the flexible column
+    // finish narrower than the floor it was promised.
+    const style = getComputedStyle(parent)
+    const gap = Number.parseFloat(style.columnGap || style.gap) || 0
+    const gaps = gap * Math.max(0, parent.children.length - 1)
+
+    return Math.min(
+      maxWidth,
+      Math.max(minWidth, parent.clientWidth - otherFixed - gaps - minOtherSide),
+    )
+  }, [maxWidth, minOtherSide, minWidth])
 
   const clamp = useCallback(
     (w: number) => Math.round(Math.max(minWidth, Math.min(effectiveMax(), w))),
@@ -196,11 +225,14 @@ export function useSplitter({
 
   // A width saved on a wider window is re-clamped rather than left to overflow.
   useEffect(() => {
-    if (!maxRatio) return
-    const onWindowResize = () => setWidthState(current => clamp(current))
-    window.addEventListener('resize', onWindowResize)
-    return () => window.removeEventListener('resize', onWindowResize)
-  }, [maxRatio, clamp])
+    if (!minOtherSide) return
+    const reclamp = () => setWidthState(current => clamp(current))
+    // Once on mount too: the panel ref is null during the first render, so the
+    // container-relative bound can't be applied in the state initialiser.
+    reclamp()
+    window.addEventListener('resize', reclamp)
+    return () => window.removeEventListener('resize', reclamp)
+  }, [minOtherSide, clamp])
 
   // The class lives on body, so a component unmounted mid-drag must clear it.
   useEffect(() => () => document.body.classList.remove(DRAGGING_CLASS), [])

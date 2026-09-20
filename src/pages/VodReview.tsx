@@ -24,7 +24,7 @@ import CapturePanel from '../components/CapturePanel'
 import ValoplantReplayPanel from '../components/ValoplantReplayPanel'
 import NotesPanel from '../components/NotesPanel'
 import { useSplitter, SplitterHandle } from '../components/ColumnSplitter'
-import { DEFAULT_RAIL_W, RAIL_MAX_PX, RAIL_MAX_RATIO, RAIL_MIN } from '../lib/constants'
+import { DEFAULT_RAIL_W, MIN_OTHER_COLUMN, RAIL_MAX_PX, RAIL_MIN } from '../lib/constants'
 import { resolveRoundFromTimestamp } from '../lib/roundResolver'
 // Player plumbing moved to lib/youtube.ts in the Pro Study sprint so both
 // review screens share one implementation. Behaviour here is unchanged.
@@ -554,7 +554,7 @@ export default function VodReview() {
     initialWidth: DEFAULT_RAIL_W,
     minWidth: RAIL_MIN,
     maxWidth: RAIL_MAX_PX,
-    maxRatio: RAIL_MAX_RATIO,
+    minOtherSide: MIN_OTHER_COLUMN,
     storageKey: 'vodReview.notesPanelWidth',
     label: 'Resize notes panel',
   })
