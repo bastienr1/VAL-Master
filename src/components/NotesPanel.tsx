@@ -1,8 +1,16 @@
 import { useState, useMemo } from 'react'
 import { Filter, FilterX, ChevronDown, ChevronRight, Trash2, Pencil, Crosshair, Skull } from 'lucide-react'
 import NoteMarkdown from './NoteMarkdown'
+import MomentTagChips from './MomentTagChips'
 import { supabase } from '../lib/supabase'
-import type { MatchRound, VodComment, VodTag, RoundScreenshot } from '../lib/types'
+import type {
+  MatchRound,
+  MomentTag,
+  ReviewTag,
+  VodComment,
+  VodTag,
+  RoundScreenshot,
+} from '../lib/types'
 import {
   ALL_TAG_COLORS,
   PRIMARY_TAG_TYPE_NAMES,
@@ -12,6 +20,13 @@ import {
 import { getRoundVideoTime } from '../lib/roundResolver'
 
 interface NotesPanelProps {
+  /** Moment tags on this review, and the vocabulary to render them with. */
+  moments: MomentTag[]
+  tags: ReviewTag[]
+  onRemoveMomentTag: (moment: MomentTag) => void
+  /** Lifted so the timeline lane dims to the same filter. */
+  tagFilter: string | null
+  onTagFilterChange: (tagId: string | null) => void
   comments: VodComment[]
   screenshots: RoundScreenshot[]
   rounds: MatchRound[]
@@ -51,9 +66,22 @@ interface NoteCardProps {
   onSeek: (seconds: number) => void
   onEdit: () => void
   onDelete: () => void
+  moments: MomentTag[]
+  tags: ReviewTag[]
+  onRemoveMomentTag: (moment: MomentTag) => void
 }
 
-function NoteCard({ comment, screenshot, isEditing, onSeek, onEdit, onDelete }: NoteCardProps) {
+function NoteCard({
+  comment,
+  screenshot,
+  isEditing,
+  onSeek,
+  onEdit,
+  onDelete,
+  moments,
+  tags,
+  onRemoveMomentTag,
+}: NoteCardProps) {
   const primary = findPrimaryTag(comment.tags || [])
   const detailTags = (comment.tags || []).filter(t => !PRIMARY_TAG_TYPE_NAMES.has(t))
 
@@ -109,6 +137,8 @@ function NoteCard({ comment, screenshot, isEditing, onSeek, onEdit, onDelete }: 
       {/* Body — markdown source rendered */}
       {comment.free_text && <NoteMarkdown>{comment.free_text}</NoteMarkdown>}
 
+      <MomentTagChips moments={moments} tags={tags} onRemove={onRemoveMomentTag} />
+
       {/* Screenshot + detail tags */}
       {(screenshot || detailTags.length > 0) && (
         <div className="flex items-start gap-2 mt-2">
@@ -139,6 +169,11 @@ function NoteCard({ comment, screenshot, isEditing, onSeek, onEdit, onDelete }: 
 }
 
 export default function NotesPanel({
+  moments,
+  tags,
+  onRemoveMomentTag,
+  tagFilter,
+  onTagFilterChange,
   comments,
   screenshots,
   rounds,
@@ -157,11 +192,34 @@ export default function NotesPanel({
   const [showRoundEvents, setShowRoundEvents] = useState(false)
   const [showLegacyTags, setShowLegacyTags] = useState(false)
 
+  /** Only the tags actually applied in this review get a filter chip. */
+  const usedTags = useMemo(
+    () => tags.filter(t => moments.some(m => m.tag_id === t.id)),
+    [tags, moments],
+  )
+
+  const momentsByNote = useMemo(() => {
+    const map = new Map<string, MomentTag[]>()
+    for (const moment of moments) {
+      if (!moment.note_id) continue // a quick-drop moment belongs to no card
+      const bucket = map.get(moment.note_id)
+      if (bucket) bucket.push(moment)
+      else map.set(moment.note_id, [moment])
+    }
+    return map
+  }, [moments])
+
   const visibleComments = useMemo(() => {
-    if (showAllNotes) return comments
-    if (activeRound != null) return comments.filter(c => c.round_number === activeRound)
-    return comments
-  }, [comments, showAllNotes, activeRound])
+    const byRound = showAllNotes
+      ? comments
+      : activeRound != null
+        ? comments.filter(c => c.round_number === activeRound)
+        : comments
+
+    if (!tagFilter) return byRound
+    // A note matches a tag filter when one of its own moments carries the tag.
+    return byRound.filter(c => (momentsByNote.get(c.id) ?? []).some(m => m.tag_id === tagFilter))
+  }, [comments, showAllNotes, activeRound, tagFilter, momentsByNote])
 
   const activeRoundData = useMemo(
     () => activeRound != null ? rounds.find(r => r.round_number === activeRound) ?? null : null,
@@ -236,6 +294,36 @@ export default function NotesPanel({
         </button>
       </div>
 
+      {usedTags.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 px-1">
+          {usedTags.map(tag => {
+            const active = tagFilter === tag.id
+            return (
+              <button
+                key={tag.id}
+                type="button"
+                onClick={() => onTagFilterChange(active ? null : tag.id)}
+                style={
+                  active
+                    ? {
+                        backgroundColor: hexWithAlpha(tag.color, 0.12),
+                        color: tag.color,
+                        borderColor: hexWithAlpha(tag.color, 0.3),
+                      }
+                    : undefined
+                }
+                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border transition-colors ${
+                  active ? '' : 'bg-transparent text-text-muted border-bg-elevated hover:border-text-muted'
+                }`}
+              >
+                <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: tag.color }} />
+                {tag.name}
+              </button>
+            )
+          })}
+        </div>
+      )}
+
       {/* Notes list */}
       {visibleComments.length === 0 ? (
         <div className="px-3 py-6 text-center">
@@ -259,6 +347,9 @@ export default function NotesPanel({
                   onSeek={onSeek}
                   onEdit={() => onCommentEdit(c)}
                   onDelete={() => handleDelete(c.id)}
+                  moments={momentsByNote.get(c.id) ?? []}
+                  tags={tags}
+                  onRemoveMomentTag={onRemoveMomentTag}
                 />
               </div>
             )
