@@ -6,6 +6,12 @@ interface UseSplitterOptions {
   maxWidth: number
   storageKey: string
   onResize?: (width: number) => void
+  /**
+   * Which side of the handle the sized panel sits on. A right-hand panel (the
+   * default, and every caller before the Pro Study chapter rail) grows as the
+   * handle is dragged left; a left-hand one grows as it is dragged right.
+   */
+  side?: 'left' | 'right'
 }
 
 interface DragHandlers {
@@ -18,6 +24,7 @@ export function useSplitter({
   maxWidth,
   storageKey,
   onResize,
+  side = 'right',
 }: UseSplitterOptions) {
   const clamp = useCallback(
     (w: number) => Math.max(minWidth, Math.min(maxWidth, w)),
@@ -51,9 +58,9 @@ export function useSplitter({
       const handleMove = (ev: MouseEvent) => {
         const drag = dragStateRef.current
         if (!drag) return
-        // Splitter is between left and right panels; right panel is on the right.
-        // Dragging left increases right panel width, dragging right decreases it.
-        const delta = drag.startX - ev.clientX
+        // The sized panel grows as the handle moves away from it: dragging left
+        // widens a right-hand panel, dragging right widens a left-hand one.
+        const delta = side === 'right' ? drag.startX - ev.clientX : ev.clientX - drag.startX
         const next = clamp(drag.startWidth + delta)
         setWidthState(next)
       }
@@ -73,7 +80,7 @@ export function useSplitter({
       window.addEventListener('mousemove', handleMove)
       window.addEventListener('mouseup', handleUp)
     },
-    [width, clamp]
+    [width, clamp, side]
   )
 
   // Persist whenever width changes (covers drag end + programmatic setWidth)

@@ -211,9 +211,25 @@ export interface PlaybookImportLog {
   synced_at: string
 }
 
+/** Where a Pro Study row came from — a Notion link, or a vault study guide. */
+export type ReviewSource = 'notion' | 'vault'
+
+/** The `valorant-vod-library` skill's content types, as written in frontmatter. */
+export type GuideContentType =
+  | 'map-guide'
+  | 'pro-review'
+  | 'agent-guide'
+  | 'mechanics'
+  | 'mindset'
+
 /**
- * A pro VOD in the Pro Study section — seeded from Notion, never written by the
- * app. Carries no Henrik data: a pro match has no round timeline of ours.
+ * A pro VOD in the Pro Study section. Never written by the app: `notion` rows
+ * are seeded by `scripts/seedProStudy.ts`, `vault` rows imported from the
+ * Obsidian VOD library by `scripts/importVodLibrary.ts`. Carries no Henrik
+ * data: a pro match has no round timeline of ours.
+ *
+ * The guide columns are all nullable so the 70 Notion rows keep working
+ * untouched — `source` is the only one they are guaranteed to have.
  */
 export interface ReferenceReview {
   id: string
@@ -223,15 +239,106 @@ export interface ReferenceReview {
   agent: string | null
   map: string | null
   event: string | null
-  /** Bare 11-char YouTube id — the player component wants it unwrapped. */
-  video_id: string
-  youtube_url: string
+  /**
+   * Bare 11-char YouTube id — the player component wants it unwrapped. Null on
+   * a vault guide whose note carries no `video_url` yet; the review screen then
+   * renders its chapters as a reading view.
+   */
+  video_id: string | null
+  youtube_url: string | null
   played_at: string | null
   notes: string | null
   /** Upsert key for re-seeding from Notion. */
   notion_page_id: string | null
   created_at: string
   updated_at: string | null
+  source: ReviewSource
+  content_type: GuideContentType | null
+  /** Channel or coach the guide came from — a guide's answer to `player`. */
+  creator: string | null
+  /** Upsert key for re-importing from the vault; relative, forward slashes. */
+  vault_path: string | null
+  series_order: number | null
+  duration_seconds: number | null
+  focus: string[] | null
+  /** Every map the guide covers; `map` holds the first, for the card splash. */
+  maps: string[] | null
+  agents: string[] | null
+}
+
+/**
+ * One chapter of a study guide — a `###` heading carrying a `[MM:SS–MM:SS]`
+ * range.
+ *
+ * Replaced wholesale on every import: the markdown is the source of truth and
+ * nothing the user does touches these rows.
+ */
+export interface ReferenceSection {
+  id: string
+  reference_review_id: string
+  position: number
+  heading: string
+  /** Null only for a heading the note left unranged; seeking is disabled then. */
+  start_seconds: number | null
+  end_seconds: number | null
+  map: string | null
+  agent: string | null
+  body_md: string
+  created_at: string
+}
+
+export type DrillStatus = 'planned' | 'active' | 'done' | 'dropped'
+
+/**
+ * One row of a guide's Practice Extraction table.
+ *
+ * Re-imported by `(reference_review_id, position)` updating content columns
+ * only — `status` is the user's, and an import never resets it.
+ */
+export interface PracticeDrill {
+  id: string
+  reference_review_id: string
+  position: number
+  title: string
+  venue: string | null
+  cue: string | null
+  success_signal: string | null
+  source_start_seconds: number | null
+  source_end_seconds: number | null
+  status: DrillStatus
+  target_sessions: number | null
+  created_at: string
+  updated_at: string | null
+}
+
+export type PracticeOutcome = 'hit' | 'partial' | 'miss'
+
+/** A logged session against a drill. Pure user data — imports never touch it. */
+export interface PracticeLog {
+  id: string
+  drill_id: string
+  logged_at: string
+  outcome: PracticeOutcome | null
+  note: string | null
+  linked_match_id: string | null
+  created_at: string
+}
+
+/** A drill plus its rolled-up log counts, as the Practice panel needs it. */
+export interface DrillWithProgress extends PracticeDrill {
+  log_count: number
+  hit_count: number
+  partial_count: number
+  /** Outcome of the most recent log, or null when nothing is logged yet. */
+  last_outcome: PracticeOutcome | null
+  last_logged_at: string | null
+}
+
+/** A study guide with everything the review screen renders, in one shape. */
+export interface ReviewWithGuide {
+  review: ReferenceReview
+  sections: ReferenceSection[]
+  drills: DrillWithProgress[]
 }
 
 /**
