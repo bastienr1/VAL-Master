@@ -30,12 +30,18 @@
  * Bumped whenever a parser change must reach playbooks imported before it.
  *
  * It joins the content-hash input in `playbookImport.ts`: without it, re-importing
- * an unchanged note is a hash-match no-op, so a structural change like chapter
- * depth would never land on existing rows.
+ * an unchanged note is a hash-match no-op, so a change to the chapter shape would
+ * never land on existing rows.
  *
  * 2 — chapter hierarchy (depth + parent_chapter_number).
+ * 3 — hierarchy withdrawn. Chapters are one flat list again; the Study Dock's
+ *     sub-chapters come from **moments** inside a chapter body (`playbookMoments.ts`),
+ *     which is the model the playbook reader already uses and which every chapter
+ *     has, rather than from whether an author happened to type a range on a
+ *     section heading. `depth` and `parent_chapter_number` stay in the schema,
+ *     written as 1 / null.
  */
-export const PARSER_VERSION = 2
+export const PARSER_VERSION = 3
 
 export interface ParsedChapter {
   chapter_number: number
@@ -276,8 +282,6 @@ export function parsePlaybookMarkdown(markdown: string): ParseResult {
   const calloutsIn = (from: number, to: number) => callouts.filter(c => c.startLine >= from && c.startLine < to)
 
   const chapters: ParsedChapter[] = []
-  /** The most recent depth-1 timestamped heading and its level, for nesting. */
-  let openParent: { level: number; chapter_number: number } | null = null
 
   for (let h = 0; h < headings.length; h++) {
     const heading = headings[h]
@@ -288,19 +292,7 @@ export function parsePlaybookMarkdown(markdown: string): ParseResult {
     const bodyEnd = next ? next.line : lines.length
     const bodyLines = lines.slice(bodyStart, bodyEnd)
     const transcript = tidy(bodyLines)
-
-    // A deeper timestamped heading under an open timestamped one is a
-    // sub-chapter of it. Anything else opens a new depth-1 chapter.
-    const isChild = !!openParent && heading.level > openParent.level
-    const depth: 1 | 2 = isChild ? 2 : 1
-
-    // An untimestamped wrapper is still skipped, but a *timestamped* heading
-    // whose own body is empty is a real parent — the vault's `## … Half …`
-    // blocks go straight from heading to their first `###` child, and skipping
-    // them would leave their children orphaned at depth 1.
-    const hasChildren =
-      !!next && next.timed !== null && next.level > heading.level
-    if (!transcript && !hasChildren) continue
+    if (!transcript) continue // section wrapper around timestamped children
 
     const start = parseTimestamp(heading.timed.start)
     const end = parseTimestamp(heading.timed.end)
@@ -315,10 +307,8 @@ export function parsePlaybookMarkdown(markdown: string): ParseResult {
     const own = calloutsIn(bodyStart, bodyEnd)
     const keep = bodyLines.filter((_, i) => !own.some(c => bodyStart + i >= c.startLine && bodyStart + i < c.endLine))
 
-    const chapterNumber = chapters.length + 1
-
     chapters.push({
-      chapter_number: chapterNumber,
+      chapter_number: chapters.length + 1,
       title: label,
       subtitle: null,
       start_seconds: start,
@@ -327,12 +317,9 @@ export function parsePlaybookMarkdown(markdown: string): ParseResult {
       key_takeaways: own.filter(c => !NON_TAKEAWAY_CALLOUTS.has(c.type)).map(calloutToTakeaway).filter(Boolean),
       transcript_excerpt: transcript,
       role_context: label.match(/\(([^()]*\blens)\)/i)?.[1] ?? null,
-      depth,
-      parent_chapter_number: isChild ? openParent!.chapter_number : null,
+      depth: 1,
+      parent_chapter_number: null,
     })
-
-    // Only a depth-1 heading can parent the ones that follow it.
-    if (depth === 1) openParent = { level: heading.level, chapter_number: chapterNumber }
   }
 
   if (chapters.length === 0) {
