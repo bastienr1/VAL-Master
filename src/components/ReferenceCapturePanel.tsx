@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
-import { Pencil } from 'lucide-react'
+import { Pencil, Tag as TagIcon, X } from 'lucide-react'
 import MarkdownToolbar from './MarkdownToolbar'
+import TagPicker from './TagPicker'
 import { applyAction } from '../lib/markdown'
 import { createNote, updateNote } from '../lib/referenceReviews'
+import { addMomentTag } from '../lib/momentTags'
 import { REFERENCE_LABELS } from '../lib/constants'
 import { COMMENT_TAG_CATEGORIES } from '../lib/commentTags'
 import { REFERENCE_LABEL_COLORS, hexWithAlpha } from '../lib/tagColors'
 import { formatTime } from '../lib/youtube'
-import type { ReferenceLabel, ReferenceNote } from '../lib/types'
+import type { MomentTag, ReferenceLabel, ReferenceNote, ReviewRef, ReviewTag } from '../lib/types'
 
 /**
  * Capture-first note editor for a pro VOD.
@@ -35,6 +37,11 @@ interface ReferenceCapturePanelProps {
   onClose: () => void
   onNoteAdded: (note: ReferenceNote) => void
   onNoteUpdated: (note: ReferenceNote) => void
+  /** Moment tags — the page owns the vocabulary and the applied rows. */
+  reviewRef: ReviewRef
+  tags: ReviewTag[]
+  onTagsChange: (tags: ReviewTag[] | ((prev: ReviewTag[]) => ReviewTag[])) => void
+  onMomentTagAdded: (moment: MomentTag) => void
 }
 
 interface ChipProps {
@@ -76,6 +83,10 @@ export default function ReferenceCapturePanel({
   onClose,
   onNoteAdded,
   onNoteUpdated,
+  reviewRef,
+  tags,
+  onTagsChange,
+  onMomentTagAdded,
 }: ReferenceCapturePanelProps) {
   const [text, setText] = useState('')
   const [label, setLabel] = useState<ReferenceLabel | null>(null)
@@ -83,6 +94,11 @@ export default function ReferenceCapturePanel({
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  // Tags chosen before the note exists. Nothing is written until save — the
+  // moment rows need the note's id to link against.
+  const [pendingTagIds, setPendingTagIds] = useState<string[]>([])
+  const [pickerOpen, setPickerOpen] = useState(false)
 
   const isEditing = !!editingNote
 
@@ -103,11 +119,21 @@ export default function ReferenceCapturePanel({
     setLabel(null)
     setCategory(null)
     setError(null)
+    setPendingTagIds([])
+    setPickerOpen(false)
   }, [isOpen, editingNote])
 
   if (!isOpen) return null
 
   const canSave = text.trim().length > 0
+  const pendingTags = pendingTagIds
+    .map(id => tags.find(t => t.id === id))
+    .filter((t): t is ReviewTag => !!t)
+
+  const togglePendingTag = (tagId: string) =>
+    setPendingTagIds(prev =>
+      prev.includes(tagId) ? prev.filter(id => id !== tagId) : [...prev, tagId],
+    )
 
   const handleSave = async () => {
     const trimmed = text.trim()
@@ -128,6 +154,19 @@ export default function ReferenceCapturePanel({
           category,
         })
         onNoteAdded(created)
+
+        // The moment takes the note's captured timestamp, not the live
+        // playhead — the video has usually moved on while the note was typed.
+        for (const tagId of pendingTagIds) {
+          try {
+            onMomentTagAdded(
+              await addMomentTag(reviewRef, tagId, created.timestamp_seconds, created.id),
+            )
+          } catch (tagError) {
+            // The note is already saved; a failed tag must not read as a lost note.
+            console.error('Failed to apply a moment tag:', tagError)
+          }
+        }
       }
       onClose()
     } catch (err) {
@@ -232,6 +271,55 @@ export default function ReferenceCapturePanel({
           />
         ))}
       </div>
+
+      {/* Moment tags — only on a new note: an edit does not re-open the moment. */}
+      {!isEditing && (
+        <div className="px-3 pb-3 flex flex-wrap items-center gap-1.5 relative">
+          <button
+            type="button"
+            onClick={() => setPickerOpen(o => !o)}
+            className="inline-flex items-center gap-1 px-2 py-1 rounded-full border border-bg-elevated text-[11px] text-text-muted hover:border-text-muted hover:text-text-secondary transition-colors"
+          >
+            <TagIcon className="w-3 h-3" />
+            Tag
+          </button>
+
+          {pendingTags.map(tag => (
+            <span
+              key={tag.id}
+              style={{
+                backgroundColor: hexWithAlpha(tag.color, 0.12),
+                color: tag.color,
+                borderColor: hexWithAlpha(tag.color, 0.3),
+              }}
+              className="inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded-full border text-[11px] font-medium"
+            >
+              {tag.name}
+              <button
+                type="button"
+                onClick={() => togglePendingTag(tag.id)}
+                title={`Remove ${tag.name}`}
+                className="opacity-60 hover:opacity-100 transition-opacity"
+              >
+                <X className="w-2.5 h-2.5" />
+              </button>
+            </span>
+          ))}
+
+          {pickerOpen && (
+            <div className="absolute bottom-full left-3 mb-1 z-30">
+              <TagPicker
+                tags={tags}
+                selectedIds={new Set(pendingTagIds)}
+                mode="select"
+                onToggle={tag => togglePendingTag(tag.id)}
+                onVocabularyChange={onTagsChange}
+                onClose={() => setPickerOpen(false)}
+              />
+            </div>
+          )}
+        </div>
+      )}
 
       {error && (
         <div className="px-3 pb-3 text-[11px] text-val-red">{error}</div>
