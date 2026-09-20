@@ -3,15 +3,19 @@ import { supabase } from '../lib/supabase'
 import { DEBRIEF_THEMES } from '../lib/commentTags'
 import type { VodReview } from '../lib/types'
 import { Star, Save, Check } from 'lucide-react'
-import MapFundamentalsPicker from './MapFundamentalsPicker'
+import StudyDock from './StudyDock'
 
 interface InlineDebriefProps {
   vodReview: VodReview
   map?: string | null
+  /** Agent played, for the pro-reference pre-filter. */
+  agent?: string | null
+  /** `matches.match_id` — what a pro reference is attached to. */
+  matchId?: string | null
   onUpdate: (updated: VodReview) => void
 }
 
-export default function InlineDebrief({ vodReview, map, onUpdate }: InlineDebriefProps) {
+export default function InlineDebrief({ vodReview, map, agent, matchId, onUpdate }: InlineDebriefProps) {
   const [peakMoment, setPeakMoment] = useState(vodReview.peak_moment || '')
   const [keyLesson, setKeyLesson] = useState(vodReview.key_lesson || '')
   const [themes, setThemes] = useState<string[]>(vodReview.themes ? vodReview.themes.split(',').map(t => t.trim()).filter(Boolean) : [])
@@ -66,8 +70,10 @@ export default function InlineDebrief({ vodReview, map, onUpdate }: InlineDebrie
     <div className="bg-bg-card border border-bg-elevated rounded-xl p-4 space-y-3">
       <h3 className="text-sm font-heading font-bold text-text-primary">Match Debrief</h3>
 
-      {/* Map fundamentals — a saved playbook or link, per map not per review. Loads and saves on its own. */}
-      {map && <MapFundamentalsPicker map={map} />}
+      {/* Study Dock — the fundamentals picker (per map, not per review) plus the
+          chapter stack and pro references. Owns its own loading and saving; none
+          of it is gated behind Save Debrief. */}
+      {map && matchId && <StudyDock map={map} agent={agent ?? null} matchId={matchId} />}
 
       {/* Peak moment */}
       <div>

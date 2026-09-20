@@ -4,9 +4,19 @@ import { ExternalLink } from 'lucide-react'
 import { getMapFundamentals, saveMapFundamentals, type FundamentalsChoice } from '../lib/mapFundamentals'
 import { normalizeUrl, isSafeUrl } from '../lib/url'
 import { usePlaybooks } from '../hooks/usePlaybooks'
+import type { Playbook } from '../lib/types'
 
 interface MapFundamentalsPickerProps {
   map: string
+  /**
+   * The saved playbook now in effect for this map, or null for an external
+   * link, "none", or a playbook that is no longer on this map.
+   *
+   * The picker still owns loading and saving the choice; this only reports the
+   * resolved result, so the Study Dock can show chapters for it. Callers that
+   * don't care omit it and the picker behaves exactly as it did in 6b.
+   */
+  onPlaybookChange?: (playbook: Playbook | null) => void
 }
 
 interface Loaded {
@@ -24,7 +34,7 @@ const playbookValue = (id: string) => `playbook:${id}`
  * map, an external link, or nothing. One choice per map, per user — it loads
  * and saves on its own so a bad link never blocks the rest of the debrief.
  */
-export default function MapFundamentalsPicker({ map }: MapFundamentalsPickerProps) {
+export default function MapFundamentalsPicker({ map, onPlaybookChange }: MapFundamentalsPickerProps) {
   const { playbooks, loading: playbooksLoading } = usePlaybooks({ map })
 
   // Keyed by map so switching reviews never shows the previous map's choice.
@@ -76,6 +86,16 @@ export default function MapFundamentalsPicker({ map }: MapFundamentalsPickerProp
 
   const selectedPlaybook = choice?.kind === 'playbook' ? playbooks.find(p => p.id === choice.playbookId) ?? null : null
   const playbookMissing = choice?.kind === 'playbook' && !playbooksLoading && !selectedPlaybook
+
+  // Report the resolved playbook upward. In an effect rather than inside
+  // `save`, so the first load and a map switch report too — and keyed on the id
+  // so a re-render with the same choice doesn't re-notify.
+  const reportedId = selectedPlaybook?.id ?? null
+  useEffect(() => {
+    onPlaybookChange?.(selectedPlaybook)
+    // `selectedPlaybook` is derived; its id is the real identity.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reportedId, onPlaybookChange])
 
   const showUrlEditor = editingUrl || choice?.kind === 'url'
   const selectValue = showUrlEditor
