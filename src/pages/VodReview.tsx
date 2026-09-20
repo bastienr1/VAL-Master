@@ -24,6 +24,7 @@ import CapturePanel from '../components/CapturePanel'
 import ValoplantReplayPanel from '../components/ValoplantReplayPanel'
 import NotesPanel from '../components/NotesPanel'
 import { useSplitter, SplitterHandle } from '../components/ColumnSplitter'
+import { DEFAULT_RAIL_W, RAIL_MAX_PX, RAIL_MAX_RATIO, RAIL_MIN } from '../lib/constants'
 import { resolveRoundFromTimestamp } from '../lib/roundResolver'
 // Player plumbing moved to lib/youtube.ts in the Pro Study sprint so both
 // review screens share one implementation. Behaviour here is unchanged.
@@ -546,12 +547,16 @@ export default function VodReview() {
     [match?.match_id],
   )
 
-  // Resizable notes panel (right column)
-  const { width: notesPanelWidth, dragHandlers } = useSplitter({
-    initialWidth: 320,
-    minWidth: 240,
-    maxWidth: 480,
+  // Resizable notes panel (right column). The rail changes job through a
+  // session — thin while watching, wide while studying with the Study Dock's
+  // embeds open — so its width is the user's to set, and it is remembered.
+  const { dragHandlers, panelProps } = useSplitter({
+    initialWidth: DEFAULT_RAIL_W,
+    minWidth: RAIL_MIN,
+    maxWidth: RAIL_MAX_PX,
+    maxRatio: RAIL_MAX_RATIO,
     storageKey: 'vodReview.notesPanelWidth',
+    label: 'Resize notes panel',
   })
 
   if (loading) {
@@ -854,7 +859,7 @@ export default function VodReview() {
         <SplitterHandle {...dragHandlers} />
 
         {/* === RIGHT PANEL: Notes + Inline Debrief === */}
-        <div style={{ width: notesPanelWidth, flexShrink: 0 }} className="space-y-3">
+        <div {...panelProps} className="space-y-3">
           {vodReview && (
             <NotesPanel
               moments={moments}

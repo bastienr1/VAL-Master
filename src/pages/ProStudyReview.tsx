@@ -7,6 +7,7 @@ import ChapterRail from '../components/ChapterRail'
 import MomentTagLane from '../components/MomentTagLane'
 import TagPicker from '../components/TagPicker'
 import { useSplitter, SplitterHandle } from '../components/ColumnSplitter'
+import { RAIL_MAX_RATIO } from '../lib/constants'
 import GameImage from '../components/GameImage'
 import { agentImageFor, mapImageFor } from '../lib/gameContent'
 import { useGameContent } from '../hooks/useGameContent'
@@ -254,20 +255,24 @@ export default function ProStudyReview() {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [togglePlay, seek, openCapture, closeCapture, pause])
 
-  const { width: notesPanelWidth, dragHandlers } = useSplitter({
+  const { dragHandlers, panelProps: notesPanelProps } = useSplitter({
     initialWidth: 320,
     minWidth: 240,
     maxWidth: 480,
+    maxRatio: RAIL_MAX_RATIO,
     storageKey: 'proStudyReview.notesPanelWidth',
+    label: 'Resize notes panel',
   })
 
   // Its own key, so widening the chapters does not narrow the notes.
-  const { width: chapterRailWidth, dragHandlers: chapterDragHandlers } = useSplitter({
+  const { dragHandlers: chapterDragHandlers, panelProps: chapterRailProps } = useSplitter({
     initialWidth: 300,
     minWidth: 220,
     maxWidth: 460,
+    maxRatio: RAIL_MAX_RATIO,
     storageKey: 'proStudyReview.chapterRailWidth',
     side: 'left',
+    label: 'Resize chapter rail',
   })
 
   const editingNote = useMemo(
@@ -396,7 +401,7 @@ export default function ProStudyReview() {
             a 300px column of prose against an empty page is not a reading view. */}
         {isGuide && hasVideo && (
           <>
-            <div style={{ width: chapterRailWidth, flexShrink: 0 }}>
+            <div {...chapterRailProps}>
               <ChapterRail
                 sections={sections}
                 currentTime={currentTime}
@@ -578,7 +583,7 @@ export default function ProStudyReview() {
         <SplitterHandle {...dragHandlers} />
 
         {/* === RIGHT: notes rail === */}
-        <div style={{ width: notesPanelWidth, flexShrink: 0 }}>
+        <div {...notesPanelProps}>
           <ReferenceNotesPanel
             notes={notes}
             editingNoteId={editingNoteId}
