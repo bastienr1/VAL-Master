@@ -77,6 +77,26 @@ test('unlabelled times, quotes, header rows and code blocks are not moments', ()
   assert.ok(!labels.includes('Not a moment'))
 })
 
+// The single moment syntax the valorant-map-analysis skill writes: #### + range,
+// with the chapter's framing line and bullets carrying no time of their own.
+const SKILL_CHAPTER = `**Job:** stop the C rush, get C-long info.
+
+#### Early info, then rotate \`[03:29–06:01]\`
+- **Cam C long, jiggle** — abandon site by ~10s if nothing.
+| Situation | Play |
+|---|---|
+| Nothing on C | **Abandon site** |
+
+#### Bunker but 3–4 show A \`[1:08:52–1:11:59]\`
+Walk into garage and look for the lurker (~1:09:20).`
+
+test('#### moments with ranges, and nothing else, come out of a skill-shaped chapter', () => {
+  assert.deepEqual(extractMoments(SKILL_CHAPTER), [
+    { label: 'Early info, then rotate', start_seconds: 209, end_seconds: 361 },
+    { label: 'Bunker but 3–4 show A', start_seconds: 4132, end_seconds: 4319 },
+  ])
+})
+
 test('drops moments outside the chapter range', () => {
   const inRange = extractMoments(BODY, { start_seconds: 123, end_seconds: 733 })
   assert.deepEqual(inRange.map(m => m.label), ['The job', 'Utility logic', 'Style A — early info, then rotate', 'Jump-spot C long', 'Retake'])

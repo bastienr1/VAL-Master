@@ -10,7 +10,8 @@
     "test": "node --test \"src/**/*.test.ts\"",
     "preview": "vite preview",
     "seed:prostudy": "tsx scripts/seedProStudy.ts",
-    "import:guides": "tsx scripts/importVodLibrary.ts"
+    "import:guides": "tsx scripts/importVodLibrary.ts",
+    "check:playbook": "tsx scripts/checkPlaybook.ts"
   },
   "dependencies": {
     "@radix-ui/react-slider": "^1.3.6",

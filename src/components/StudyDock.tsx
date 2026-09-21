@@ -111,9 +111,11 @@ export default function StudyDock({ map, agent, matchId }: StudyDockProps) {
               className="w-full mt-1 bg-bg-elevated border border-bg-card rounded-lg px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-val-cyan/30"
             >
               <option value="">Select a chapter…</option>
+              {/* Options can't be styled, so a sub-chapter is indented under its
+                  half with non-breaking spaces. */}
               {chapters.map(c => (
                 <option key={c.id} value={c.chapter_number}>
-                  {c.chapter_number}. {c.title} · {formatTimestamp(c.start_seconds)}
+                  {`${c.depth === 2 ? '    ' : ''}${c.chapter_number}. ${c.title} · ${formatTimestamp(c.start_seconds)}`}
                 </option>
               ))}
             </select>
