@@ -6,6 +6,7 @@ import { usePlaybookBySlug, usePlaybookChapters } from '../hooks/usePlaybooks'
 import PlaybookChapterList from '../components/PlaybookChapterList'
 import PlaybookChapterReader from '../components/PlaybookChapterReader'
 import MatchContextCard from '../components/MatchContextCard'
+import type { PlaybookChapter } from '../lib/types'
 
 function ReaderSkeleton() {
   return (
@@ -51,11 +52,18 @@ export default function PlaybookReader() {
     setSearchParams({ chapter: String(chapter.chapter_number) }, { replace: true })
   }
 
-  /** Jumps the video to a time — in the given chapter, or whichever chapter contains it. */
+  /**
+   * Jumps the video to a time — in the given chapter, else the active one when
+   * it contains the time, else the innermost chapter that does. A half and its
+   * sub-chapters overlap, and the sub-chapter (listed after its half) is the
+   * more specific answer.
+   */
   const jumpTo = (seconds: number, chapterId?: string) => {
+    const contains = (c: PlaybookChapter) => seconds >= c.start_seconds && seconds < c.end_seconds
     const target =
       (chapterId && chapters.find(c => c.id === chapterId)) ||
-      chapters.find(c => seconds >= c.start_seconds && seconds < c.end_seconds) ||
+      (activeChapter && contains(activeChapter) ? activeChapter : null) ||
+      chapters.filter(contains).pop() ||
       activeChapter
     if (!target) return
     setUserPicked(true)

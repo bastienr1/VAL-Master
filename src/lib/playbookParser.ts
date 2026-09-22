@@ -22,8 +22,9 @@
  * Any ## or ### heading carrying a `[start–end]` range becomes a chapter. The
  * spec's original `## [MM:SS–MM:SS] Title` form is accepted too. A chapter's
  * body runs to the next timestamped heading, or the next heading at the same
- * or a higher level. Headings whose body is empty are section wrappers around
- * timestamped children and are skipped.
+ * or a higher level. An untimestamped heading is a section wrapper and never a
+ * chapter. A timestamped `##` followed by timestamped `###` headings is a
+ * parent (a video half) and those `###` are its sub-chapters.
  */
 
 /**
@@ -40,8 +41,12 @@
  *     has, rather than from whether an author happened to type a range on a
  *     section heading. `depth` and `parent_chapter_number` stay in the schema,
  *     written as 1 / null.
+ * 4 — hierarchy restored. The `valorant-map-analysis` skill now writes every
+ *     both-sides note with a timestamped `##` per half, so nesting follows the
+ *     video's structure instead of an authoring accident. Moments stay the
+ *     level below a chapter.
  */
-export const PARSER_VERSION = 3
+export const PARSER_VERSION = 4
 
 export interface ParsedChapter {
   chapter_number: number
@@ -282,17 +287,34 @@ export function parsePlaybookMarkdown(markdown: string): ParseResult {
   const calloutsIn = (from: number, to: number) => callouts.filter(c => c.startLine >= from && c.startLine < to)
 
   const chapters: ParsedChapter[] = []
+  /** The most recent depth-1 timestamped heading and its level, for nesting. */
+  let openParent: { level: number; chapter_number: number } | null = null
 
   for (let h = 0; h < headings.length; h++) {
     const heading = headings[h]
-    if (!heading.timed) continue
+    if (!heading.timed) {
+      // An untimestamped section at the parent's level or above (`## Practical
+      // Application`) closes the half, so a later chapter is never adopted by it.
+      if (openParent && heading.level <= openParent.level) openParent = null
+      continue
+    }
 
     const next = headings.slice(h + 1).find(n => n.timed || n.level <= heading.level)
     const bodyStart = heading.line + 1
     const bodyEnd = next ? next.line : lines.length
     const bodyLines = lines.slice(bodyStart, bodyEnd)
     const transcript = tidy(bodyLines)
-    if (!transcript) continue // section wrapper around timestamped children
+
+    // A deeper timestamped heading under an open timestamped one is a
+    // sub-chapter of it. Anything else opens a new depth-1 chapter.
+    const isChild = !!openParent && heading.level > openParent.level
+    const depth: 1 | 2 = isChild ? 2 : 1
+
+    // A timestamped heading whose own body is empty is still a real parent when
+    // timestamped children follow — a `## … Half …` often goes straight to its
+    // first `###`. With no children it is an empty wrapper and is skipped.
+    const hasChildren = !!next && next.timed !== null && next.level > heading.level
+    if (!transcript && !hasChildren) continue
 
     const start = parseTimestamp(heading.timed.start)
     const end = parseTimestamp(heading.timed.end)
@@ -307,8 +329,10 @@ export function parsePlaybookMarkdown(markdown: string): ParseResult {
     const own = calloutsIn(bodyStart, bodyEnd)
     const keep = bodyLines.filter((_, i) => !own.some(c => bodyStart + i >= c.startLine && bodyStart + i < c.endLine))
 
+    const chapterNumber = chapters.length + 1
+
     chapters.push({
-      chapter_number: chapters.length + 1,
+      chapter_number: chapterNumber,
       title: label,
       subtitle: null,
       start_seconds: start,
@@ -317,9 +341,12 @@ export function parsePlaybookMarkdown(markdown: string): ParseResult {
       key_takeaways: own.filter(c => !NON_TAKEAWAY_CALLOUTS.has(c.type)).map(calloutToTakeaway).filter(Boolean),
       transcript_excerpt: transcript,
       role_context: label.match(/\(([^()]*\blens)\)/i)?.[1] ?? null,
-      depth: 1,
-      parent_chapter_number: null,
+      depth,
+      parent_chapter_number: isChild ? openParent!.chapter_number : null,
     })
+
+    // Only a depth-1 heading can parent the ones that follow it.
+    if (depth === 1) openParent = { level: heading.level, chapter_number: chapterNumber }
   }
 
   if (chapters.length === 0) {

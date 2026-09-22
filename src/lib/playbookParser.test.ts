@@ -102,14 +102,17 @@ test('builds chapters from timestamped headings in the vault format', () => {
   assert.equal(p.video_duration_seconds, 5386)
   assert.equal(p.description, 'Five defenders, one loop.')
 
-  // "Attack Half" wraps a timestamped child with no body of its own → skipped.
+  // "Attack Half" has no body of its own but does carry a timestamped child, so
+  // it is kept as that child's parent. An *untimestamped* wrapper is still
+  // skipped — `## Core Concepts` never becomes a chapter.
   assert.deepEqual(p.chapters.map(c => c.title), [
     'Structure',
     'Role 1 — C Sentinel (Cypher lens)',
+    'Attack Half',
     'Defaults',
   ])
-  assert.deepEqual(p.chapters.map(c => c.chapter_number), [1, 2, 3])
-  assert.deepEqual([p.chapters[2].start_seconds, p.chapters[2].end_seconds], [5272, 5386])
+  assert.deepEqual(p.chapters.map(c => c.chapter_number), [1, 2, 3, 4])
+  assert.deepEqual([p.chapters[3].start_seconds, p.chapters[3].end_seconds], [5272, 5386])
 
   const structure = p.chapters[0]
   assert.equal(structure.transcript_excerpt, 'One C, one garage.') // trailing --- dropped
@@ -121,7 +124,140 @@ test('builds chapters from timestamped headings in the vault format', () => {
   assert.ok(role1.transcript_excerpt.includes('[!warning]'))
 
   // Chapter body stops at the next same-level heading.
-  assert.ok(!p.chapters[2].transcript_excerpt.includes('Practical'))
+  assert.ok(!p.chapters[3].transcript_excerpt.includes('Practical'))
+})
+
+test('a timestamped heading under another becomes a sub-chapter', () => {
+  const r = parsePlaybookMarkdown(NOTE)
+  assert.equal(r.ok, true)
+  if (!r.ok) return
+
+  assert.deepEqual(r.playbook.chapters.map(c => c.depth), [1, 1, 1, 2])
+  assert.deepEqual(r.playbook.chapters.map(c => c.parent_chapter_number), [null, null, null, 3])
+})
+
+test('an all-same-level note produces no sub-chapters', () => {
+  const flat = `---
+title: Flat
+map: Bind
+---
+
+### One \`[00:00–01:00]\`
+Body one.
+
+### Two \`[01:00–02:00]\`
+Body two.
+`
+  const r = parsePlaybookMarkdown(flat)
+  assert.equal(r.ok, true)
+  if (!r.ok) return
+
+  assert.deepEqual(r.playbook.chapters.map(c => c.depth), [1, 1])
+  assert.deepEqual(r.playbook.chapters.map(c => c.parent_chapter_number), [null, null])
+})
+
+test('a leading ### with no ## above it stays depth 1', () => {
+  const leading = `---
+title: Leading
+map: Split
+---
+
+### First \`[00:00–01:00]\`
+Body.
+
+## Second \`[01:00–02:00]\`
+Also a body.
+`
+  const r = parsePlaybookMarkdown(leading)
+  assert.equal(r.ok, true)
+  if (!r.ok) return
+
+  // The `##` is shallower than the open `###`, so it opens its own chapter
+  // rather than adopting anything.
+  assert.deepEqual(r.playbook.chapters.map(c => c.depth), [1, 1])
+})
+
+test('a timestamped parent with an empty body is kept, an untimestamped one is not', () => {
+  const wrapped = `---
+title: Wrapped
+map: Lotus
+---
+
+## Untimestamped wrapper
+
+### Real chapter \`[00:00–01:00]\`
+Body.
+
+## Timestamped parent \`[01:00–05:00]\`
+
+### Child \`[01:00–02:00]\`
+Child body.
+`
+  const r = parsePlaybookMarkdown(wrapped)
+  assert.equal(r.ok, true)
+  if (!r.ok) return
+
+  assert.deepEqual(r.playbook.chapters.map(c => c.title), [
+    'Real chapter',
+    'Timestamped parent',
+    'Child',
+  ])
+  assert.deepEqual(r.playbook.chapters.map(c => c.depth), [1, 1, 2])
+  assert.equal(r.playbook.chapters[2].parent_chapter_number, 2)
+  // The parent keeps its empty body rather than inheriting the child's.
+  assert.equal(r.playbook.chapters[1].transcript_excerpt, '')
+})
+
+// The shape the valorant-map-analysis skill writes for a both-sides video.
+const BOTH_HALVES = `---
+title: Both Halves
+map: Haven
+side: both
+---
+
+## Core Concepts
+
+### Comp and loose positions \`[00:00–02:03]\`
+Comp.
+
+## Defense Half — Five Roles \`[02:03–12:13]\`
+**Frame:** five defenders.
+
+### Role 1 — C Sentinel (Cypher lens) \`[02:03–11:59]\`
+**Job:** stop the C rush.
+
+#### Early info, then rotate \`[03:29–06:01]\`
+- **Cam C long, jiggle** — then decide.
+
+## Attack Half — Lurk \`[12:13–20:00]\`
+**Frame:** entry order.
+
+### Attack shape \`[12:13–20:00]\`
+Shape.
+
+## Practical Application
+
+### Timed but after the halves \`[20:00–21:00]\`
+Not a child of the attack half.
+`
+
+test('both halves nest their chapters; the frame line stays with the half', () => {
+  const r = parsePlaybookMarkdown(BOTH_HALVES)
+  assert.equal(r.ok, true)
+  if (!r.ok) return
+  const c = r.playbook.chapters
+
+  assert.deepEqual(c.map(x => [x.chapter_number, x.depth, x.parent_chapter_number]), [
+    [1, 1, null], // Comp — before any half
+    [2, 1, null], // Defense Half
+    [3, 2, 2], //    Role 1
+    [4, 1, null], // Attack Half
+    [5, 2, 4], //    Attack shape
+    [6, 1, null], // after an untimestamped ## — not adopted by the attack half
+  ])
+  assert.equal(c[1].transcript_excerpt, '**Frame:** five defenders.')
+  // Moments (####) stay inside the chapter body.
+  assert.ok(c[2].transcript_excerpt.includes('#### Early info, then rotate'))
 })
 
 test("accepts the spec's leading-range heading and [!key] callouts", () => {
@@ -144,7 +280,7 @@ Go through short.
 test('handles CRLF line endings', () => {
   const r = parsePlaybookMarkdown(NOTE.replace(/\n/g, '\r\n'))
   assert.equal(r.ok, true)
-  if (r.ok) assert.equal(r.playbook.chapters.length, 3)
+  if (r.ok) assert.equal(r.playbook.chapters.length, 4)
 })
 
 test('rejects malformed notes with a clear reason', () => {
