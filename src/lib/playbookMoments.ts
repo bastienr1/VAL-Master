@@ -168,3 +168,25 @@ export function linkifyTimestamps(markdown: string): string {
     })
     .join('\n')
 }
+
+/**
+ * Which moment the playhead sits inside, or -1.
+ *
+ * Only a moment's start is reliable — the notes label plenty of them with a
+ * single time — so an open-ended moment runs until the next one starts, and the
+ * last of them until `fallbackEnd` (its chapter's end). Derived on every frame
+ * from the player's own poll, so it stays a pure lookup with no state.
+ */
+export function activeMomentIndex(
+  moments: ChapterMoment[],
+  currentTime: number,
+  fallbackEnd: number | null,
+): number {
+  for (let i = moments.length - 1; i >= 0; i--) {
+    const moment = moments[i]
+    if (currentTime < moment.start_seconds) continue
+    const end = moment.end_seconds ?? moments[i + 1]?.start_seconds ?? fallbackEnd
+    return end === null || currentTime < end ? i : -1
+  }
+  return -1
+}

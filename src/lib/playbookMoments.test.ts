@@ -7,7 +7,7 @@
 
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { extractMoments, splitTimestamps, linkifyTimestamps } from './playbookMoments.ts'
+import { activeMomentIndex, extractMoments, splitTimestamps, linkifyTimestamps } from './playbookMoments.ts'
 
 const BODY = `**The job:** C control, C-long info, and **garage control** — "the connector from mid to C" (~02:37).
 
@@ -126,4 +126,39 @@ test('linkifyTimestamps turns timestamps into jump links outside code blocks', (
   assert.equal(linkifyTimestamps('```\n(~02:57)\n```'), '```\n(~02:57)\n```')
   // A backticked time inside parentheses loses its code span so the link renders.
   assert.equal(linkifyTimestamps('key (`~06:43–10:13`):'), 'key ([~06:43–10:13](#t=403)):')
+})
+
+// A study guide's chapter body, the shape `valorant-vod-library` writes: a bold
+// lead label whose range sits later on the line.
+const GUIDE_CHAPTER = `- Use KovaaK's **FreePlay manager** to set scenario speed.
+- **Straight fluid line** \`[05:20\u201306:10]\` \u2014 click, then reset to centre.
+- **Reset to centre** \`[06:11\u201307:49]\` after every shot.`
+
+test('a study guide chapter yields its bold-lead moments', () => {
+  assert.deepEqual(extractMoments(GUIDE_CHAPTER, { start_seconds: 293, end_seconds: 469 }), [
+    { label: 'Straight fluid line', start_seconds: 320, end_seconds: 370 },
+    { label: 'Reset to centre', start_seconds: 371, end_seconds: 469 },
+  ])
+})
+
+test('activeMomentIndex follows the playhead through a chapter', () => {
+  const moments = extractMoments(GUIDE_CHAPTER, { start_seconds: 293, end_seconds: 469 })
+  assert.equal(activeMomentIndex(moments, 300, 469), -1, 'before the first moment')
+  assert.equal(activeMomentIndex(moments, 320, 469), 0, 'on the first frame of one')
+  assert.equal(activeMomentIndex(moments, 369, 469), 0)
+  assert.equal(activeMomentIndex(moments, 400, 469), 1)
+  assert.equal(activeMomentIndex(moments, 500, 469), -1, 'past the chapter')
+  assert.equal(activeMomentIndex([], 400, 469), -1)
+})
+
+test('an open-ended moment runs to the next one, or to the chapter end', () => {
+  const moments = [
+    { label: 'Peek', start_seconds: 100, end_seconds: null },
+    { label: 'Stop', start_seconds: 140, end_seconds: null },
+  ]
+  assert.equal(activeMomentIndex(moments, 120, 200), 0)
+  assert.equal(activeMomentIndex(moments, 190, 200), 1)
+  assert.equal(activeMomentIndex(moments, 210, 200), -1)
+  // No chapter end to fall back on: the last moment runs on.
+  assert.equal(activeMomentIndex(moments, 9000, null), 1)
 })

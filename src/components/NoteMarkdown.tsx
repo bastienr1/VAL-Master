@@ -1,9 +1,22 @@
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { TIMESTAMP_HREF_PREFIX } from '../lib/playbookMoments'
+import { formatTime } from '../lib/youtube'
+
+interface NoteMarkdownProps {
+  children: string
+  /**
+   * Turns `#t=` links — what `linkifyTimestamps` rewrites a body's timestamps
+   * into — into in-page jumps. Omitted by the note panels, whose bodies are typed
+   * by hand and carry no ranges; passed by the chapter rail, where every
+   * `[MM:SS–MM:SS]` in a guide is a place in the video.
+   */
+  onJump?: (seconds: number) => void
+}
 
 // Renders a saved note's markdown body. rehype-raw is deliberately NOT enabled —
 // react-markdown ignores raw HTML by default, which keeps stored notes safe to render.
-export default function NoteMarkdown({ children }: { children: string }) {
+export default function NoteMarkdown({ children, onJump }: NoteMarkdownProps) {
   return (
     <div className="text-text-primary text-[13px] font-normal leading-relaxed space-y-1.5">
       <ReactMarkdown
@@ -28,11 +41,26 @@ export default function NoteMarkdown({ children }: { children: string }) {
               {children}
             </code>
           ),
-          a: ({ href, children }) => (
-            <a href={href} target="_blank" rel="noopener noreferrer" className="text-val-cyan hover:underline">
-              {children}
-            </a>
-          ),
+          a: ({ href, children }) => {
+            if (onJump && href?.startsWith(TIMESTAMP_HREF_PREFIX)) {
+              const seconds = Number(href.slice(TIMESTAMP_HREF_PREFIX.length))
+              return (
+                <button
+                  type="button"
+                  onClick={() => onJump(seconds)}
+                  className="font-stats text-[11px] text-val-cyan hover:underline"
+                  title={`Jump to ${formatTime(seconds)}`}
+                >
+                  {children}
+                </button>
+              )
+            }
+            return (
+              <a href={href} target="_blank" rel="noopener noreferrer" className="text-val-cyan hover:underline">
+                {children}
+              </a>
+            )
+          },
           // Vault chapter bodies carry small two-column tables; without these
           // they render as unspaced runs of text in a narrow rail.
           table: ({ children }) => (
