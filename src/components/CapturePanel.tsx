@@ -3,6 +3,7 @@ import { ChevronDown, ChevronRight, Camera, Pencil, Tag as TagIcon, X } from 'lu
 import { supabase } from '../lib/supabase'
 import TagPicker from './TagPicker'
 import { addMomentTag } from '../lib/momentTags'
+import { diffNoteTags, seedTagIds } from '../lib/noteTagDiff'
 import type {
   MatchRound,
   MomentTag,
@@ -45,7 +46,11 @@ interface CapturePanelProps {
   tags: ReviewTag[]
   onTagsChange: (tags: ReviewTag[] | ((prev: ReviewTag[]) => ReviewTag[])) => void
   onMomentTagAdded: (moment: MomentTag) => void
+  /** Removes one application (server + page state). Used when an edit drops a tag. */
+  onRemoveMomentTag: (moment: MomentTag) => void | Promise<void>
   onTagDeleted: (tagId: string) => void
+  /** The moment tags already on `editingComment` — seeds the editor's Tag row. */
+  editingMoments?: MomentTag[]
 }
 
 function formatTime(seconds: number): string {
@@ -103,10 +108,14 @@ export default function CapturePanel({
   tags,
   onTagsChange,
   onMomentTagAdded,
+  onRemoveMomentTag,
   onTagDeleted,
+  editingMoments = [],
 }: CapturePanelProps) {
-  // Tags chosen before the note exists — written on save, once there is an id
-  // to link them to.
+  // Moment tags selected in the editor. On a new note they are written on save,
+  // once there is an id to link them to; on an edit they are seeded from the
+  // note's existing tags and diffed against them on Update. Nothing is written
+  // before Save/Update, so Esc discards tag changes along with text changes.
   const [pendingTagIds, setPendingTagIds] = useState<string[]>([])
   const [pickerOpen, setPickerOpen] = useState(false)
   const [text, setText] = useState('')
@@ -144,6 +153,7 @@ export default function CapturePanel({
         setDetailTags(detail)
         setShowSecondary(secondaryTags.length > 0)
         setShowDetail(detail.length > 0)
+        setPendingTagIds(seedTagIds(editingMoments))
       }
       const t = setTimeout(() => textareaRef.current?.focus(), 30)
       return () => clearTimeout(t)
@@ -158,6 +168,9 @@ export default function CapturePanel({
       setPendingTagIds([])
       setPickerOpen(false)
     }
+    // Seed once per open: `editingMoments` is deliberately left out so a moment
+    // list refresh never wipes what the user is typing.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, editingComment])
 
   if (!isOpen) return null
@@ -223,6 +236,21 @@ export default function CapturePanel({
         if (error) throw error
         if (data) {
           onCommentUpdated(data)
+
+          // Tags follow the note: applied at its original timestamp, never the playhead.
+          const { toAdd, toRemove } = diffNoteTags(editingMoments, pendingTagIds)
+          for (const tagId of toAdd) {
+            try {
+              onMomentTagAdded(
+                await addMomentTag(reviewRef, tagId, data.timestamp_seconds, data.id),
+              )
+            } catch (tagError) {
+              // The note is already saved; a failed tag must not read as a lost note.
+              console.error('Failed to apply a moment tag:', tagError)
+            }
+          }
+          for (const moment of toRemove) await onRemoveMomentTag(moment)
+
           onClose()
         }
         return
@@ -380,59 +408,57 @@ export default function CapturePanel({
         </button>
       </div>
 
-      {/* Moment tags — only on a new note: an edit does not re-open the moment. */}
-      {!isEditing && (
-        <div className="px-3 pb-2 flex flex-wrap items-center gap-1.5 relative">
-          <button
-            type="button"
-            onClick={() => setPickerOpen(o => !o)}
-            className="inline-flex items-center gap-1 px-2 py-1 rounded-full border border-bg-elevated text-[11px] text-text-muted hover:border-text-muted hover:text-text-secondary transition-colors"
+      {/* Moment tags — on a new note and on an edit (applied at the note's timestamp). */}
+      <div className="px-3 pb-2 flex flex-wrap items-center gap-1.5 relative">
+        <button
+          type="button"
+          onClick={() => setPickerOpen(o => !o)}
+          className="inline-flex items-center gap-1 px-2 py-1 rounded-full border border-bg-elevated text-[11px] text-text-muted hover:border-text-muted hover:text-text-secondary transition-colors"
+        >
+          <TagIcon className="w-3 h-3" />
+          Tag
+        </button>
+
+        {pendingTags.map(tag => (
+          <span
+            key={tag.id}
+            style={{
+              backgroundColor: hexWithAlpha(tag.color, 0.12),
+              color: tag.color,
+              borderColor: hexWithAlpha(tag.color, 0.3),
+            }}
+            className="inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded-full border text-[11px] font-medium"
           >
-            <TagIcon className="w-3 h-3" />
-            Tag
-          </button>
-
-          {pendingTags.map(tag => (
-            <span
-              key={tag.id}
-              style={{
-                backgroundColor: hexWithAlpha(tag.color, 0.12),
-                color: tag.color,
-                borderColor: hexWithAlpha(tag.color, 0.3),
-              }}
-              className="inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded-full border text-[11px] font-medium"
+            {tag.name}
+            <button
+              type="button"
+              onClick={() => togglePendingTag(tag.id)}
+              title={`Remove ${tag.name}`}
+              className="opacity-60 hover:opacity-100 transition-opacity"
             >
-              {tag.name}
-              <button
-                type="button"
-                onClick={() => togglePendingTag(tag.id)}
-                title={`Remove ${tag.name}`}
-                className="opacity-60 hover:opacity-100 transition-opacity"
-              >
-                <X className="w-2.5 h-2.5" />
-              </button>
-            </span>
-          ))}
+              <X className="w-2.5 h-2.5" />
+            </button>
+          </span>
+        ))}
 
-          {pickerOpen && (
-            <div className="absolute bottom-full left-3 mb-1 z-30">
-              <TagPicker
-                tags={tags}
-                selectedIds={new Set(pendingTagIds)}
-                mode="select"
-                onToggle={tag => togglePendingTag(tag.id)}
-                onVocabularyChange={onTagsChange}
-                onTagDeleted={tagId => {
-                  // A tag deleted mid-capture must not stay a pending chip.
-                  setPendingTagIds(prev => prev.filter(id => id !== tagId))
-                  onTagDeleted(tagId)
-                }}
-                onClose={() => setPickerOpen(false)}
-              />
-            </div>
-          )}
-        </div>
-      )}
+        {pickerOpen && (
+          <div className="absolute bottom-full left-3 mb-1 z-30">
+            <TagPicker
+              tags={tags}
+              selectedIds={new Set(pendingTagIds)}
+              mode="select"
+              onToggle={tag => togglePendingTag(tag.id)}
+              onVocabularyChange={onTagsChange}
+              onTagDeleted={tagId => {
+                // A tag deleted mid-capture must not stay a pending chip.
+                setPendingTagIds(prev => prev.filter(id => id !== tagId))
+                onTagDeleted(tagId)
+              }}
+              onClose={() => setPickerOpen(false)}
+            />
+          </div>
+        )}
+      </div>
 
       {/* Secondary chips */}
       {showSecondary && (

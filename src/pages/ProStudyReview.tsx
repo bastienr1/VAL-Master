@@ -280,6 +280,10 @@ export default function ProStudyReview() {
     () => (editingNoteId ? notes.find(n => n.id === editingNoteId) ?? null : null),
     [editingNoteId, notes],
   )
+  const editingMoments = useMemo(
+    () => (editingNoteId ? moments.filter(m => m.note_id === editingNoteId) : []),
+    [editingNoteId, moments],
+  )
 
   // `?t=90` seeks once the player is ready — the deep-link shape a tag explorer
   // would link to. Guarded by a ref so it fires once and never fights the user.
@@ -569,7 +573,9 @@ export default function ProStudyReview() {
               tags={tags}
               onTagsChange={setTags}
               onMomentTagAdded={handleMomentTagAdded}
+              onRemoveMomentTag={handleRemoveMomentTag}
               onTagDeleted={handleTagDeleted}
+              editingMoments={editingMoments}
             />
           )}
 

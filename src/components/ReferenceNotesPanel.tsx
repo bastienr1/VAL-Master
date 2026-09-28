@@ -104,7 +104,8 @@ function NoteCard({
 
       {note.text && <NoteMarkdown>{note.text}</NoteMarkdown>}
 
-      <MomentTagChips moments={moments} tags={tags} onRemove={onRemoveMomentTag} />
+      {/* While this note is in the editor, the editor owns its tags. */}
+      <MomentTagChips moments={moments} tags={tags} onRemove={isEditing ? undefined : onRemoveMomentTag} />
     </div>
   )
 }
