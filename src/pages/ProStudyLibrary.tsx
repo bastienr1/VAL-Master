@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { GraduationCap } from 'lucide-react'
 import { getGuideCounts, listReviews, type GuideCounts } from '../lib/referenceReviews'
 import { agentImageFor, mapImageFor } from '../lib/gameContent'
+import { reviewHeading, shortCreator } from '../lib/guideDisplay'
 import { useGameContent } from '../hooks/useGameContent'
 import GameImage from '../components/GameImage'
 import type { GuideContentType, ReferenceReview } from '../lib/types'
@@ -18,18 +19,6 @@ function mapSrcFor(review: ReferenceReview): string | null {
 
 function agentSrcFor(review: ReferenceReview): string | null {
   return review.agent ? agentImageFor({ agent: review.agent }) : null
-}
-
-/**
- * The creator as the card's sub-line wants it: vault notes qualify the name in
- * parentheses ("This Valorant Life (coach: Adam — surname not given)"), which
- * would swallow the line, and an unknown creator says nothing worth a slot.
- * The Creator filter chip keeps the full value.
- */
-function shortCreator(creator: string | null): string | null {
-  if (!creator) return null
-  const name = creator.split(' (')[0].trim()
-  return name && !/^unknown$/i.test(name) ? name : null
 }
 
 /** "12 Mar 2026", or a dash when the Notion row carried no date. */
@@ -114,10 +103,9 @@ function ReviewCard({ review, counts }: { review: ReferenceReview; counts?: Guid
   const isGuide = review.source === 'vault'
   const agentSrc = agentSrcFor(review)
 
-  // A guide answers "what is this" with its title — a creator alone makes every
-  // card from the same channel identical — and puts the creator and structure
-  // beneath, where a pro VOD answers with the player and the agent · map.
-  const heading = isGuide ? review.title ?? review.creator ?? 'Study guide' : review.player
+  // A guide puts its creator and structure beneath the title, where a pro VOD
+  // puts the agent · map beneath the player.
+  const heading = reviewHeading(review)
   const subLine = isGuide
     ? [
         shortCreator(review.creator),
