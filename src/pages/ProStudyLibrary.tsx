@@ -20,6 +20,18 @@ function agentSrcFor(review: ReferenceReview): string | null {
   return review.agent ? agentImageFor({ agent: review.agent }) : null
 }
 
+/**
+ * The creator as the card's sub-line wants it: vault notes qualify the name in
+ * parentheses ("This Valorant Life (coach: Adam — surname not given)"), which
+ * would swallow the line, and an unknown creator says nothing worth a slot.
+ * The Creator filter chip keeps the full value.
+ */
+function shortCreator(creator: string | null): string | null {
+  if (!creator) return null
+  const name = creator.split(' (')[0].trim()
+  return name && !/^unknown$/i.test(name) ? name : null
+}
+
 /** "12 Mar 2026", or a dash when the Notion row carried no date. */
 function formatPlayedAt(played: string | null): string {
   if (!played) return '—'
@@ -102,19 +114,25 @@ function ReviewCard({ review, counts }: { review: ReferenceReview; counts?: Guid
   const isGuide = review.source === 'vault'
   const agentSrc = agentSrcFor(review)
 
-  // A guide answers "what is this" with its creator and its structure, where a
-  // pro VOD answers with the player and the agent · map they played.
-  const heading = isGuide ? review.creator ?? review.player : review.player
+  // A guide answers "what is this" with its title — a creator alone makes every
+  // card from the same channel identical — and puts the creator and structure
+  // beneath, where a pro VOD answers with the player and the agent · map.
+  const heading = isGuide ? review.title ?? review.creator ?? 'Study guide' : review.player
   const subLine = isGuide
     ? [
+        shortCreator(review.creator),
         `${counts?.chapters ?? 0} chapter${counts?.chapters === 1 ? '' : 's'}`,
         `${counts?.drills ?? 0} drill${counts?.drills === 1 ? '' : 's'}`,
-      ].join(' · ')
+      ]
+        .filter(Boolean)
+        .join(' · ')
     : [review.agent, review.map].filter(Boolean).join(' · ') || 'Pro VOD'
 
   return (
     <Link
       to={`/study/${review.id}`}
+      // Titles truncate to one line; the full one stays in the tooltip.
+      title={heading}
       className="group block bg-bg-card border border-bg-elevated rounded-xl overflow-hidden hover:border-val-cyan/30 transition-all"
     >
       <div className="relative h-28">
