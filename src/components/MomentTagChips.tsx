@@ -15,15 +15,25 @@ interface MomentTagChipsProps {
   moments: MomentTag[]
   tags: ReviewTag[]
   onRemove?: (moment: MomentTag) => void
+  /**
+   * Wrapper classes. Defaults to its own wrapping row; pass `contents` to let the
+   * chips flow inline inside a parent flex row (the note-card header).
+   */
+  className?: string
 }
 
-export default function MomentTagChips({ moments, tags, onRemove }: MomentTagChipsProps) {
+export default function MomentTagChips({
+  moments,
+  tags,
+  onRemove,
+  className = 'flex flex-wrap gap-1 mt-1.5',
+}: MomentTagChipsProps) {
   if (moments.length === 0) return null
 
   const tagsById = new Map(tags.map(t => [t.id, t]))
 
   return (
-    <div className="flex flex-wrap gap-1 mt-1.5">
+    <div className={className}>
       {moments.map(moment => {
         const tag = tagsById.get(moment.tag_id)
         if (!tag) return null

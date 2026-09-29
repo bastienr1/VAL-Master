@@ -93,28 +93,38 @@ function NoteCard({
           : 'hover:bg-bg-elevated/20'
       }`}
     >
-      {/* Header */}
-      <div className="flex items-center gap-2 mb-1">
-        <button
-          type="button"
-          onClick={() => onSeek(comment.timestamp_seconds)}
-          className="font-stats text-[10px] text-val-cyan font-medium hover:underline"
-        >
-          {formatTime(comment.timestamp_seconds)}
-        </button>
-        {primary && (
-          <span
-            className="px-1.5 py-0.5 rounded text-[9px] font-medium border"
-            style={{
-              backgroundColor: hexWithAlpha(primary.dotColor, 0.1),
-              color: primary.dotColor,
-              borderColor: hexWithAlpha(primary.dotColor, 0.25),
-            }}
+      {/* Row 1 — timestamp · label · moment tags (wraps on a narrow rail) */}
+      <div className="flex items-start gap-1 mb-1">
+        <div className="flex flex-1 min-w-0 flex-wrap items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => onSeek(comment.timestamp_seconds)}
+            className="font-stats text-[10px] text-val-cyan font-medium hover:underline"
           >
-            {primary.label}
-          </span>
-        )}
-        <div className="ml-auto flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-all">
+            {formatTime(comment.timestamp_seconds)}
+          </button>
+          {primary && (
+            <span
+              className="px-1.5 py-0.5 rounded text-[9px] font-medium border"
+              style={{
+                backgroundColor: hexWithAlpha(primary.dotColor, 0.1),
+                color: primary.dotColor,
+                borderColor: hexWithAlpha(primary.dotColor, 0.25),
+              }}
+            >
+              {primary.label}
+            </span>
+          )}
+          {/* While this note is in the editor, the editor owns its tags. */}
+          <MomentTagChips
+            moments={moments}
+            tags={tags}
+            onRemove={isEditing ? undefined : onRemoveMomentTag}
+            className="contents"
+          />
+        </div>
+        {/* Actions stay pinned top-right even when the tag row wraps. */}
+        <div className="shrink-0 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-all">
           <button
             type="button"
             onClick={onEdit}
@@ -134,36 +144,30 @@ function NoteCard({
         </div>
       </div>
 
-      {/* Body — markdown source rendered */}
+      {/* Row 2 — detail tags, one wrapping line */}
+      {detailTags.length > 0 && (
+        <div className="flex flex-wrap gap-1 mb-1.5">
+          {detailTags.map(t => (
+            <span
+              key={t}
+              className="px-1.5 py-0.5 rounded bg-bg-elevated text-text-muted text-[9px]"
+            >
+              {t}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* Row 3 — body, markdown source rendered */}
       {comment.free_text && <NoteMarkdown>{comment.free_text}</NoteMarkdown>}
 
-      {/* While this note is in the editor, the editor owns its tags. */}
-      <MomentTagChips moments={moments} tags={tags} onRemove={isEditing ? undefined : onRemoveMomentTag} />
-
-      {/* Screenshot + detail tags */}
-      {(screenshot || detailTags.length > 0) && (
-        <div className="flex items-start gap-2 mt-2">
-          {screenshot && (
-            <img
-              src={screenshot.image_url}
-              alt="Round screenshot"
-              className="w-[240px] max-w-full aspect-square object-cover rounded border border-bg-elevated cursor-zoom-in"
-              onClick={() => window.open(screenshot.image_url, '_blank')}
-            />
-          )}
-          {detailTags.length > 0 && (
-            <div className="flex flex-col gap-1 flex-1">
-              {detailTags.map(t => (
-                <span
-                  key={t}
-                  className="px-1.5 py-0.5 rounded bg-bg-elevated text-text-muted text-[9px] self-start"
-                >
-                  {t}
-                </span>
-              ))}
-            </div>
-          )}
-        </div>
+      {screenshot && (
+        <img
+          src={screenshot.image_url}
+          alt="Round screenshot"
+          className="mt-2 w-[240px] max-w-full aspect-square object-cover rounded border border-bg-elevated cursor-zoom-in"
+          onClick={() => window.open(screenshot.image_url, '_blank')}
+        />
       )}
     </div>
   )

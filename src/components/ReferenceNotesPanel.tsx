@@ -57,32 +57,43 @@ function NoteCard({
         isEditing ? 'opacity-50 border border-val-yellow/40 bg-val-yellow/5' : 'hover:bg-bg-elevated/20'
       }`}
     >
-      <div className="flex items-center gap-2 mb-1">
-        <button
-          type="button"
-          onClick={() => onSeek(note.timestamp_seconds)}
-          className="font-stats text-[10px] text-val-cyan font-medium hover:underline"
-        >
-          {formatTime(note.timestamp_seconds)}
-        </button>
-        {note.category && (
-          <span className="px-1.5 py-0.5 rounded bg-bg-elevated text-text-muted text-[9px]">
-            {note.category}
-          </span>
-        )}
-        {note.label && labelColor && (
-          <span
-            className="px-1.5 py-0.5 rounded text-[9px] font-medium border"
-            style={{
-              backgroundColor: hexWithAlpha(labelColor, 0.1),
-              color: labelColor,
-              borderColor: hexWithAlpha(labelColor, 0.25),
-            }}
+      {/* Row 1 — timestamp · category · label · moment tags (wraps on a narrow rail) */}
+      <div className="flex items-start gap-1 mb-1">
+        <div className="flex flex-1 min-w-0 flex-wrap items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => onSeek(note.timestamp_seconds)}
+            className="font-stats text-[10px] text-val-cyan font-medium hover:underline"
           >
-            {note.label}
-          </span>
-        )}
-        <div className="ml-auto flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-all">
+            {formatTime(note.timestamp_seconds)}
+          </button>
+          {note.category && (
+            <span className="px-1.5 py-0.5 rounded bg-bg-elevated text-text-muted text-[9px]">
+              {note.category}
+            </span>
+          )}
+          {note.label && labelColor && (
+            <span
+              className="px-1.5 py-0.5 rounded text-[9px] font-medium border"
+              style={{
+                backgroundColor: hexWithAlpha(labelColor, 0.1),
+                color: labelColor,
+                borderColor: hexWithAlpha(labelColor, 0.25),
+              }}
+            >
+              {note.label}
+            </span>
+          )}
+          {/* While this note is in the editor, the editor owns its tags. */}
+          <MomentTagChips
+            moments={moments}
+            tags={tags}
+            onRemove={isEditing ? undefined : onRemoveMomentTag}
+            className="contents"
+          />
+        </div>
+        {/* Actions stay pinned top-right even when the tag row wraps. */}
+        <div className="shrink-0 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-all">
           <button
             type="button"
             onClick={onEdit}
@@ -103,9 +114,6 @@ function NoteCard({
       </div>
 
       {note.text && <NoteMarkdown>{note.text}</NoteMarkdown>}
-
-      {/* While this note is in the editor, the editor owns its tags. */}
-      <MomentTagChips moments={moments} tags={tags} onRemove={isEditing ? undefined : onRemoveMomentTag} />
     </div>
   )
 }
