@@ -10,6 +10,7 @@ import { useSplitter, SplitterHandle } from '../components/ColumnSplitter'
 import { MIN_OTHER_COLUMN, RAIL_MAX_PX, RAIL_MIN } from '../lib/constants'
 import GameImage from '../components/GameImage'
 import { agentImageFor, mapImageFor } from '../lib/gameContent'
+import { reviewHeading, shortCreator } from '../lib/guideDisplay'
 import { useGameContent } from '../hooks/useGameContent'
 import { useYouTubePlayer } from '../hooks/useYouTubePlayer'
 import { deleteNote, getNotes, getReviewWithGuide } from '../lib/referenceReviews'
@@ -340,7 +341,7 @@ export default function ProStudyReview() {
         <span className="text-text-muted text-xs">/</span>
         <span className="text-text-primary text-xs font-medium truncate">
           {isGuide
-            ? review.title ?? review.creator ?? 'Study guide'
+            ? reviewHeading(review)
             : `${review.player}${review.agent ? ` · ${review.agent}` : ''}${review.map ? ` on ${review.map}` : ''}`}
         </span>
         <span className="ml-auto text-text-muted text-xs shrink-0">
@@ -367,9 +368,14 @@ export default function ProStudyReview() {
             alt={review.agent ?? 'Unknown agent'}
             className="w-11 h-11 rounded-full border-2 border-bg-elevated shrink-0"
           />
-          <h1 className="font-heading text-lg font-bold tracking-wide">
-            {isGuide ? review.creator ?? review.player : review.player}
+          <h1 className="font-heading text-lg font-bold tracking-wide min-w-0 truncate" title={reviewHeading(review)}>
+            {reviewHeading(review)}
           </h1>
+          {/* The creator moves off the heading and next to it, so the same
+              channel's guides still read as a set. */}
+          {isGuide && shortCreator(review.creator) && (
+            <span className="text-[11px] text-text-secondary shrink-0">by {shortCreator(review.creator)}</span>
+          )}
           {/* The team belongs to the player in the note, not to the creator —
               badging "Zasko (NRG)" on a guide about mada would be wrong. */}
           {review.team && (!isGuide || !review.creator) && (
