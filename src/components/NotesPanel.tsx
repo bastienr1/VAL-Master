@@ -137,7 +137,8 @@ function NoteCard({
       {/* Body — markdown source rendered */}
       {comment.free_text && <NoteMarkdown>{comment.free_text}</NoteMarkdown>}
 
-      <MomentTagChips moments={moments} tags={tags} onRemove={onRemoveMomentTag} />
+      {/* While this note is in the editor, the editor owns its tags. */}
+      <MomentTagChips moments={moments} tags={tags} onRemove={isEditing ? undefined : onRemoveMomentTag} />
 
       {/* Screenshot + detail tags */}
       {(screenshot || detailTags.length > 0) && (

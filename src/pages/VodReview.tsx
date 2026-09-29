@@ -584,6 +584,9 @@ export default function VodReview() {
   const editingComment = editingCommentId
     ? comments.find(c => c.id === editingCommentId) ?? null
     : null
+  const editingMoments = editingComment
+    ? moments.filter(m => m.note_id === editingComment.id)
+    : []
   const legacyManualTags = tags.filter(t => !t.is_auto)
 
   return (
@@ -841,7 +844,9 @@ export default function VodReview() {
                 tags={reviewTags}
                 onTagsChange={setReviewTags}
                 onMomentTagAdded={handleMomentTagAdded}
+                onRemoveMomentTag={handleRemoveMomentTag}
                 onTagDeleted={handleTagDeleted}
+                editingMoments={editingMoments}
               />
             </div>
           )}
