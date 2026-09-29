@@ -84,10 +84,11 @@ function NoteCard({
               {note.label}
             </span>
           )}
+          {/* While this note is in the editor, the editor owns its tags. */}
           <MomentTagChips
             moments={moments}
             tags={tags}
-            onRemove={onRemoveMomentTag}
+            onRemove={isEditing ? undefined : onRemoveMomentTag}
             className="contents"
           />
         </div>
