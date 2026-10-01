@@ -15,6 +15,9 @@ import type {
 import { fetchMatchRoundData, generateAutoTags, saveAutoTags } from '../lib/matchSync'
 import { addMomentTag, listMomentTags, listReviewTags, removeMomentTag } from '../lib/momentTags'
 import { useProfile, profileToPlayer } from '../lib/profile'
+import { useReplayBundle } from '../lib/replays'
+import { applyReplayTiming } from '../lib/replaySync'
+import { getLoadedGameContent, loadGameContent } from '../lib/gameContent'
 import InlineDebrief from '../components/InlineDebrief'
 import MatchRecapHeader from '../components/MatchRecapHeader'
 import MatchTimeline from '../components/MatchTimeline'
@@ -22,6 +25,8 @@ import MomentTagLane from '../components/MomentTagLane'
 import TagPicker from '../components/TagPicker'
 import CapturePanel from '../components/CapturePanel'
 import ValoplantReplayPanel from '../components/ValoplantReplayPanel'
+import ReplayBundlePanel from '../components/ReplayBundlePanel'
+import ReplayMinimap from '../components/ReplayMinimap'
 import NotesPanel from '../components/NotesPanel'
 import { useSplitter, SplitterHandle } from '../components/ColumnSplitter'
 import { DEFAULT_RAIL_W, MIN_OTHER_COLUMN, RAIL_MAX_PX, RAIL_MIN } from '../lib/constants'
@@ -35,6 +40,53 @@ import {
   Zap,
 } from 'lucide-react'
 
+type RailTab = 'notes' | 'map'
+const RAIL_TABS: Array<{ id: RailTab; label: string }> = [
+  { id: 'notes', label: 'Notes' },
+  { id: 'map', label: 'Map' },
+]
+const RAIL_TAB_KEY = 'vodReview.railTab'
+
+function readRailTab(): RailTab {
+  try {
+    return localStorage.getItem(RAIL_TAB_KEY) === 'map' ? 'map' : 'notes'
+  } catch {
+    return 'notes'
+  }
+}
+
+/**
+ * Writes the sync anchor (video seconds at the R1 barrier drop).
+ *
+ * The column holds milliseconds once migration `20261001b` has run; before it,
+ * whole seconds only, and Postgres rejects a fraction with 22P02. The first
+ * sync falls back to a rounded value so it never fails; a 0.1 s nudge cannot be
+ * rounded and reports what is missing instead.
+ */
+async function writeBarrierOffset(
+  vodReviewId: string,
+  seconds: number,
+  wholeSecondsFallback: boolean,
+): Promise<VodReviewType | null> {
+  const write = (value: number) =>
+    supabase
+      .from('vod_reviews')
+      .update({ barrier_drop_offset: value })
+      .eq('id', vodReviewId)
+      .select()
+      .maybeSingle()
+
+  let { data, error } = await write(Math.round(seconds * 1000) / 1000)
+  if (error?.code === '22P02') {
+    if (!wholeSecondsFallback) {
+      throw new Error('Fine sync needs migration 20261001b_barrier_offset_decimal: the anchor is still stored in whole seconds.')
+    }
+    ;({ data, error } = await write(Math.round(seconds)))
+  }
+  if (error) throw new Error(error.message)
+  return data
+}
+
 export default function VodReview() {
   const { matchId } = useParams<{ matchId: string }>()
   const { profile } = useProfile()
@@ -42,6 +94,18 @@ export default function VodReview() {
   const [vodReview, setVodReview] = useState<VodReviewType | null>(null)
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
+
+  // Minimap bundle for this match, if one has been attached
+  const replay = useReplayBundle(match?.match_id)
+  const [railTab, setRailTab] = useState<RailTab>(readRailTab)
+  // Agent names for the timeline come from the content registry, which loads
+  // on its own schedule; this flips once so the names fill in when it lands.
+  const [contentReady, setContentReady] = useState(() => getLoadedGameContent() != null)
+  useEffect(() => {
+    let cancelled = false
+    loadGameContent().then(() => { if (!cancelled) setContentReady(true) }, () => {})
+    return () => { cancelled = true }
+  }, [])
 
   // YouTube state
   const playerRef = useRef<YTPlayer | null>(null)
@@ -62,6 +126,16 @@ export default function VodReview() {
   const [matchRounds, setMatchRounds] = useState<MatchRound[]>([])
   const [roundsLoading, setRoundsLoading] = useState(false)
   const [syncing, setSyncing] = useState(false)
+
+  // The rounds every panel below uses. With a replay bundle their timing comes
+  // from the replay (exact barrier and kill times); without one they are the
+  // rows Henrik gave us, unchanged.
+  const rounds = useMemo(() => {
+    if (!replay.bundle) return matchRounds
+    const agents = contentReady ? getLoadedGameContent()?.agents.byId : undefined
+    return applyReplayTiming(matchRounds, replay.bundle, id => (id ? agents?.get(id)?.name ?? null : null))
+  }, [matchRounds, replay.bundle, contentReady])
+  const replayTimed = replay.bundle != null && rounds !== matchRounds
 
   // Comments state
   const [comments, setComments] = useState<VodComment[]>([])
@@ -312,9 +386,19 @@ export default function VodReview() {
     if (!playerRef.current || !playerReady) return
     playerRef.current.seekTo(seconds, true)
     setCurrentTime(seconds)
-    const round = resolveRoundFromTimestamp(seconds, matchRounds, vodReview?.barrier_drop_offset ?? null)
+    const round = resolveRoundFromTimestamp(seconds, rounds, vodReview?.barrier_drop_offset ?? null)
     setActiveRound(round?.round_number ?? null)
-  }, [playerReady, matchRounds, vodReview?.barrier_drop_offset])
+  }, [playerReady, rounds, vodReview?.barrier_drop_offset])
+
+  // Read by the minimap on every frame, so both must stay stable across renders.
+  const getVideoTime = useCallback(() => {
+    const player = playerRef.current
+    return typeof player?.getCurrentTime === 'function' ? player.getCurrentTime() : 0
+  }, [])
+  const getPlaybackRate = useCallback(() => {
+    const player = playerRef.current
+    return typeof player?.getPlaybackRate === 'function' ? player.getPlaybackRate() : 1
+  }, [])
 
   // Save YouTube URL
   const handleSaveUrl = async () => {
@@ -380,22 +464,15 @@ export default function VodReview() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
 
-      const offset = Math.round(playerRef.current.getCurrentTime())
-
       // Save barrier offset to vod_reviews
-      const { data, error } = await supabase
-        .from('vod_reviews')
-        .update({ barrier_drop_offset: offset })
-        .eq('id', vodReview.id)
-        .select()
-        .maybeSingle()
-
-      if (error) throw error
+      const clicked = playerRef.current.getCurrentTime()
+      const data = await writeBarrierOffset(vodReview.id, clicked, true)
       if (data) setVodReview(data)
+      const offset = data?.barrier_drop_offset ?? Math.round(clicked)
 
       // Generate and save auto-tags
-      if (matchRounds.length > 0) {
-        const autoTagData = generateAutoTags(matchRounds, offset)
+      if (rounds.length > 0) {
+        const autoTagData = generateAutoTags(rounds, offset)
         const savedTags = await saveAutoTags(vodReview.id, user.id, autoTagData)
 
         // Merge with existing manual tags
@@ -410,6 +487,13 @@ export default function VodReview() {
       setSyncing(false)
     }
   }
+
+  // Fine sync from the Map tab: shifts the anchor by a tenth of a second.
+  const handleNudgeSync = useCallback(async (delta: number) => {
+    if (!vodReview || vodReview.barrier_drop_offset == null) return
+    const data = await writeBarrierOffset(vodReview.id, Math.max(0, vodReview.barrier_drop_offset + delta), false)
+    if (data) setVodReview(data)
+  }, [vodReview])
 
   // Comment handlers
   const handleCommentAdded = useCallback((comment: VodComment) => {
@@ -601,8 +685,8 @@ export default function VodReview() {
           {match.agent} on {match.map} · {match.score} {match.result}
         </span>
         <span className="ml-auto text-text-muted text-xs">
-          {matchRounds.length > 0
-            ? `${notedRoundCount}/${matchRounds.length} rounds noted`
+          {rounds.length > 0
+            ? `${notedRoundCount}/${rounds.length} rounds noted`
             : `${notedRoundCount} rounds noted`}
         </span>
       </div>
@@ -726,7 +810,7 @@ export default function VodReview() {
             <div className="space-y-2">
 
               {/* Sync bar — shown when no barrier offset set yet */}
-              {vodReview.barrier_drop_offset == null && matchRounds.length > 0 && (
+              {vodReview.barrier_drop_offset == null && rounds.length > 0 && (
                 <div className="bg-bg-card border border-val-yellow/30 rounded-lg px-4 py-2 flex items-center gap-3">
                   <Zap className="w-4 h-4 text-val-yellow shrink-0" />
                   <div className="flex-1">
@@ -753,7 +837,10 @@ export default function VodReview() {
               {vodReview.barrier_drop_offset != null && (
                 <div className="flex items-center gap-2 text-[10px] text-text-muted">
                   <Zap className="w-3 h-3" />
-                  <span>Synced at {formatTime(vodReview.barrier_drop_offset)} — {matchRounds.length} rounds loaded</span>
+                  <span>
+                    Synced at {formatTime(vodReview.barrier_drop_offset)} — {rounds.length} rounds loaded
+                    {replayTimed && ' · replay timing'}
+                  </span>
                   <button
                     onClick={handleBarrierSync}
                     disabled={syncing}
@@ -773,9 +860,9 @@ export default function VodReview() {
               )}
 
               {/* Match timeline */}
-              {matchRounds.length > 0 && (
+              {rounds.length > 0 && (
                 <MatchTimeline
-                  rounds={matchRounds}
+                  rounds={rounds}
                   duration={duration}
                   currentTime={currentTime}
                   barrierOffset={vodReview.barrier_drop_offset}
@@ -828,7 +915,7 @@ export default function VodReview() {
               <CapturePanel
                 vodReviewId={vodReview.id}
                 matchId={match.match_id}
-                rounds={matchRounds}
+                rounds={rounds}
                 barrierOffset={vodReview.barrier_drop_offset}
                 currentTime={currentTime}
                 isPaused={!isPlaying}
@@ -859,12 +946,60 @@ export default function VodReview() {
               onSave={handleSaveValoplantUrl}
             />
           )}
+
+          {/* Replay data — the minimap bundle built from the match's own .vrf */}
+          {match && (
+            <ReplayBundlePanel
+              status={replay.status}
+              summary={replay.summary}
+              error={replay.error}
+              onAttach={replay.attach}
+            />
+          )}
         </div>
 
         <SplitterHandle {...dragHandlers} />
 
         {/* === RIGHT PANEL: Notes + Inline Debrief === */}
         <div {...panelProps} className="space-y-3">
+          {/* The Map tab exists only for a match that has replay data. */}
+          {replay.bundle && (
+            <div className="flex gap-1 bg-bg-card border border-bg-elevated rounded-lg p-1" role="tablist">
+              {RAIL_TABS.map(tab => (
+                <button
+                  key={tab.id}
+                  role="tab"
+                  aria-selected={railTab === tab.id}
+                  onClick={() => {
+                    setRailTab(tab.id)
+                    try { localStorage.setItem(RAIL_TAB_KEY, tab.id) } catch { /* preference only */ }
+                  }}
+                  className={`flex-1 rounded-md px-3 py-1 text-xs font-medium transition-colors ${
+                    railTab === tab.id
+                      ? 'bg-val-cyan/10 text-val-cyan'
+                      : 'text-text-muted hover:text-text-secondary'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {replay.bundle && railTab === 'map' && (
+            <ReplayMinimap
+              bundle={replay.bundle}
+              barrierOffset={vodReview?.barrier_drop_offset ?? null}
+              getVideoTime={getVideoTime}
+              getPlaybackRate={getPlaybackRate}
+              isPlaying={isPlaying}
+              onSeek={seekToTimestamp}
+              onNudge={handleNudgeSync}
+            />
+          )}
+
+          {/* Notes and debrief stay mounted behind the Map tab so half-written text survives a switch. */}
+          <div className={replay.bundle && railTab === 'map' ? 'hidden' : 'space-y-3'}>
           {vodReview && (
             <NotesPanel
               moments={moments}
@@ -874,7 +1009,7 @@ export default function VodReview() {
               onTagFilterChange={setTagFilter}
               comments={comments}
               screenshots={screenshots}
-              rounds={matchRounds}
+              rounds={rounds}
               legacyTags={legacyManualTags}
               activeRound={activeRound}
               vodReviewId={vodReview.id}
@@ -896,6 +1031,7 @@ export default function VodReview() {
               onUpdate={setVodReview}
             />
           )}
+          </div>
         </div>
       </div>
     </div>

@@ -28,3 +28,7 @@ dist-ssr
 
 .vercel
 Val-Master.pur
+
+# Replay Engine: replays and Python caches never go into git
+*.vrf
+__pycache__/
