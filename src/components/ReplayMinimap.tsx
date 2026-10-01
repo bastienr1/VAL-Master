@@ -4,6 +4,7 @@ import type { ReplayBundle, ReplayKill, ReplayPlayer } from '../lib/replayBundle
 import {
   deathTimesBySubject,
   isAliveAt,
+  ownSideFlips,
   pawnStateAt,
   playedViewport,
   playerStateAt,
@@ -49,16 +50,17 @@ const EFFECT_STYLE: Record<string, { radius: number; fill: string }> = {
 }
 
 const LAYERS = [
-  { key: 'cones', label: 'View' },
-  { key: 'utility', label: 'Utility' },
-  { key: 'pawns', label: 'Pawns' },
-  { key: 'trails', label: 'Trails' },
+  { key: 'cones', label: 'View', title: 'Where each player is looking' },
+  { key: 'utility', label: 'Utility', title: 'Smokes, walls, traps and other placed abilities' },
+  { key: 'pawns', label: 'Pawns', title: 'Cameras, drones and other things agents control' },
+  { key: 'trails', label: 'Trails', title: 'The last 3 seconds of each player’s path' },
+  { key: 'flip', label: 'My side', title: 'Turn the map when sides change, so your team always starts from the bottom' },
 ] as const
 type LayerKey = (typeof LAYERS)[number]['key']
 type Layers = Record<LayerKey, boolean>
 
 const LAYERS_KEY = 'vodReview.mapLayers'
-const DEFAULT_LAYERS: Layers = { cones: true, utility: true, pawns: true, trails: false }
+const DEFAULT_LAYERS: Layers = { cones: true, utility: true, pawns: true, trails: false, flip: true }
 
 function readLayers(): Layers {
   try {
@@ -84,6 +86,8 @@ interface Scene {
   icons: Map<string, HTMLImageElement>
   deaths: Map<string, number[]>
   bySubject: Map<string, ReplayPlayer>
+  /** Round number → whether the map is turned half a turn that round. */
+  flips: Map<number, boolean>
 }
 
 function drawScene(
@@ -95,10 +99,16 @@ function drawScene(
   t: number,
 ) {
   const { transform, view } = scene
+  const round = roundAtReplayMs(bundle, t)
+  // Half a turn about the centre of the view: positions are mirrored through
+  // it, so icons and letters stay upright while the map itself turns.
+  const flipped = layers.flip && scene.flips.get(round.n) === true
   const scale = size / view.size
   const toPx = (x: number, y: number): [number, number] => {
     const [u, v] = worldToImage(transform, x, y)
-    return [(u - view.u) * scale, (v - view.v) * scale]
+    const px = (u - view.u) * scale
+    const py = (v - view.v) * scale
+    return flipped ? [size - px, size - py] : [px, py]
   }
   const cmToPx = (cm: number) => Math.abs(cm * transform.xMultiplier) * scale
   const unit = size / 420 // marker sizes are tuned for a 420 px map
@@ -107,6 +117,11 @@ function drawScene(
   ctx.fillRect(0, 0, size, size)
   const img = scene.mapImage
   if (img) {
+    ctx.save()
+    if (flipped) {
+      ctx.translate(size, size)
+      ctx.rotate(Math.PI)
+    }
     ctx.globalAlpha = 0.9
     ctx.drawImage(
       img,
@@ -114,10 +129,8 @@ function drawScene(
       view.size * img.naturalWidth, view.size * img.naturalHeight,
       0, 0, size, size,
     )
-    ctx.globalAlpha = 1
+    ctx.restore()
   }
-
-  const round = roundAtReplayMs(bundle, t)
 
   if (layers.utility) {
     for (const effect of bundle.effects) {
@@ -378,6 +391,7 @@ function ReplayMinimap({
       icons: images.icons,
       deaths: deathTimesBySubject(bundle),
       bySubject: new Map(bundle.players.map(p => [p.subject, p])),
+      flips: ownSideFlips(bundle, map.transform),
     }
   }, [bundle, map, images])
 
@@ -530,11 +544,12 @@ function ReplayMinimap({
           <span className="font-stats text-text-secondary">{wonBefore}–{lostBefore}</span>
           <span ref={phaseRef} className="font-stats text-text-muted" />
           <span className="ml-auto flex items-center gap-2 text-[10px]">
-            {LAYERS.map(({ key, label: text }) => (
+            {LAYERS.map(({ key, label: text, title }) => (
               <button
                 key={key}
                 onClick={() => toggleLayer(key)}
                 aria-pressed={layers[key]}
+                title={title}
                 className={`transition-colors ${layers[key] ? 'text-val-cyan' : 'text-text-muted hover:text-text-secondary'}`}
               >
                 {text}

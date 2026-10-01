@@ -7,6 +7,7 @@ import assert from 'node:assert/strict'
 import {
   deathTimesBySubject,
   isAliveAt,
+  ownSideFlips,
   pawnStateAt,
   playedViewport,
   playerStateAt,
@@ -101,4 +102,45 @@ test('playedViewport is a square around the played area, inside the image', () =
 test('playedViewport falls back to the whole image when there are no samples', () => {
   const bundle = { tracks: { byPlayer: {} } } as unknown as ReplayBundle
   assert.deepEqual(playedViewport(bundle, LOTUS), { u: 0, v: 0, size: 1 })
+})
+
+// Lotus: the attacker spawn is at world x ≈ 1400 (bottom of the image), the defender spawn at x ≈ 9700 (top).
+function twoTeams(rounds: Array<{ n: number; buyStartMs: number; ally: [number, number] | null; enemy: [number, number] | null }>): ReplayBundle {
+  const track = (pick: 'ally' | 'enemy'): ReplayTrackSample[] =>
+    rounds.flatMap(r => {
+      const at = r[pick]
+      return at ? ([[r.buyStartMs + 2950, at[0], at[1], 0, 1, null], [r.buyStartMs + 3050, at[0], at[1], 0, 1, null]] as ReplayTrackSample[]) : []
+    })
+  return {
+    players: [
+      { subject: 'me', agentId: null, team: 'ALLY', teamName: null, body: 1, isMe: true },
+      { subject: 'foe', agentId: null, team: 'ENEMY', teamName: null, body: 2, isMe: false },
+    ],
+    rounds: rounds.map(r => ({ n: r.n, buyStartMs: r.buyStartMs })),
+    tracks: { byPlayer: { me: track('ally'), foe: track('enemy') } },
+  } as unknown as ReplayBundle
+}
+
+test('ownSideFlips keeps my team at the bottom when the sides swap', () => {
+  const bundle = twoTeams([
+    { n: 1, buyStartMs: 0, ally: [1400, 800], enemy: [9700, 1700] }, // I attack: already at the bottom
+    { n: 2, buyStartMs: 100000, ally: [9700, 1700], enemy: [1400, 800] }, // I defend: at the top, so turn the map
+  ])
+  assert.deepEqual([...ownSideFlips(bundle, LOTUS)], [[1, false], [2, true]])
+})
+
+test('ownSideFlips puts my team on the left when the spawns sit side by side', () => {
+  // Same x, so the same height on the image; world y decides left and right.
+  const left = twoTeams([{ n: 1, buyStartMs: 0, ally: [5000, -4000], enemy: [5000, 6000] }])
+  const right = twoTeams([{ n: 1, buyStartMs: 0, ally: [5000, 6000], enemy: [5000, -4000] }])
+  assert.equal(ownSideFlips(left, LOTUS).get(1), false)
+  assert.equal(ownSideFlips(right, LOTUS).get(1), true)
+})
+
+test('ownSideFlips carries the last orientation through a round it cannot measure', () => {
+  const bundle = twoTeams([
+    { n: 1, buyStartMs: 0, ally: [9700, 1700], enemy: [1400, 800] },
+    { n: 2, buyStartMs: 100000, ally: null, enemy: null },
+  ])
+  assert.deepEqual([...ownSideFlips(bundle, LOTUS)], [[1, true], [2, true]])
 })

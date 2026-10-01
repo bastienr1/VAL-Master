@@ -152,3 +152,43 @@ export function playedViewport(bundle: ReplayBundle, transform: MapTransform, ma
   const clamp = (centre: number) => Math.max(0, Math.min(1 - size, centre - size / 2))
   return { u: clamp((u0 + u1) / 2), v: clamp((v0 + v1) / 2), size }
 }
+
+// Three seconds into a round everyone is still standing in spawn.
+const SPAWN_PROBE_MS = 3000
+
+/**
+ * For each round, whether to turn the map half a turn so the bundle owner's
+ * team starts at the bottom (or on the left, on a map whose spawns sit side by
+ * side). Teams swap spawns at half time, so without this the same site moves to
+ * the other end of the map between halves.
+ *
+ * Read from where the two teams actually stand at the start of each round, not
+ * from a per-map rule: it needs no table and follows overtime side swaps too. A
+ * round with nobody to measure keeps the previous round's orientation.
+ */
+export function ownSideFlips(bundle: ReplayBundle, transform: MapTransform): Map<number, boolean> {
+  const flips = new Map<number, boolean>()
+  let flip = false
+  for (const round of bundle.rounds) {
+    const at = round.buyStartMs + SPAWN_PROBE_MS
+    const centre = { ALLY: { u: 0, v: 0, n: 0 }, ENEMY: { u: 0, v: 0, n: 0 } }
+    for (const player of bundle.players) {
+      const state = playerStateAt(bundle.tracks.byPlayer[player.subject] ?? [], at)
+      if (!state) continue
+      const [u, v] = worldToImage(transform, state.x, state.y)
+      const sum = centre[player.team]
+      sum.u += u
+      sum.v += v
+      sum.n += 1
+    }
+    const { ALLY: ally, ENEMY: enemy } = centre
+    if (ally.n > 0 && enemy.n > 0) {
+      const du = enemy.u / enemy.n - ally.u / ally.n
+      const dv = enemy.v / enemy.n - ally.v / ally.n
+      // Image v grows downwards: a positive dv means the enemy is below us.
+      flip = Math.abs(dv) >= Math.abs(du) ? dv > 0 : du < 0
+    }
+    flips.set(round.n, flip)
+  }
+  return flips
+}
