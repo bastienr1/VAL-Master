@@ -4,6 +4,7 @@ import type { ReplayBundle, ReplayKill, ReplayPlayer } from '../lib/replayBundle
 import {
   deathTimesBySubject,
   isAliveAt,
+  isPresentAt,
   ownSideFlips,
   pawnStateAt,
   playedViewport,
@@ -201,7 +202,8 @@ function drawScene(
   for (const player of bundle.players) {
     const rows = bundle.tracks.byPlayer[player.subject]
     const state = playerStateAt(rows, t)
-    if (!state) continue
+    // A player who disconnected is not on the map at all, rather than frozen where they stood.
+    if (!state || !isPresentAt(state, t, round.buyStartMs)) continue
     const [px, py] = toPx(state.x, state.y)
     const color = TEAM_COLOR[player.team]
 

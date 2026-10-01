@@ -7,6 +7,7 @@ import assert from 'node:assert/strict'
 import {
   deathTimesBySubject,
   isAliveAt,
+  isPresentAt,
   ownSideFlips,
   pawnStateAt,
   playedViewport,
@@ -29,7 +30,7 @@ test('sampleIndex finds the last row at or before a time', () => {
 
 test('position interpolates between two 10 Hz samples', () => {
   const rows: ReplayTrackSample[] = [[1000, 100, 200, 90, 1, 3], [1100, 200, 400, 110, 1, 3]]
-  assert.deepEqual(playerStateAt(rows, 1050), { x: 150, y: 300, yaw: 100, alive: true, weapon: 3 })
+  assert.deepEqual(playerStateAt(rows, 1050), { x: 150, y: 300, yaw: 100, alive: true, weapon: 3, sampledAt: 1000 })
   assert.equal(playerStateAt(rows, 999), null)
 })
 
@@ -42,7 +43,7 @@ test('yaw interpolates the short way across 0°', () => {
 test('across a gap the last position is held, not interpolated', () => {
   // Dead body's last sample, then the next round's spawn 8 s later on the other side of the map.
   const rows: ReplayTrackSample[] = [[1000, 100, 100, 0, 0, null], [9000, 5000, 5000, 0, 1, null]]
-  assert.deepEqual(playerStateAt(rows, 5000), { x: 100, y: 100, yaw: 0, alive: false, weapon: null })
+  assert.deepEqual(playerStateAt(rows, 5000), { x: 100, y: 100, yaw: 0, alive: false, weapon: null, sampledAt: 1000 })
   assert.deepEqual(pawnStateAt([[1000, 1, 2, 3], [9000, 50, 60, 70]], 5000), { x: 1, y: 2, yaw: 3 })
 })
 
@@ -67,6 +68,24 @@ test('a player with no deaths, or no track yet, is handled', () => {
   const rows: ReplayTrackSample[] = [[1000, 0, 0, 0, 1, null]]
   assert.equal(isAliveAt(playerStateAt(rows, 1000), undefined, 1000), true)
   assert.equal(isAliveAt(null, [500], 1000), false)
+})
+
+test('a player who left the match is off the map; a dead one is not', () => {
+  const roundStart = 100000
+  const live: ReplayTrackSample[] = [[104900, 0, 0, 0, 1, null], [105000, 0, 0, 0, 1, null]]
+  assert.equal(isPresentAt(playerStateAt(live, 105020), 105020, roundStart), true)
+
+  // Disconnected mid-round: last seen alive, then silence.
+  assert.equal(isPresentAt(playerStateAt(live, 106000), 106000, roundStart), true)
+  assert.equal(isPresentAt(playerStateAt(live, 109000), 109000, roundStart), false)
+
+  // Dead: the body goes quiet after its last "dead" sample, and the marker must stay.
+  const dead: ReplayTrackSample[] = [[104900, 0, 0, 0, 1, null], [105000, 0, 0, 0, 0, null]]
+  assert.equal(isPresentAt(playerStateAt(dead, 140000), 140000, roundStart), true)
+
+  // Never came back for this round: their last sample is from before it started.
+  assert.equal(isPresentAt(playerStateAt(dead, 140000), 140000, 120000), false)
+  assert.equal(isPresentAt(null, 140000, roundStart), false)
 })
 
 test('deathTimesBySubject groups kills by victim in order', () => {

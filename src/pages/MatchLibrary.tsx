@@ -6,8 +6,9 @@ import { useLoadLatest } from '../hooks/useLoadLatest'
 import { mapImageFor, agentImageFor } from '../lib/gameContent'
 import { useGameContent } from '../hooks/useGameContent'
 import GameImage from '../components/GameImage'
+import ReplayFolderLink from '../components/ReplayFolderLink'
 import type { Match } from '../lib/types'
-import { RefreshCw, Swords, Filter, ChevronDown, Crosshair, Target, Percent, Trophy, Calendar, TrendingUp, FileDown, Star, Settings as SettingsIcon } from 'lucide-react'
+import { RefreshCw, Swords, Filter, ChevronDown, Crosshair, Target, Percent, Trophy, Calendar, TrendingUp, FileDown, Star, Radar, Settings as SettingsIcon } from 'lucide-react'
 import {
   VALORANT_ACTS,
   getActForDate,
@@ -27,7 +28,7 @@ function StatChip({ icon: Icon, label, value }: { icon: React.ElementType; label
   )
 }
 
-function MatchCard({ match, onClick }: { match: Match; onClick: () => void }) {
+function MatchCard({ match, hasReplay, onClick }: { match: Match; hasReplay: boolean; onClick: () => void }) {
   const resultColor = match.result === 'W' ? 'val-green' : match.result === 'L' ? 'val-red' : 'val-yellow'
   const resultLabel = match.result === 'W' ? 'W' : match.result === 'L' ? 'L' : 'DRAW'
   const date = new Date(match.match_date)
@@ -47,6 +48,17 @@ function MatchCard({ match, onClick }: { match: Match; onClick: () => void }) {
           className="absolute inset-0 w-full h-full object-cover opacity-40 group-hover:opacity-50 transition-opacity"
         />
         <div className="absolute inset-0 bg-gradient-to-t from-bg-card to-transparent" />
+
+        {/* Replay data attached: this match has a minimap */}
+        {hasReplay && (
+          <div
+            title="Replay data attached: this match has a minimap"
+            className="absolute top-2 left-2 flex items-center gap-1 px-1.5 py-0.5 rounded border border-val-cyan/30 bg-bg-card/70 text-val-cyan text-[10px] font-medium"
+          >
+            <Radar className="w-3 h-3" />
+            Map
+          </div>
+        )}
 
         {/* Result badge */}
         <div className={`absolute top-2 right-2 px-2 py-0.5 text-xs font-bold rounded border bg-${resultColor}/20 text-${resultColor} border-${resultColor}/30`}>
@@ -256,6 +268,9 @@ export default function MatchLibrary() {
   const [showAgentDropdown, setShowAgentDropdown] = useState(false)
   const [actFilter, setActFilter] = useState<string>('all')
   const [showActDropdown, setShowActDropdown] = useState(false)
+  // Matches with replay data, for the "Map" badge. Filled by ReplayFolderLink.
+  const [replayIds, setReplayIds] = useState<Set<string>>(() => new Set())
+  const handleReplayMatches = useCallback((ids: Set<string>) => setReplayIds(new Set(ids)), [])
 
   const loadMatches = useCallback(async () => {
     try {
@@ -363,6 +378,7 @@ export default function MatchLibrary() {
             </p>
           )}
         </div>
+        <ReplayFolderLink onReplayMatches={handleReplayMatches} />
       </div>
 
       {/* Filter bar */}
@@ -587,6 +603,7 @@ export default function MatchLibrary() {
             <MatchCard
               key={match.match_id}
               match={match}
+              hasReplay={replayIds.has(match.match_id)}
               onClick={() => navigate(`/review/${match.match_id}`)}
             />
           ))}

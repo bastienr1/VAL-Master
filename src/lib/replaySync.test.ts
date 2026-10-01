@@ -132,8 +132,17 @@ test('a bundle that cannot drive the timeline leaves the rounds untouched', () =
   const noOwner = bundle({ players: bundle().players.map(p => ({ ...p, isMe: false })) })
   assert.equal(applyReplayTiming(rounds, noOwner, agentName), rounds)
 
-  const noBarrier = bundle({ rounds: bundle().rounds.map(r => (r.n === 2 ? { ...r, barrierMs: null } : r)) })
-  assert.equal(applyReplayTiming(rounds, noBarrier, agentName), rounds)
+  // Round 1's barrier is the sync anchor: without it nothing can be placed.
+  const noAnchor = bundle({ rounds: bundle().rounds.map(r => (r.n === 1 ? { ...r, barrierMs: null } : r)) })
+  assert.equal(applyReplayTiming(rounds, noAnchor, agentName), rounds)
+})
+
+test('a round surrendered in its buy phase is left off the timeline', () => {
+  const surrendered = bundle({
+    rounds: bundle().rounds.map(r => (r.n === 2 ? { ...r, barrierMs: null, how: 'surrendered' } : r)),
+  })
+  const timed = applyReplayTiming([henrikRound(1, 60800), henrikRound(2, 130000)], surrendered, agentName)
+  assert.deepEqual(timed.map(r => r.round_number), [1])
 })
 
 test('weaponLabel prefers the corrected gun name and tidies ability classes', () => {

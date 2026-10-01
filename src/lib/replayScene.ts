@@ -37,6 +37,8 @@ export interface PlayerState extends ActorState {
   /** The track's own flag: it flips on the first sample after a death. See `isAliveAt`. */
   alive: boolean
   weapon: number | null
+  /** Time of the sample this state was read from. See `isPresentAt`. */
+  sampledAt: number
 }
 
 // Samples are 100 ms apart. A longer gap means the body stopped reporting (it
@@ -62,14 +64,34 @@ export function playerStateAt(rows: ReplayTrackSample[], t: number): PlayerState
   const span = between(rows, t)
   if (!span) return null
   const { a, b, k } = span
-  if (!b) return { x: a[1], y: a[2], yaw: a[3], alive: a[4] === 1, weapon: a[5] }
+  if (!b) return { x: a[1], y: a[2], yaw: a[3], alive: a[4] === 1, weapon: a[5], sampledAt: a[0] }
   return {
     x: a[1] + (b[1] - a[1]) * k,
     y: a[2] + (b[2] - a[2]) * k,
     yaw: lerpAngle(a[3], b[3], k),
     alive: a[4] === 1,
     weapon: a[5],
+    sampledAt: a[0],
   }
+}
+
+// A body in the match reports ten times a second, alive or dead (a dead one for
+// about 2.7 s more). Silence longer than this from a body last seen alive means
+// the player has left the match.
+const LEFT_AFTER_SILENCE_MS = 3000
+
+/**
+ * Whether a player is in the match at `t`, as opposed to disconnected.
+ *
+ * Two cases put a player off the map: last seen alive but silent for seconds
+ * (they left mid-round), or last seen before this round even started (they
+ * never came back for it). A dead player whose body has gone quiet is still
+ * present: their marker stays where they fell until the next round.
+ */
+export function isPresentAt(state: PlayerState | null, t: number, roundStartMs: number): boolean {
+  if (!state) return false
+  if (state.sampledAt < roundStartMs) return false
+  return !state.alive || t - state.sampledAt <= LEFT_AFTER_SILENCE_MS
 }
 
 export function pawnStateAt(rows: ReplayPawnSample[], t: number): ActorState | null {
@@ -174,8 +196,8 @@ export function ownSideFlips(bundle: ReplayBundle, transform: MapTransform): Map
     const centre = { ALLY: { u: 0, v: 0, n: 0 }, ENEMY: { u: 0, v: 0, n: 0 } }
     for (const player of bundle.players) {
       const state = playerStateAt(bundle.tracks.byPlayer[player.subject] ?? [], at)
-      if (!state) continue
-      const [u, v] = worldToImage(transform, state.x, state.y)
+      if (!isPresentAt(state, at, round.buyStartMs)) continue
+      const [u, v] = worldToImage(transform, state!.x, state!.y)
       const sum = centre[player.team]
       sum.u += u
       sum.v += v
