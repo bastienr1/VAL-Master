@@ -15,6 +15,7 @@ import type {
 import { fetchMatchRoundData, generateAutoTags, saveAutoTags } from '../lib/matchSync'
 import { addMomentTag, listMomentTags, listReviewTags, removeMomentTag } from '../lib/momentTags'
 import { useProfile, profileToPlayer } from '../lib/profile'
+import { useReplayBundle } from '../lib/replays'
 import InlineDebrief from '../components/InlineDebrief'
 import MatchRecapHeader from '../components/MatchRecapHeader'
 import MatchTimeline from '../components/MatchTimeline'
@@ -22,6 +23,7 @@ import MomentTagLane from '../components/MomentTagLane'
 import TagPicker from '../components/TagPicker'
 import CapturePanel from '../components/CapturePanel'
 import ValoplantReplayPanel from '../components/ValoplantReplayPanel'
+import ReplayBundlePanel from '../components/ReplayBundlePanel'
 import NotesPanel from '../components/NotesPanel'
 import { useSplitter, SplitterHandle } from '../components/ColumnSplitter'
 import { DEFAULT_RAIL_W, MIN_OTHER_COLUMN, RAIL_MAX_PX, RAIL_MIN } from '../lib/constants'
@@ -42,6 +44,9 @@ export default function VodReview() {
   const [vodReview, setVodReview] = useState<VodReviewType | null>(null)
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
+
+  // Minimap bundle for this match, if one has been attached
+  const replay = useReplayBundle(match?.match_id)
 
   // YouTube state
   const playerRef = useRef<YTPlayer | null>(null)
@@ -857,6 +862,16 @@ export default function VodReview() {
               matchId={match.match_id}
               url={match.valoplant_replay_url}
               onSave={handleSaveValoplantUrl}
+            />
+          )}
+
+          {/* Replay data — the minimap bundle built from the match's own .vrf */}
+          {match && (
+            <ReplayBundlePanel
+              status={replay.status}
+              summary={replay.summary}
+              error={replay.error}
+              onAttach={replay.attach}
             />
           )}
         </div>
