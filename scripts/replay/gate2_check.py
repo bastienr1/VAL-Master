@@ -55,6 +55,21 @@ def sample(subject, t):
     return tracks[subject][i] if i >= 0 else None
 
 
+# A body in the match sends samples continuously, dead or alive (a dead one for ~2.7 s). So an
+# "alive" flag on a sample older than this belongs to someone who has left the match.
+STALE_MS = 3000
+
+
+def present_at(subject, t):
+    row = sample(subject, t)
+    return row is not None and t - row[0] <= STALE_MS
+
+
+def alive_at(subject, t):
+    row = sample(subject, t)
+    return row is not None and row[4] == 1 and t - row[0] <= STALE_MS
+
+
 def dist(ax, ay, bx, by):
     return math.hypot(ax - bx, ay - by)
 
@@ -76,14 +91,23 @@ ally = sum(r["winner"] == "ALLY" for r in rounds)
 if "score" in expect:
     check(f"score {expect['score'][0]}-{expect['score'][1]}", (ally, len(rounds) - ally) == expect["score"],
           f"{ally}-{len(rounds) - ally}")
-check("every round has a barrier time, an end time, a winner and a side",
-      all(r["barrierMs"] and r["endMs"] and r["winner"] and r["side"] for r in rounds),
-      f"{sum(bool(r['barrierMs'] and r['endMs'] and r['winner'] and r['side']) for r in rounds)}/{len(rounds)}")
+# A surrender ends the match in a buy phase, so that last round has a result but no barrier drop.
+complete = [bool(r["endMs"] and r["winner"] and r["side"] and (r["barrierMs"] or r["how"] == "surrendered"))
+            for r in rounds]
+check("every round has a barrier time, an end time, a winner and a side", all(complete) and bool(rounds[0]["barrierMs"]),
+      f"{sum(complete)}/{len(rounds)}")
+if any(r["how"] == "surrendered" for r in rounds):
+    info("match ended by surrender in round", [r["n"] for r in rounds if r["how"] == "surrendered"])
 buy = [r["barrierMs"] - r["buyStartMs"] for r in rounds if r["barrierMs"]]
 info("buy phase length per round (s)", " ".join(f"{b / 1000:.1f}" for b in buy))
 check("5 allies and 5 enemies", sorted(team.values()).count("ALLY") == 5, sorted(team.values()))
-check("every kill names a killer and a victim from the roster",
-      all(k["killer"] in team and k["victim"] in team for k in kills), len(kills))
+# The victim is always a player. A kill with no player behind it is rare and real (one was seen in
+# 4,000 kills); more than a couple in a match would mean bodies are not being mapped to players.
+no_killer = sum(k["killer"] is None for k in kills)
+check("every kill names a victim from the roster, and nearly every one a killer",
+      all(k["victim"] in team for k in kills) and all(k["killer"] in team or k["killer"] is None for k in kills)
+      and no_killer <= max(1, len(kills) // 50),
+      f"{len(kills)} kills, {no_killer} with no player as killer")
 unknown_slots = sorted({c["slot"] for c in bundle["casts"] if c["slot"].startswith("?")})
 check("every cast slot is mapped", not unknown_slots, unknown_slots or
       {s: sum(c["slot"] == s for c in bundle["casts"]) for s in "CQEX"})
@@ -101,6 +125,8 @@ side_of = {"ALLY": r1["side"], "ENEMY": "defender" if r1["side"] == "attacker" e
 own, other, inside = [], [], 0
 for p in players:
     row = sample(p["subject"], t_spawn)
+    if row is None:  # connected after the match began
+        continue
     my_side = side_of[p["team"]]
     their_side = "defender" if my_side == "attacker" else "attacker"
     own.append(dist(row[1], row[2], spawn[my_side]["x"], spawn[my_side]["y"]))
@@ -111,28 +137,40 @@ for p in players:
 check("spawn test: 3 s into R1, every player is nearer their own spawn than the other",
       all(a < b for a, b in zip(own, other)),
       f"own spawn {min(own):.0f}-{max(own):.0f} cm, other spawn {min(other):.0f}-{max(other):.0f} cm")
-check("spawn test: all 10 land inside the minimap image", inside == 10, f"{inside}/10")
+check("spawn test: everyone there lands inside the minimap image, and at least 8 of 10 are there",
+      inside == len(own) >= 8, f"{inside}/{len(own)} inside, {len(players) - len(own)} not yet connected")
 
 # ---- kill-distance test ----------------------------------------------------------------------
 gaps = []
 for k in kills:
     row = sample(k["victim"], k["t"])
     gaps.append(dist(row[1], row[2], k["vx"], k["vy"]))
-check("kill test: victim's last 10 Hz sample is within 150 cm of the kill position",
-      max(gaps) <= 150, f"median {statistics.median(gaps):.0f} cm, max {max(gaps):.0f} cm, "
-      f"{sum(g > 150 for g in gaps)} over 150")
+# Not "every kill": a player who teleports as they die (Chamber's Rendezvous was the case seen,
+# 15.8 m in 66 ms) is legitimately far from their last 10 Hz sample. The first version of this
+# check required all kills and rejected that match. 98% still fails a systematic offset.
+close = sum(g <= 150 for g in gaps)
+check("kill test: victim's last 10 Hz sample is within 150 cm of the kill position (98% of kills)",
+      close >= 0.98 * len(gaps), f"median {statistics.median(gaps):.0f} cm, max {max(gaps):.0f} cm, "
+      f"{len(gaps) - close} over 150")
 
 # ---- alive ---------------------------------------------------------------------------------
-all_alive = sum(all(sample(p["subject"], r["barrierMs"])[4] == 1 for p in players)
+all_alive = sum(all(alive_at(p["subject"], r["barrierMs"]) for p in players if present_at(p["subject"], r["barrierMs"]))
                 for r in rounds if r["barrierMs"])
-check("all 10 players are alive at every barrier drop", all_alive == len(rounds), f"{all_alive}/{len(rounds)} rounds")
+played = sum(bool(r["barrierMs"]) for r in rounds)  # a surrendered round has no barrier drop
+check("every player in the match is alive at every barrier drop", all_alive == played,
+      f"{all_alive}/{played} rounds")
+short_handed = [(r["n"], sum(present_at(p["subject"], r["barrierMs"]) for p in players))
+                for r in rounds if r["barrierMs"]]
+short_handed = [(n, count) for n, count in short_handed if count < len(players)]
+if short_handed:
+    info("rounds played short-handed (round, players present)", short_handed)
 # `alive` is a per-sample flag, so it only turns 0 on the first sample after the death. Probe one
 # second after the round was decided: the body keeps emitting samples for ~2.7 s after a death.
 wiped = []
 for r in rounds:
     if r["how"] == "elimination":
         loser = "ENEMY" if r["winner"] == "ALLY" else "ALLY"
-        wiped.append(sum(sample(p["subject"], r["endMs"] + 1000)[4] for p in players if p["team"] == loser) == 0)
+        wiped.append(sum(alive_at(p["subject"], r["endMs"] + 1000) for p in players if p["team"] == loser) == 0)
 check("in every elimination round the losing team has nobody alive 1 s after the end", all(wiped),
       f"{sum(wiped)}/{len(wiped)} elimination rounds")
 if match["matchId"].startswith("00931947"):
@@ -147,14 +185,19 @@ if match["matchId"].startswith("00931947"):
 # ---- Henrik cross-check ------------------------------------------------------------------------
 if args.henrik:
     henrik = json.loads(args.henrik.read_text(encoding="utf-8"))["data"]
-    hk = sorted(henrik["kills"], key=lambda k: k["kill_time_in_match"])
+    # Two kills in the same millisecond (one bullet, one ability) have no order of their own, and
+    # the two sources list them either way round. Break the tie the same way on both sides.
+    hk = sorted(henrik["kills"], key=lambda k: (k["kill_time_in_match"], k["killer_puuid"], k["victim_puuid"]))
     check("Henrik has the same number of kills", len(hk) == len(kills), f"{len(hk)} vs {len(kills)}")
-    pairs = list(zip(kills, hk))
+    pairs = list(zip(sorted(kills, key=lambda k: (k["t"], k["killer"] or "", k["victim"] or "")), hk))
     same = sum(k["victim"] == h["victim_puuid"] and k["killer"] == h["killer_puuid"] for k, h in pairs)
     check("same killer and victim PUUID, kill by kill, in time order", same == len(pairs), f"{same}/{len(pairs)}")
     offsets = [h["kill_time_in_match"] - k["t"] for k, h in pairs if k["victim"] == h["victim_puuid"]]
-    check("Henrik's match clock is the replay clock plus a constant (spread under 250 ms)",
-          max(offsets) - min(offsets) < 250,
+    # The two clocks drift apart slowly: about 130 ms over a 38-minute match, 264 ms over the
+    # longest one seen. The first limit here was 250 ms, set from five matches, and it rejected a
+    # good bundle. 500 ms still catches a wrong pairing, which is off by seconds.
+    check("Henrik's match clock is the replay clock plus a constant (spread under 500 ms)",
+          max(offsets) - min(offsets) < 500,
           f"offset {statistics.median(offsets):.0f} ms, spread {max(offsets) - min(offsets)} ms")
     d = [dist(k["vx"], k["vy"], h["victim_death_location"]["x"], h["victim_death_location"]["y"])
          for k, h in pairs if k["victim"] == h["victim_puuid"]]
