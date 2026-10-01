@@ -8,14 +8,16 @@ import {
   deathTimesBySubject,
   isAliveAt,
   isPresentAt,
-  ownSideFlips,
+  attackersBottomTurns,
+  ownSideTurns,
   pawnStateAt,
   playedViewport,
   playerStateAt,
   sampleIndex,
+  turnPoint,
   worldToImage,
 } from './replayScene.ts'
-import type { ReplayBundle, ReplayTrackSample } from './replayBundle.ts'
+import type { ReplayBundle, ReplaySide, ReplayTrackSample } from './replayBundle.ts'
 
 const LOTUS = { xMultiplier: 7.2e-5, yMultiplier: -7.2e-5, xScalarToAdd: 0.454789, yScalarToAdd: 0.917752 }
 
@@ -124,7 +126,7 @@ test('playedViewport falls back to the whole image when there are no samples', (
 })
 
 // Lotus: the attacker spawn is at world x ≈ 1400 (bottom of the image), the defender spawn at x ≈ 9700 (top).
-function twoTeams(rounds: Array<{ n: number; buyStartMs: number; ally: [number, number] | null; enemy: [number, number] | null }>): ReplayBundle {
+function twoTeams(rounds: Array<{ n: number; buyStartMs: number; side?: ReplaySide; ally: [number, number] | null; enemy: [number, number] | null }>): ReplayBundle {
   const track = (pick: 'ally' | 'enemy'): ReplayTrackSample[] =>
     rounds.flatMap(r => {
       const at = r[pick]
@@ -135,31 +137,52 @@ function twoTeams(rounds: Array<{ n: number; buyStartMs: number; ally: [number, 
       { subject: 'me', agentId: null, team: 'ALLY', teamName: null, body: 1, isMe: true },
       { subject: 'foe', agentId: null, team: 'ENEMY', teamName: null, body: 2, isMe: false },
     ],
-    rounds: rounds.map(r => ({ n: r.n, buyStartMs: r.buyStartMs })),
+    rounds: rounds.map(r => ({ n: r.n, buyStartMs: r.buyStartMs, side: r.side ?? null })),
     tracks: { byPlayer: { me: track('ally'), foe: track('enemy') } },
   } as unknown as ReplayBundle
 }
 
-test('ownSideFlips keeps my team at the bottom when the sides swap', () => {
+test('ownSideTurns keeps my team at the bottom when the sides swap', () => {
   const bundle = twoTeams([
     { n: 1, buyStartMs: 0, ally: [1400, 800], enemy: [9700, 1700] }, // I attack: already at the bottom
     { n: 2, buyStartMs: 100000, ally: [9700, 1700], enemy: [1400, 800] }, // I defend: at the top, so turn the map
   ])
-  assert.deepEqual([...ownSideFlips(bundle, LOTUS)], [[1, false], [2, true]])
+  assert.deepEqual([...ownSideTurns(bundle, LOTUS)], [[1, 0], [2, 2]])
 })
 
-test('ownSideFlips puts my team on the left when the spawns sit side by side', () => {
+test('ownSideTurns stands a sideways map upright, my team at the bottom', () => {
   // Same x, so the same height on the image; world y decides left and right.
   const left = twoTeams([{ n: 1, buyStartMs: 0, ally: [5000, -4000], enemy: [5000, 6000] }])
   const right = twoTeams([{ n: 1, buyStartMs: 0, ally: [5000, 6000], enemy: [5000, -4000] }])
-  assert.equal(ownSideFlips(left, LOTUS).get(1), false)
-  assert.equal(ownSideFlips(right, LOTUS).get(1), true)
+  for (const bundle of [left, right]) {
+    const turns = ownSideTurns(bundle, LOTUS).get(1)!
+    const [, allyY] = turnPoint(...worldToImage(LOTUS, ...bundle.tracks.byPlayer.me[0].slice(1, 3) as [number, number]), 1, turns)
+    const [, enemyY] = turnPoint(...worldToImage(LOTUS, ...bundle.tracks.byPlayer.foe[0].slice(1, 3) as [number, number]), 1, turns)
+    assert.ok(allyY > enemyY + 0.5, `my team below the enemy after ${turns} quarter turns`)
+  }
+  assert.equal(ownSideTurns(left, LOTUS).get(1), 3) // enemy on the right: anticlockwise
+  assert.equal(ownSideTurns(right, LOTUS).get(1), 1)
 })
 
-test('ownSideFlips carries the last orientation through a round it cannot measure', () => {
+test('ownSideTurns carries the last orientation through a round it cannot measure', () => {
   const bundle = twoTeams([
     { n: 1, buyStartMs: 0, ally: [9700, 1700], enemy: [1400, 800] },
     { n: 2, buyStartMs: 100000, ally: null, enemy: null },
   ])
-  assert.deepEqual([...ownSideFlips(bundle, LOTUS)], [[1, true], [2, true]])
+  assert.deepEqual([...ownSideTurns(bundle, LOTUS)], [[1, 2], [2, 2]])
+})
+
+test('turnPoint turns a square clockwise about its centre', () => {
+  assert.deepEqual(turnPoint(100, 50, 100, 0), [100, 50])
+  assert.deepEqual(turnPoint(100, 50, 100, 1), [50, 100]) // right edge to the bottom
+  assert.deepEqual(turnPoint(100, 50, 100, 2), [0, 50])
+  assert.deepEqual(turnPoint(100, 50, 100, 3), [50, 0]) // right edge to the top
+})
+
+test('the fixed orientation puts attackers at the bottom whichever side I start on', () => {
+  const attackFirst = twoTeams([{ n: 1, buyStartMs: 0, side: 'attacker', ally: [5000, -4000], enemy: [5000, 6000] }])
+  const defendFirst = twoTeams([{ n: 1, buyStartMs: 0, side: 'defender', ally: [5000, 6000], enemy: [5000, -4000] }])
+  // The same map and the same spawns: attackers at world y = -4000 both times.
+  assert.equal(attackersBottomTurns(attackFirst, ownSideTurns(attackFirst, LOTUS)), 3)
+  assert.equal(attackersBottomTurns(defendFirst, ownSideTurns(defendFirst, LOTUS)), 3)
 })

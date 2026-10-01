@@ -178,19 +178,33 @@ export function playedViewport(bundle: ReplayBundle, transform: MapTransform, ma
 // Three seconds into a round everyone is still standing in spawn.
 const SPAWN_PROBE_MS = 3000
 
+/** How far the map is turned from the published image, in clockwise quarter turns. */
+export type QuarterTurns = 0 | 1 | 2 | 3
+
+/** Where a point of a square of side `size` lands after turning the square about its centre. */
+export function turnPoint(px: number, py: number, size: number, turns: QuarterTurns): [number, number] {
+  switch (turns) {
+    case 1: return [size - py, px]
+    case 2: return [size - px, size - py]
+    case 3: return [py, size - px]
+    default: return [px, py]
+  }
+}
+
 /**
- * For each round, whether to turn the map half a turn so the bundle owner's
- * team starts at the bottom (or on the left, on a map whose spawns sit side by
- * side). Teams swap spawns at half time, so without this the same site moves to
- * the other end of the map between halves.
+ * For each round, how to turn the map so the bundle owner's team starts at the
+ * bottom and the enemy at the top. Two things make a turn necessary: teams swap
+ * spawns at half time (half a turn), and the published image of about half the
+ * maps has the spawns side by side instead of one above the other (a quarter
+ * turn: Ascent, Haven, Split, Icebox, Abyss, Corrode).
  *
  * Read from where the two teams actually stand at the start of each round, not
  * from a per-map rule: it needs no table and follows overtime side swaps too. A
  * round with nobody to measure keeps the previous round's orientation.
  */
-export function ownSideFlips(bundle: ReplayBundle, transform: MapTransform): Map<number, boolean> {
-  const flips = new Map<number, boolean>()
-  let flip = false
+export function ownSideTurns(bundle: ReplayBundle, transform: MapTransform): Map<number, QuarterTurns> {
+  const turnsByRound = new Map<number, QuarterTurns>()
+  let turns: QuarterTurns = 0
   for (const round of bundle.rounds) {
     const at = round.buyStartMs + SPAWN_PROBE_MS
     const centre = { ALLY: { u: 0, v: 0, n: 0 }, ENEMY: { u: 0, v: 0, n: 0 } }
@@ -207,10 +221,25 @@ export function ownSideFlips(bundle: ReplayBundle, transform: MapTransform): Map
     if (ally.n > 0 && enemy.n > 0) {
       const du = enemy.u / enemy.n - ally.u / ally.n
       const dv = enemy.v / enemy.n - ally.v / ally.n
-      // Image v grows downwards: a positive dv means the enemy is below us.
-      flip = Math.abs(dv) >= Math.abs(du) ? dv > 0 : du < 0
+      // Image v grows downwards: a positive dv means the enemy is below us. An
+      // enemy to the right comes to the top by a quarter turn anticlockwise.
+      if (Math.abs(dv) >= Math.abs(du)) turns = dv > 0 ? 2 : 0
+      else turns = du > 0 ? 3 : 1
     }
-    flips.set(round.n, flip)
+    turnsByRound.set(round.n, turns)
   }
-  return flips
+  return turnsByRound
+}
+
+/**
+ * One orientation for the whole match: attackers start at the bottom, as on a
+ * strategy board. Derived from the per-round turns, so it too needs no table.
+ */
+export function attackersBottomTurns(bundle: ReplayBundle, ownTurns: Map<number, QuarterTurns>): QuarterTurns {
+  for (const round of bundle.rounds) {
+    const own = ownTurns.get(round.n)
+    if (own == null || !round.side) continue
+    return round.side === 'attacker' ? own : (((own + 2) % 4) as QuarterTurns)
+  }
+  return 0
 }
