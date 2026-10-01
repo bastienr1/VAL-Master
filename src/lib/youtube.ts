@@ -42,6 +42,7 @@ export interface YTPlayer {
   getCurrentTime: () => number
   getDuration: () => number
   getPlayerState: () => number
+  getPlaybackRate: () => number
   pauseVideo: () => void
   playVideo: () => void
   destroy: () => void
