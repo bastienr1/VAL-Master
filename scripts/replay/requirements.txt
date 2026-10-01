@@ -1,0 +1,5 @@
+# For scripts/replay. Installed into <VAL_REPLAY_HOME>/.venv, not into the system Python.
+duckdb>=1.5
+# vrfkit's own tools/ scripts (extract_spike_carrier.py, extract_active_effects.py)
+pyarrow>=15
+numpy>=1.26
