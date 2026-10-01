@@ -5,7 +5,7 @@ settings from the real environment or from the repo's `.env.local` / `.env`,
 the same files and the same precedence as `scripts/env.ts`.
 
     VAL_REPLAY_HOME    data folder: bin\\vrfkit.exe, .venv, raw\\, exports\\, cache\\
-    VAL_REPLAY_ME      your PUUID (decides ALLY / ENEMY in a bundle)
+    VAL_REPLAY_ME      your PUUID (decides ALLY / ENEMY in a bundle); comma-separated if you have several accounts
     VAL_REPLAY_VRFKIT  the vrfkit clone (optional; default: "vrfkit" next to VAL_REPLAY_HOME)
 """
 import os

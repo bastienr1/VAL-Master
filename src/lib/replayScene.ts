@@ -37,6 +37,8 @@ export interface PlayerState extends ActorState {
   /** The track's own flag: it flips on the first sample after a death. See `isAliveAt`. */
   alive: boolean
   weapon: number | null
+  /** Time of the sample this state was read from. See `isPresentAt`. */
+  sampledAt: number
 }
 
 // Samples are 100 ms apart. A longer gap means the body stopped reporting (it
@@ -62,14 +64,34 @@ export function playerStateAt(rows: ReplayTrackSample[], t: number): PlayerState
   const span = between(rows, t)
   if (!span) return null
   const { a, b, k } = span
-  if (!b) return { x: a[1], y: a[2], yaw: a[3], alive: a[4] === 1, weapon: a[5] }
+  if (!b) return { x: a[1], y: a[2], yaw: a[3], alive: a[4] === 1, weapon: a[5], sampledAt: a[0] }
   return {
     x: a[1] + (b[1] - a[1]) * k,
     y: a[2] + (b[2] - a[2]) * k,
     yaw: lerpAngle(a[3], b[3], k),
     alive: a[4] === 1,
     weapon: a[5],
+    sampledAt: a[0],
   }
+}
+
+// A body in the match reports ten times a second, alive or dead (a dead one for
+// about 2.7 s more). Silence longer than this from a body last seen alive means
+// the player has left the match.
+const LEFT_AFTER_SILENCE_MS = 3000
+
+/**
+ * Whether a player is in the match at `t`, as opposed to disconnected.
+ *
+ * Two cases put a player off the map: last seen alive but silent for seconds
+ * (they left mid-round), or last seen before this round even started (they
+ * never came back for it). A dead player whose body has gone quiet is still
+ * present: their marker stays where they fell until the next round.
+ */
+export function isPresentAt(state: PlayerState | null, t: number, roundStartMs: number): boolean {
+  if (!state) return false
+  if (state.sampledAt < roundStartMs) return false
+  return !state.alive || t - state.sampledAt <= LEFT_AFTER_SILENCE_MS
 }
 
 export function pawnStateAt(rows: ReplayPawnSample[], t: number): ActorState | null {
@@ -156,26 +178,40 @@ export function playedViewport(bundle: ReplayBundle, transform: MapTransform, ma
 // Three seconds into a round everyone is still standing in spawn.
 const SPAWN_PROBE_MS = 3000
 
+/** How far the map is turned from the published image, in clockwise quarter turns. */
+export type QuarterTurns = 0 | 1 | 2 | 3
+
+/** Where a point of a square of side `size` lands after turning the square about its centre. */
+export function turnPoint(px: number, py: number, size: number, turns: QuarterTurns): [number, number] {
+  switch (turns) {
+    case 1: return [size - py, px]
+    case 2: return [size - px, size - py]
+    case 3: return [py, size - px]
+    default: return [px, py]
+  }
+}
+
 /**
- * For each round, whether to turn the map half a turn so the bundle owner's
- * team starts at the bottom (or on the left, on a map whose spawns sit side by
- * side). Teams swap spawns at half time, so without this the same site moves to
- * the other end of the map between halves.
+ * For each round, how to turn the map so the bundle owner's team starts at the
+ * bottom and the enemy at the top. Two things make a turn necessary: teams swap
+ * spawns at half time (half a turn), and the published image of about half the
+ * maps has the spawns side by side instead of one above the other (a quarter
+ * turn: Ascent, Haven, Split, Icebox, Abyss, Corrode).
  *
  * Read from where the two teams actually stand at the start of each round, not
  * from a per-map rule: it needs no table and follows overtime side swaps too. A
  * round with nobody to measure keeps the previous round's orientation.
  */
-export function ownSideFlips(bundle: ReplayBundle, transform: MapTransform): Map<number, boolean> {
-  const flips = new Map<number, boolean>()
-  let flip = false
+export function ownSideTurns(bundle: ReplayBundle, transform: MapTransform): Map<number, QuarterTurns> {
+  const turnsByRound = new Map<number, QuarterTurns>()
+  let turns: QuarterTurns = 0
   for (const round of bundle.rounds) {
     const at = round.buyStartMs + SPAWN_PROBE_MS
     const centre = { ALLY: { u: 0, v: 0, n: 0 }, ENEMY: { u: 0, v: 0, n: 0 } }
     for (const player of bundle.players) {
       const state = playerStateAt(bundle.tracks.byPlayer[player.subject] ?? [], at)
-      if (!state) continue
-      const [u, v] = worldToImage(transform, state.x, state.y)
+      if (!isPresentAt(state, at, round.buyStartMs)) continue
+      const [u, v] = worldToImage(transform, state!.x, state!.y)
       const sum = centre[player.team]
       sum.u += u
       sum.v += v
@@ -185,10 +221,25 @@ export function ownSideFlips(bundle: ReplayBundle, transform: MapTransform): Map
     if (ally.n > 0 && enemy.n > 0) {
       const du = enemy.u / enemy.n - ally.u / ally.n
       const dv = enemy.v / enemy.n - ally.v / ally.n
-      // Image v grows downwards: a positive dv means the enemy is below us.
-      flip = Math.abs(dv) >= Math.abs(du) ? dv > 0 : du < 0
+      // Image v grows downwards: a positive dv means the enemy is below us. An
+      // enemy to the right comes to the top by a quarter turn anticlockwise.
+      if (Math.abs(dv) >= Math.abs(du)) turns = dv > 0 ? 2 : 0
+      else turns = du > 0 ? 3 : 1
     }
-    flips.set(round.n, flip)
+    turnsByRound.set(round.n, turns)
   }
-  return flips
+  return turnsByRound
+}
+
+/**
+ * One orientation for the whole match: attackers start at the bottom, as on a
+ * strategy board. Derived from the per-round turns, so it too needs no table.
+ */
+export function attackersBottomTurns(bundle: ReplayBundle, ownTurns: Map<number, QuarterTurns>): QuarterTurns {
+  for (const round of bundle.rounds) {
+    const own = ownTurns.get(round.n)
+    if (own == null || !round.side) continue
+    return round.side === 'attacker' ? own : (((own + 2) % 4) as QuarterTurns)
+  }
+  return 0
 }

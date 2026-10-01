@@ -4,13 +4,17 @@ import type { ReplayBundle, ReplayKill, ReplayPlayer } from '../lib/replayBundle
 import {
   deathTimesBySubject,
   isAliveAt,
-  ownSideFlips,
+  attackersBottomTurns,
+  isPresentAt,
+  ownSideTurns,
   pawnStateAt,
   playedViewport,
   playerStateAt,
   sampleIndex,
+  turnPoint,
   worldToImage,
   type MapTransform,
+  type QuarterTurns,
   type Viewport,
 } from '../lib/replayScene'
 import {
@@ -54,7 +58,7 @@ const LAYERS = [
   { key: 'utility', label: 'Utility', title: 'Smokes, walls, traps and other placed abilities' },
   { key: 'pawns', label: 'Pawns', title: 'Cameras, drones and other things agents control' },
   { key: 'trails', label: 'Trails', title: 'The last 3 seconds of each player’s path' },
-  { key: 'flip', label: 'My side', title: 'Turn the map when sides change, so your team always starts from the bottom' },
+  { key: 'flip', label: 'My side', title: 'On: your team always starts from the bottom, so the map turns when sides change. Off: attackers always start from the bottom' },
 ] as const
 type LayerKey = (typeof LAYERS)[number]['key']
 type Layers = Record<LayerKey, boolean>
@@ -86,8 +90,10 @@ interface Scene {
   icons: Map<string, HTMLImageElement>
   deaths: Map<string, number[]>
   bySubject: Map<string, ReplayPlayer>
-  /** Round number → whether the map is turned half a turn that round. */
-  flips: Map<number, boolean>
+  /** Round number → how the map is turned that round so the owner's team starts at the bottom. */
+  ownTurns: Map<number, QuarterTurns>
+  /** The one orientation used when the map does not follow the owner's side: attackers at the bottom. */
+  fixedTurns: QuarterTurns
 }
 
 function drawScene(
@@ -100,15 +106,13 @@ function drawScene(
 ) {
   const { transform, view } = scene
   const round = roundAtReplayMs(bundle, t)
-  // Half a turn about the centre of the view: positions are mirrored through
-  // it, so icons and letters stay upright while the map itself turns.
-  const flipped = layers.flip && scene.flips.get(round.n) === true
+  // Quarter turns about the centre of the view. Positions are turned, not the
+  // canvas, so icons and letters stay upright while the map itself turns.
+  const turns = layers.flip ? scene.ownTurns.get(round.n) ?? scene.fixedTurns : scene.fixedTurns
   const scale = size / view.size
   const toPx = (x: number, y: number): [number, number] => {
     const [u, v] = worldToImage(transform, x, y)
-    const px = (u - view.u) * scale
-    const py = (v - view.v) * scale
-    return flipped ? [size - px, size - py] : [px, py]
+    return turnPoint((u - view.u) * scale, (v - view.v) * scale, size, turns)
   }
   const cmToPx = (cm: number) => Math.abs(cm * transform.xMultiplier) * scale
   const unit = size / 420 // marker sizes are tuned for a 420 px map
@@ -118,9 +122,10 @@ function drawScene(
   const img = scene.mapImage
   if (img) {
     ctx.save()
-    if (flipped) {
-      ctx.translate(size, size)
-      ctx.rotate(Math.PI)
+    if (turns) {
+      ctx.translate(size / 2, size / 2)
+      ctx.rotate((turns * Math.PI) / 2)
+      ctx.translate(-size / 2, -size / 2)
     }
     ctx.globalAlpha = 0.9
     ctx.drawImage(
@@ -201,7 +206,8 @@ function drawScene(
   for (const player of bundle.players) {
     const rows = bundle.tracks.byPlayer[player.subject]
     const state = playerStateAt(rows, t)
-    if (!state) continue
+    // A player who disconnected is not on the map at all, rather than frozen where they stood.
+    if (!state || !isPresentAt(state, t, round.buyStartMs)) continue
     const [px, py] = toPx(state.x, state.y)
     const color = TEAM_COLOR[player.team]
 
@@ -384,6 +390,7 @@ function ReplayMinimap({
 
   const scene = useMemo<Scene | null>(() => {
     if (!map?.transform) return null
+    const ownTurns = ownSideTurns(bundle, map.transform)
     return {
       transform: map.transform,
       view: playedViewport(bundle, map.transform),
@@ -391,7 +398,8 @@ function ReplayMinimap({
       icons: images.icons,
       deaths: deathTimesBySubject(bundle),
       bySubject: new Map(bundle.players.map(p => [p.subject, p])),
-      flips: ownSideFlips(bundle, map.transform),
+      ownTurns,
+      fixedTurns: attackersBottomTurns(bundle, ownTurns),
     }
   }, [bundle, map, images])
 

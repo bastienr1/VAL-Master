@@ -23,6 +23,7 @@ import argparse
 import bisect
 import gzip
 import json
+import math
 import re
 import sys
 import urllib.request
@@ -98,7 +99,8 @@ def load_equippables(tools_dir):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("export", type=Path)
-    ap.add_argument("--me", help="your PUUID (manifest subject); decides ALLY / ENEMY. Default: VAL_REPLAY_ME")
+    ap.add_argument("--me", help="your PUUID (manifest subject); decides ALLY / ENEMY. Several, comma-separated, "
+                                 "if you play on more than one account. Default: VAL_REPLAY_ME")
     ap.add_argument("--derived", type=Path)
     ap.add_argument("--out", type=Path)
     ap.add_argument("--hz", type=int, default=10)
@@ -121,6 +123,7 @@ def main():
     for table in ("fields", "movement", "actors", "events"):
         con.execute(f"create view {table} as select * from '{(export / (table + '.parquet')).as_posix()}'")
     manifest = json.loads((export / "manifest.json").read_text(encoding="utf-8"))
+    live_position = "not (pos_x < -49000 and pos_z < -49000)"  # vrfkit's far-away slot for hidden actors
 
     # ---- match ----------------------------------------------------------------------------
     map_url = manifest["level_names_and_times"][0]["name"]
@@ -148,15 +151,42 @@ def main():
         actor: unpack_int(raw)
         for actor, raw in con.execute(
             "select actor_net_guid, raw_bits from fields "
-            "where group_path like '%BombPlayerState_C' and field_name = 'AssignedTeamState'").fetchall()
+            "where group_path like '%PlayerState_C' and field_name = 'AssignedTeamState'").fetchall()
     }
-    subject_of = {p["character_net_guid"]: p["subject"] for p in manifest["players"]}
+    roster = sorted(manifest["players"], key=lambda p: p["character_net_guid"])
+    subjects = [p["subject"] for p in roster]
+    mine = [puuid.strip() for puuid in args.me.split(",") if puuid.strip()]
+    args.me = next((puuid for puuid in mine if puuid in subjects), None)
+    if args.me is None:
+        sys.exit(f"none of your PUUIDs ({', '.join(p[:8] for p in mine)}) is among this replay's "
+                 f"{len(subjects)} players: not your match, or another account (add it to VAL_REPLAY_ME)")
+
+    # A player has one body per connection: someone who drops and comes back is given a new one,
+    # and the manifest lists only the latest. Every body a player state ever spawned belongs to
+    # that player, or the earlier body's kills and movement would have no owner.
+    subject_of = {p["character_net_guid"]: p["subject"] for p in roster}
+    state_subject = {p["actor_net_guid"]: p["subject"] for p in roster}
+    for state, body in con.execute("""
+            select actor_net_guid, value_i64 from fields
+            where group_path like '%PlayerState_C' and field_name = 'SpawnedCharacter' and value_i64 > 0
+            order by time_ms, packet_id""").fetchall():
+        if state in state_subject:
+            subject_of.setdefault(body, state_subject[state])
     bodies = sorted(subject_of)
     body_sql = ", ".join(str(b) for b in bodies)
-    team_of_body = {p["character_net_guid"]: team_of_state.get(p["actor_net_guid"]) for p in manifest["players"]}
-    my_body = next((b for b, s in subject_of.items() if s == args.me), None)
-    if my_body is None:
-        sys.exit(f"--me {args.me} is not one of this replay's 10 players")
+    if len(bodies) > len(subjects):
+        warnings.append(f"{len(bodies) - len(subjects)} player(s) reconnected with a new body; "
+                        "their tracks and kills are joined under one player")
+    team_of = {p["subject"]: team_of_state.get(p["actor_net_guid"]) for p in roster}
+
+    # Things an agent controls (a camera, a drone, Gekko's Wingman) name their player as Instigator.
+    instigator = dict(con.execute(f"""
+        select actor_net_guid, min(value_i64) from fields
+        where field_name = 'Instigator' and value_i64 in ({body_sql}) group by 1""").fetchall())
+
+    def player_behind(guid):
+        """The player for a body, or for something that player controls. Wingman plants the spike."""
+        return subject_of.get(guid) or subject_of.get(instigator.get(guid))
 
     events = con.execute('select "group", time1, word0, word1 from events order by time1').fetchall()
     buy_starts = [t for group, t, *_ in events if group == "roundStarted"]
@@ -165,30 +195,41 @@ def main():
     defuses_ev = [t for group, t, *_ in events if group == "spikeDefused"]
     deaths = [(t, killer, victim) for group, t, killer, victim in events if group == "characterDeath"]
 
-    if None in team_of_body.values():
-        # Builds before 13.01 do not name AssignedTeamState. Killer and victim are always on
-        # opposite teams, so two-colour the kill graph instead.
-        warnings.append("AssignedTeamState not in this export; teams derived from the kill graph")
-        opponents = {b: set() for b in bodies}
-        for _, killer, victim in deaths:
-            if killer != victim and killer in opponents and victim in opponents:
-                opponents[killer].add(victim)
-                opponents[victim].add(killer)
-        team_of_body, queue = {my_body: 1}, [my_body]
-        while queue:
-            body = queue.pop()
-            for other in opponents[body]:
-                if other not in team_of_body:
-                    team_of_body[other] = 3 - team_of_body[body]
-                    queue.append(other)
-                elif team_of_body[other] == team_of_body[body]:
-                    sys.exit(f"kill graph is not two-colourable at {body} / {other}")
-        if len(team_of_body) != len(bodies):
-            sys.exit(f"kill graph leaves players without a team: {sorted(set(bodies) - set(team_of_body))}")
-    team_ids = sorted(set(team_of_body.values()))
+    if None in team_of.values():
+        # Builds before 13.01 do not name AssignedTeamState. Each team starts round 1 in its own
+        # spawn, so the two groups standing apart three seconds in are the two teams. (Killer and
+        # victim being on opposite teams would also do, until one teammate dies to another's ability.)
+        warnings.append("AssignedTeamState not in this export; teams derived from the round 1 spawn positions")
+        probe = buy_starts[0] + 3000
+        spots = {}
+        for body, x, y in con.execute(f"""
+                select character_net_guid, arg_min(pos_x, time_ms), arg_min(pos_y, time_ms) from movement
+                where time_ms >= {probe} and time_ms < {probe + 5000} and {live_position}
+                  and character_net_guid in ({body_sql})
+                group by 1 order by 1""").fetchall():
+            spots.setdefault(subject_of[body], (x, y))
+        if args.me not in spots:
+            sys.exit("cannot tell the teams apart: you were not in the match when round 1 started")
+        # The player farthest from me is in the other spawn; everyone joins whichever of us two is nearer.
+        other_side = max(spots, key=lambda s: (math.dist(spots[s], spots[args.me]), s))
+        team_of = {s: 1 if math.dist(spots[s], spots[args.me]) <= math.dist(spots[s], spots[other_side]) else 2
+                   for s in spots}
+        # Someone who connected after round 1 began has no spawn position. Whoever they killed or
+        # were killed by is on the other team; take the majority, since friendly fire exists.
+        for late in sorted(set(subjects) - set(spots)):
+            votes = {1: 0, 2: 0}
+            for _, killer, victim in deaths:
+                a, b = subject_of.get(killer), subject_of.get(victim)
+                opponent = b if a == late else a if b == late else None
+                if opponent in team_of and opponent != late:
+                    votes[3 - team_of[opponent]] += 1
+            if votes[1] == votes[2]:
+                sys.exit(f"cannot tell which team {late[:8]} is on: not in the match at round 1, and no clear kills")
+            team_of[late] = 1 if votes[1] > votes[2] else 2
+    team_ids = sorted(set(team_of.values()))
     if len(team_ids) != 2:
         sys.exit(f"expected two teams, found {team_ids}")
-    ally_team = team_of_body[my_body]
+    ally_team = team_of[args.me]
     enemy_team = next(t for t in team_ids if t != ally_team)
     label = {ally_team: "ALLY", enemy_team: "ENEMY"}
 
@@ -197,7 +238,7 @@ def main():
     # buy phase or a spike plant; ~7 s is the end-of-round phase. Builds before 13.01 name only
     # DisplayRemainingTime, which carries the same resets.
     timer_fields = {name for (name,) in con.execute("""
-        select distinct field_name from fields where group_path like '%BombGameState_C'
+        select distinct field_name from fields where group_path like '%GameState_C'
           and field_name in ('StateRemainingTime', 'DisplayRemainingTime')""").fetchall()}
     timer_field = next((f for f in ("StateRemainingTime", "DisplayRemainingTime") if f in timer_fields), None)
     if timer_field is None:
@@ -205,19 +246,19 @@ def main():
     resets = con.execute(f"""
         with timer as (
             select time_ms, value_f64 as v, lag(value_f64) over (order by time_ms, packet_id) as prev
-            from fields where group_path like '%BombGameState_C' and field_name = '{timer_field}')
+            from fields where group_path like '%GameState_C' and field_name = '{timer_field}')
         select time_ms, v from timer where v > prev + 1 order by time_ms""").fetchall()
 
     results = {}
     for name, value_str in con.execute("""
             select field_name, value_str from fields
-            where group_path like '%BombGameState_C' and field_name like 'RoundResults[%].%'
+            where group_path like '%GameState_C' and field_name like 'RoundResults[%].%'
               and value_str is not null""").fetchall():
         index, member = re.match(r"RoundResults\[(\d+)\]\.(\w+)", name).groups()
         results.setdefault(int(index), {})[member] = value_str
     for index, t in con.execute("""
             select value_i64, time_ms from fields
-            where group_path like '%BombGameState_C' and field_name like 'RoundResults[%].RoundNumber'""").fetchall():
+            where group_path like '%GameState_C' and field_name like 'RoundResults[%].RoundNumber'""").fetchall():
         results.setdefault(index, {})["t"] = t
 
     role_changes = {team: [] for team in team_ids}
@@ -269,16 +310,15 @@ def main():
             "t": t, "round": round_of(t),
             "site": site_of(loc[0], loc[1]) if loc else None,
             "x": round(loc[0]) if loc else None, "y": round(loc[1]) if loc else None,
-            "player": subject_of.get(rpc.get("planter")),
+            "player": player_behind(rpc.get("planter")),
         })
         if not loc:
             warnings.append(f"plant at {t} ms has no BombPlantedRPC location")
-    spike_defuses = [{"t": t, "round": round_of(t), "player": subject_of.get(nearest(defuse_rpc, t))}
+    spike_defuses = [{"t": t, "round": round_of(t), "player": player_behind(nearest(defuse_rpc, t))}
                      for t in defuses_ev]
 
     # Whoever plants is attacking. That anchors both ways of reading sides.
-    body_of = {s: b for b, s in subject_of.items()}
-    planting_team = [(p["t"], team_of_body[body_of[p["player"]]]) for p in spike_plants if p["player"]]
+    planting_team = [(p["t"], team_of[p["player"]]) for p in spike_plants if p["player"]]
     if all(role_changes[team] for team in team_ids):
         # 13.01+: each team state replicates its role; the planter names the value for "attacker".
         attacker_votes = {role_at[team].at(t) for t, team in planting_team}
@@ -355,8 +395,8 @@ def main():
     players = [{
         "subject": p["subject"],
         "agentId": agent_ids.get(p["subject"]),
-        "team": label[team_of_body[p["character_net_guid"]]],
-        "teamName": names.get(label[team_of_body[p["character_net_guid"]]]),
+        "team": label[team_of[p["subject"]]],
+        "teamName": names.get(label[team_of[p["subject"]]]),
         "body": p["character_net_guid"],
         "isMe": p["subject"] == args.me,
     } for p in sorted(manifest["players"], key=lambda p: p["character_net_guid"])]
@@ -380,31 +420,30 @@ def main():
             weapons.append({"cls": path.removeprefix("Default__"), "name": name, "cat": category})
         return weapon_index[path]
 
-    equip_changes = {b: [] for b in bodies}
+    equip_changes = {s: [] for s in subjects}
     for t, body, guid in con.execute(f"""
             select time_ms, actor_net_guid, value_i64 from fields
             where group_path like '%AresInventory' and field_name = 'NewCurrentEquippable'
               and actor_net_guid in ({body_sql})
             order by time_ms, packet_id, actor_net_guid, value_i64""").fetchall():
-        equip_changes[body].append((t, weapon_id(guid)))
-    equipped = {b: Timeline(changes) for b, changes in equip_changes.items()}
+        equip_changes[subject_of[body]].append((t, weapon_id(guid)))
+    equipped = {s: Timeline(changes) for s, changes in equip_changes.items()}
 
     # ---- alive ----------------------------------------------------------------------------
     # Alive from every (re)spawn until the next death. AresInventory.RespawnNumber is written at
     # each round start and at each revive (Sage resurrection, Clove's Not Dead Yet).
-    life_changes = {b: [(t, 1) for t in buy_starts] for b in bodies}
+    life_changes = {s: [(t, 1) for t in buy_starts] for s in subjects}
     for t, body in con.execute(f"""
             select time_ms, actor_net_guid from fields
             where group_path like '%AresInventory' and field_name = 'RespawnNumber'
               and actor_net_guid in ({body_sql})""").fetchall():
-        life_changes[body].append((t, 1))
+        life_changes[subject_of[body]].append((t, 1))
     for t, _, victim in deaths:
-        if victim in life_changes:
-            life_changes[victim].append((t, 0))
-    alive = {b: Timeline(changes) for b, changes in life_changes.items()}
+        if victim in subject_of:
+            life_changes[subject_of[victim]].append((t, 0))
+    alive = {s: Timeline(changes) for s, changes in life_changes.items()}
 
     # ---- tracks ---------------------------------------------------------------------------
-    live_position = "not (pos_x < -49000 and pos_z < -49000)"  # vrfkit's park slot for hidden actors
     samples = con.execute(f"""
         select character_net_guid, time_ms, pos_x, pos_y, yaw from (
             select *, row_number() over (
@@ -412,19 +451,20 @@ def main():
                 order by time_ms, packet_id, pos_x, pos_y, yaw) as rn
             from movement where {live_position})
         where rn = 1 order by character_net_guid, time_ms""").fetchall()
-    by_player = {subject_of[b]: [] for b in bodies}
+    by_player = {s: [] for s in subjects}
     pawn_samples = {}
     for guid, t, x, y, yaw in samples:
-        if guid in subject_of:
-            by_player[subject_of[guid]].append(
-                [t, round(x), round(y), round(yaw) % 360, alive[guid].at(t, 1), equipped[guid].at(t)])
+        subject = subject_of.get(guid)
+        if subject:
+            by_player[subject].append(
+                [t, round(x), round(y), round(yaw) % 360, alive[subject].at(t, 1), equipped[subject].at(t)])
         else:
             pawn_samples.setdefault(guid, []).append([t, round(x), round(y), round(yaw) % 360])
 
+    for rows in by_player.values():  # a reconnected player's bodies follow one another in time
+        rows.sort(key=lambda row: row[0])
+
     # ---- pawns (cameras, drones, Clove's after-death form) ---------------------------------
-    instigator = dict(con.execute(f"""
-        select actor_net_guid, min(value_i64) from fields
-        where field_name = 'Instigator' and value_i64 in ({body_sql}) group by 1""").fetchall())
     pawns = [{
         "cls": (actor_class.get(guid) or "unknown").removeprefix("Default__"),
         "owner": subject_of.get(instigator.get(guid)),
@@ -445,7 +485,10 @@ def main():
         from rpc group by packet_id, actor_net_guid, rpc
         having bool_or(member = 'bDamageKilledTarget' and value_bool)
         order by 1, 2, 3, 4""").fetchall()
-    kill_positions = con.execute("""
+    # Positions come from the last moment each player was on the map. Iso's ult takes the two
+    # duellists to an arena far outside it (the same far-away slot hidden actors are parked in);
+    # a kill there is drawn between where the two stood when they were taken.
+    kill_positions = con.execute(f"""
         with k as (select time1 as t, word0 as killer, word1 as victim from events where "group" = 'characterDeath'),
              -- several movement rows can share a time_ms; keep one per body and instant so the
              -- as-of join below has a single answer
@@ -453,8 +496,10 @@ def main():
                         select character_net_guid as g, time_ms, pos_x, pos_y, row_number() over (
                             partition by character_net_guid, time_ms
                             order by packet_id desc, pos_x, pos_y) as rn
-                        from movement where character_net_guid in (select word0 from events) or
-                                            character_net_guid in (select word1 from events))
+                        from movement
+                        where {live_position}
+                          and (character_net_guid in (select word0 from events)
+                               or character_net_guid in (select word1 from events)))
                     where rn = 1)
         select k.t, k.killer, k.victim, a.pos_x, a.pos_y, b.pos_x, b.pos_y
         from k asof left join mv a on a.g = k.killer and a.time_ms <= k.t
@@ -471,7 +516,8 @@ def main():
             weapon = weapon_id(hit[2]) if hit[2] in actor_class else weapon_id(hit[3])
         kills.append({
             "t": t, "round": round_of(t),
-            "killer": subject_of.get(killer), "victim": subject_of.get(victim),
+            # A kill by something a player controls (a turret, a bot) is that player's kill.
+            "killer": player_behind(killer), "victim": subject_of.get(victim),
             "weapon": weapon,
             "kx": None if kx is None else round(kx), "ky": None if ky is None else round(ky),
             "vx": None if vx is None else round(vx), "vy": None if vy is None else round(vy),

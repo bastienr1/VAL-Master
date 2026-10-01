@@ -71,9 +71,10 @@ export function weaponLabel(weapon: ReplayWeapon | null | undefined): string {
  * Henrik has the round; a round Henrik lacks is built from the replay alone, so
  * the timeline works even for a match Henrik no longer serves.
  *
- * Returns `matchRounds` untouched when the bundle cannot drive the timeline
- * (no owner, or a round without a measured barrier): mixing two clocks inside
- * one match would be worse than using the coarser one throughout.
+ * A round with no barrier drop is left out: that is a match surrendered during
+ * a buy phase, where nothing was played. Returns `matchRounds` untouched when
+ * the bundle cannot drive the timeline at all (no owner, or no barrier for
+ * round 1, which is the sync anchor).
  */
 export function applyReplayTiming(
   matchRounds: MatchRound[],
@@ -81,7 +82,7 @@ export function applyReplayTiming(
   agentName: (agentId: string | null) => string | null,
 ): MatchRound[] {
   const me = bundle.players.find(p => p.isMe)
-  if (!me || bundle.rounds.length === 0 || bundle.rounds.some(r => r.barrierMs == null)) {
+  if (!me || bundle.rounds.length === 0 || bundle.rounds[0].barrierMs == null) {
     return matchRounds
   }
 
@@ -89,7 +90,7 @@ export function applyReplayTiming(
   const fromHenrik = new Map(matchRounds.map(r => [r.round_number, r]))
   const first = matchRounds[0]
 
-  return bundle.rounds.map((round): MatchRound => {
+  return bundle.rounds.filter(round => round.barrierMs != null).map((round): MatchRound => {
     const barrier = round.barrierMs as number
     const inRound = bundle.kills.filter(k => k.round === round.n)
     const kills = inRound.filter(k => k.killer === me.subject && k.victim !== me.subject)
