@@ -29,7 +29,11 @@ const loads = new Map<string, Promise<ReplayBundle | null>>()
 async function loadReplayBundle(matchId: string): Promise<ReplayBundle | null> {
   const started = performance.now()
 
-  const { data: { user } } = await supabase.auth.getUser()
+  // getSession() reads the stored session; getUser() would add a round trip to
+  // the auth server before every load. RLS on match_replays and the Storage
+  // policies still decide what this user may read.
+  const { data: { session } } = await supabase.auth.getSession()
+  const user = session?.user
   if (!user) return null
 
   const { data: row, error } = await supabase
