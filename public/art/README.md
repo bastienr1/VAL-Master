@@ -28,4 +28,9 @@ upload it in Settings → Home Art, or drop a file here named after its Riot UUI
 | `map.<uuid>.webp` | 900×1200 portrait | Landmark in the upper half. Lower 40% gets the stats overlay |
 | `agent.<uuid>.webp` | 800×800 | Face in the upper-centre |
 
+A map's own page can also take a wide header, `mapheader.<uuid>` (2400×600,
+landmark centre-right, left 40% calm for the map name). It is upload-only, in
+Settings → Home Art → Maps & Agents → Map page headers: with none set the page
+uses the map picture above.
+
 The slot list and sizes come from `src/lib/artSlots.ts`.

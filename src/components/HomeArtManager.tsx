@@ -10,6 +10,7 @@ import {
   SLOT_KEYS,
   STATIC_SLOTS,
   agentSlotSpec,
+  mapHeaderSlotSpec,
   focalFromClick,
   mapSlotSpec,
   slotRowStatus,
@@ -561,6 +562,16 @@ export default function HomeArtManager() {
     [registry],
   )
 
+  const mapHeaderSlots = useMemo<ManagedSlot[]>(
+    () =>
+      registry
+        ? [...registry.maps.byId.values()]
+            .sort((a, b) => a.name.localeCompare(b.name))
+            .map(m => ({ spec: mapHeaderSlotSpec(m.uuid, m.name), apiDefault: m.splash, gradientFallback: null, portrait: false }))
+        : [],
+    [registry],
+  )
+
   const agentSlots = useMemo<ManagedSlot[]>(
     () =>
       registry
@@ -742,12 +753,16 @@ export default function HomeArtManager() {
         {groupOpen && (
           <div className="p-2.5 pt-0 space-y-4">
             <p className="text-[11px] text-text-muted">
-              These show the game's own art unless you override one. Maps appear on Home's map cards and the top of each
-              map page; agents on Home's agent cards.
+              These show the game's own art unless you override one. Maps appear on Home's map cards, and at the top
+              of a map's page until that page has a header of its own; agents on Home's agent cards and on map pages.
             </p>
             <div className="space-y-2">
               <span className={fieldLabel}>Maps</span>
               {mapSlots.map(renderSlot)}
+            </div>
+            <div className="space-y-2">
+              <span className={fieldLabel}>Map page headers</span>
+              {mapHeaderSlots.map(renderSlot)}
             </div>
             <div className="space-y-2">
               <span className={fieldLabel}>Agents</span>
