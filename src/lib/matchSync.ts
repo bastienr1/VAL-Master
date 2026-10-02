@@ -1,6 +1,7 @@
 import { supabase } from './supabase'
 import type { MatchRound, VodTag } from './types'
 import type { PlayerConfig } from './profile'
+import { sideForRound } from './roundSides'
 
 // Weapon ID to display name mapping (common weapons)
 const WEAPON_NAMES: Record<string, string> = {
@@ -35,63 +36,6 @@ function getWeaponName(weaponId: string): string {
   if (!weaponId) return ''
   const upper = weaponId.toUpperCase()
   return WEAPON_NAMES[upper] || weaponId.split('/').pop()?.replace(/_/g, ' ') || 'Unknown'
-}
-
-/**
- * Resolve which side ('attack' | 'defense') the given player team played
- * for a specific round, by reading the round's own attacker/defender
- * labels from the Henrik v2 payload.
- *
- * Henrik v2 has used slightly different field names across versions, so
- * we probe a short list of known shapes. If none are present, we fall
- * back to the standard-mode rotation (Red = attack first half) — which
- * is the CORRECT default mapping (the previous code had this inverted).
- */
-function resolveSideForRound(
-  round: any,
-  playerTeam: string,
-): 'attack' | 'defense' {
-  const team = (playerTeam || '').toLowerCase()
-
-  const attackerLabel: string | undefined =
-    round?.attackers ??
-    round?.attacking_team ??
-    round?.attacker_team ??
-    round?.attackers_team ??
-    undefined
-
-  const defenderLabel: string | undefined =
-    round?.defenders ??
-    round?.defending_team ??
-    round?.defender_team ??
-    round?.defenders_team ??
-    undefined
-
-  if (typeof attackerLabel === 'string' && attackerLabel.length > 0) {
-    return attackerLabel.toLowerCase() === team ? 'attack' : 'defense'
-  }
-  if (typeof defenderLabel === 'string' && defenderLabel.length > 0) {
-    return defenderLabel.toLowerCase() === team ? 'defense' : 'attack'
-  }
-
-  // Last-resort fallback: standard-mode rotation, Red attacks first.
-  // This is reached only if the API payload is missing the per-round
-  // attacker/defender labels we expect — log so we notice schema drift.
-  console.warn(
-    '[matchSync] Round payload missing attacker/defender labels; falling back to round-number heuristic. Round:',
-    round?.round_num ?? round?.id ?? '?',
-  )
-  const firstHalfSide: 'attack' | 'defense' =
-    team === 'red' ? 'attack' : 'defense'
-  const secondHalfSide: 'attack' | 'defense' =
-    firstHalfSide === 'attack' ? 'defense' : 'attack'
-  const roundNum: number =
-    typeof round?.round_num === 'number'
-      ? round.round_num
-      : typeof round?.round_number === 'number'
-      ? round.round_number
-      : 0
-  return roundNum > 0 && roundNum <= 12 ? firstHalfSide : secondHalfSide
 }
 
 // ==========================================
@@ -157,7 +101,8 @@ export async function fetchMatchRoundData(matchId: string, userId: string, playe
     // Parse rounds
     const rounds: Omit<MatchRound, 'id' | 'created_at'>[] = matchData.rounds.map((round: any, index: number) => {
       const roundNum = index + 1
-      const side = resolveSideForRound(round, playerTeam)
+      // The payload doesn't say who attacked; team colour and round number do.
+      const side = sideForRound(playerTeam, roundNum)
 
       // Find our player's stats in this round
       const ourStats = round.player_stats?.find((ps: any) => ps.player_puuid === ourPlayer.puuid)
