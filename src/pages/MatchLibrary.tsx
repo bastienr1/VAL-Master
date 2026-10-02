@@ -7,6 +7,7 @@ import { mapImageFor, agentImageFor } from '../lib/gameContent'
 import { useGameContent } from '../hooks/useGameContent'
 import GameImage from '../components/GameImage'
 import ReplayFolderLink from '../components/ReplayFolderLink'
+import { winRate as computeWinRate } from '../lib/homeStats'
 import type { Match } from '../lib/types'
 import { RefreshCw, Swords, Filter, ChevronDown, Crosshair, Target, Percent, Trophy, Calendar, TrendingUp, FileDown, Star, Radar, Settings as SettingsIcon } from 'lucide-react'
 import {
@@ -115,8 +116,7 @@ function ActRecapCard({
   const losses = matches.filter((m) => m.result === 'L').length
   const draws = matches.filter((m) => m.result === 'draw').length
   // Draws excluded from win-rate denominator
-  const decisive = wins + losses
-  const winRate = decisive > 0 ? Math.round((wins / decisive) * 100) : 0
+  const winRate = computeWinRate(wins, losses) ?? 0
   const avgAcs = Math.round(matches.reduce((s, m) => s + m.acs, 0) / matches.length)
   const avgKd = (matches.reduce((s, m) => s + m.kd, 0) / matches.length).toFixed(2)
   const avgHs = (matches.reduce((s, m) => s + m.headshot_pct, 0) / matches.length).toFixed(1)
@@ -316,8 +316,7 @@ export default function MatchLibrary() {
   const filteredLosses = filtered.filter((m) => m.result === 'L').length
   const filteredDraws = filtered.filter((m) => m.result === 'draw').length
   // Draws excluded from win-rate denominator — they're neither a win nor a loss
-  const decisive = filteredWins + filteredLosses
-  const filteredWinRate = decisive > 0 ? Math.round((filteredWins / decisive) * 100) : 0
+  const filteredWinRate = computeWinRate(filteredWins, filteredLosses) ?? 0
 
   const playedMaps = [...new Set(matches.map((m) => m.map))].sort()
   const playedAgents = [...new Set(matches.map((m) => m.agent))].sort()
