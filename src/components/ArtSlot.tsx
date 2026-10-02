@@ -11,8 +11,8 @@ const tint = (percent: number) => `color-mix(in srgb, var(--color-bg-primary) ${
 
 /** Darkens towards the side the text sits on. */
 const SCRIMS: Record<ScrimDirection, string> = {
-  left: `linear-gradient(90deg, var(--color-bg-primary) 0%, ${tint(85)} 30%, ${tint(35)} 60%, ${TRANSPARENT} 100%)`,
-  bottom: `linear-gradient(0deg, var(--color-bg-primary) 0%, ${tint(80)} 35%, ${tint(20)} 70%, ${TRANSPARENT} 100%)`,
+  left: `linear-gradient(90deg, var(--color-bg-primary) 0%, var(--color-bg-primary) 20%, ${tint(80)} 42%, ${tint(30)} 68%, ${TRANSPARENT} 100%)`,
+  bottom: `linear-gradient(0deg, var(--color-bg-primary) 0%, var(--color-bg-primary) 18%, ${tint(85)} 42%, ${tint(25)} 72%, ${TRANSPARENT} 100%)`,
   radial: `radial-gradient(ellipse at center, ${tint(25)} 0%, ${tint(70)} 60%, var(--color-bg-primary) 100%)`,
 }
 
@@ -99,7 +99,11 @@ export function ArtLayer({
           loading={priority ? 'eager' : 'lazy'}
           fetchPriority={priority ? 'high' : 'auto'}
           decoding="async"
-          className={`absolute inset-0 w-full h-full object-cover ${imgClassName} ${isApi ? apiImgClassName : ''}`}
+          // Fades in over the gradient once loaded: the game's map art is several
+          // megabytes, and popping in a second late reads as a glitch.
+          className={`absolute inset-0 w-full h-full object-cover transition-[opacity,scale] duration-500 ${
+            loadedSrc === current.src ? 'opacity-100' : 'opacity-0'
+          } ${imgClassName} ${isApi ? apiImgClassName : ''}`}
           style={{ objectPosition: `${position.x * 100}% ${position.y * 100}%` }}
           onLoad={() => setLoadedSrc(current.src)}
           onError={() => {
@@ -135,10 +139,15 @@ interface ArtSlotProps
   slotKey: string
   /** The game API image for this slot. Maps and agents only. */
   apiDefault?: string | null
+  /**
+   * Scrim strength while the slot shows default art, which has no saved overlay
+   * of its own. An override always uses the overlay saved with it.
+   */
+  defaultOverlay?: number
 }
 
 /** A swappable picture: the user's override, else the API image, else the bundled file, else a gradient. */
-export default function ArtSlot({ slotKey, apiDefault, ...layer }: ArtSlotProps) {
+export default function ArtSlot({ slotKey, apiDefault, defaultOverlay, ...layer }: ArtSlotProps) {
   const slot = useArtSlot(slotKey, apiDefault)
 
   return (
@@ -147,7 +156,7 @@ export default function ArtSlot({ slotKey, apiDefault, ...layer }: ArtSlotProps)
       slotKey={slotKey}
       candidates={slot.candidates}
       focal={slot.focal}
-      overlay={slot.overlay}
+      overlay={slot.override || defaultOverlay === undefined ? slot.overlay : defaultOverlay}
     />
   )
 }

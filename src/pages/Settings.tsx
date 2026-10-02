@@ -77,7 +77,7 @@ export default function Settings() {
   // once the profile has loaded.
   useEffect(() => {
     if (loading || !hash) return
-    document.getElementById(hash.slice(1))?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    document.getElementById(hash.slice(1))?.scrollIntoView({ block: 'start' })
   }, [loading, hash])
   const { registry, status: contentStatus } = useGameContent()
 

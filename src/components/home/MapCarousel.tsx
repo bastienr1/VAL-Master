@@ -82,14 +82,14 @@ export default function MapCarousel({ maps, grouped, records, recordLabel }: Map
         tabIndex={0}
         role="group"
         aria-label="Maps. Use the left and right arrow keys to browse."
-        className="vm-scroll-row relative flex items-center gap-5 overflow-x-auto snap-x snap-mandatory py-8 rounded-xl outline-none focus-visible:ring-1 focus-visible:ring-val-cyan/40"
+        className="vm-scroll-row relative flex items-center gap-5 overflow-x-auto overflow-y-hidden snap-x snap-mandatory py-8 rounded-xl outline-none focus-visible:ring-1 focus-visible:ring-val-cyan/40"
         style={{ paddingInline: `calc(50% - ${CARD_WIDTH} / 2)` }}
       >
         {maps.map((map, i) => (
           <div
             key={map.uuid ?? map.name}
             className={`snap-center shrink-0 transition-[transform,opacity] duration-300 ${
-              i === active ? 'scale-110 z-10' : 'opacity-70 hover:opacity-100'
+              i === active ? 'scale-110 z-10' : 'opacity-75 hover:opacity-100'
             }`}
             style={{ width: CARD_WIDTH }}
           >

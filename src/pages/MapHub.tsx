@@ -130,6 +130,7 @@ export default function MapHub() {
         slotKey={mapSlotKey(map.uuid ?? mapSlug(map.name))}
         apiDefault={map.splash}
         scrim="left"
+        defaultOverlay={0.85}
         className="rounded-xl border border-bg-elevated"
       >
         <div className="relative px-6 py-8 min-h-[11rem] flex flex-col justify-end">

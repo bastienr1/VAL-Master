@@ -74,7 +74,7 @@ export default function ScrollRow({ label, children, className = '', onOverflowC
         tabIndex={0}
         role="group"
         aria-label={label}
-        className={`vm-scroll-row flex gap-4 overflow-x-auto snap-x rounded-xl outline-none focus-visible:ring-1 focus-visible:ring-val-cyan/40 ${className}`}
+        className={`vm-scroll-row flex gap-4 overflow-x-auto overflow-y-hidden snap-x rounded-xl outline-none focus-visible:ring-1 focus-visible:ring-val-cyan/40 ${className}`}
       >
         {children}
       </div>

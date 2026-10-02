@@ -32,8 +32,10 @@ export default function MapPortalCard({ map, counts, record, recordLabel, classN
         slotKey={mapSlotKey(map.uuid ?? mapSlug(map.name))}
         apiDefault={map.listViewIconTall}
         scrim="bottom"
+        // The game's art is busy all the way down; the counts need a firm base.
+        defaultOverlay={0.9}
         className="aspect-[3/4]"
-        imgClassName="group-hover:scale-105 transition-transform duration-500"
+        imgClassName="group-hover:scale-105"
       >
         <div className="absolute inset-x-0 bottom-0 p-4">
           <div className="font-display italic font-bold uppercase text-2xl leading-none tracking-wide text-text-primary">

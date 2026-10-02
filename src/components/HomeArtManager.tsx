@@ -26,6 +26,7 @@ import {
   uploadArtSlot,
   type ArtSlotOptions,
 } from '../lib/artSlotStore'
+import { PORTRAIT_CLASS, PORTRAIT_FOCAL } from '../lib/agentPortrait'
 import { agentGradientCss } from '../lib/gameContent'
 import { extractYouTubeId } from '../lib/youtube'
 import { isSafeUrl, normalizeUrl } from '../lib/url'
@@ -73,9 +74,6 @@ const STATUS_BADGE: Record<SlotRowStatus, { label: string; className: string }> 
   covered: { label: 'Covered', className: 'bg-bg-elevated text-text-secondary' },
   expired: { label: 'Expired', className: 'bg-bg-elevated text-text-muted' },
 }
-
-const PORTRAIT_FOCAL = { x: 0.5, y: 0 }
-const PORTRAIT_CLASS = 'origin-top scale-[1.9]'
 
 const inputClass =
   'w-full bg-bg-elevated border border-bg-elevated rounded-lg px-3 py-2 text-text-primary text-sm placeholder:text-text-muted focus:outline-none focus:border-val-cyan/50 transition-colors'
@@ -363,7 +361,7 @@ function SlotEditor({ slot, draft, rows, allRows, busy, error, onChange, onSave,
                 scrim={spec.scrim}
                 gradientFallback={slot.gradientFallback}
                 priority
-                className="absolute inset-0"
+                className="w-full h-full"
               >
                 <div className={`absolute p-[4%] ${spec.scrim === 'left' ? 'inset-y-0 left-0 flex flex-col justify-center' : 'inset-x-0 bottom-0'}`}>
                   <div className={`${isHero || spec.scrim === 'left' ? 'font-display italic font-extrabold text-2xl sm:text-3xl' : 'font-heading font-bold text-lg'} uppercase leading-none`}>

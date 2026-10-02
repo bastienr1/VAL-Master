@@ -9,6 +9,7 @@ import {
   resolveAgentId,
   type GameContentRegistry,
 } from '../../lib/gameContent'
+import { PORTRAIT_CLASS, PORTRAIT_FOCAL } from '../../lib/agentPortrait'
 import type { HomeScope, StatGroup } from '../../lib/homeStats'
 
 interface AgentStripProps {
@@ -19,11 +20,6 @@ interface AgentStripProps {
   scope: HomeScope
   registry: GameContentRegistry | null
 }
-
-// The game's portrait is a full figure on a transparent square. Scaling it from
-// the top brings the head and shoulders into the card, over the agent's own
-// backdrop colours.
-const PORTRAIT_FOCAL = { x: 0.5, y: 0 }
 
 /** Explore Agents: one card per agent played, opening the Match Library filtered to them. */
 export default function AgentStrip({ agents, edgeAgent, scope, registry }: AgentStripProps) {
@@ -56,8 +52,9 @@ export default function AgentStrip({ agents, edgeAgent, scope, registry }: Agent
                 apiFocal={PORTRAIT_FOCAL}
                 gradientFallback={uuid ? agentGradientCss(registry?.agents.byId.get(uuid)) : null}
                 scrim="bottom"
+                defaultOverlay={0.9}
                 className="aspect-square"
-                apiImgClassName="origin-top scale-[1.9]"
+                apiImgClassName={PORTRAIT_CLASS}
               >
                 <div className="absolute inset-x-0 bottom-0 p-3">
                   <div className="font-heading font-bold text-base leading-tight">{agent.name}</div>
