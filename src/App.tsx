@@ -4,6 +4,7 @@ import CheckIn from './pages/CheckIn'
 import Debrief from './pages/Debrief'
 import TacticalReads from './pages/TacticalReads'
 import Dashboard from './pages/Dashboard'
+import Home from './pages/Home'
 import MatchLibrary from './pages/MatchLibrary'
 import VodReview from './pages/VodReview'
 import Login from './pages/Login'
@@ -12,13 +13,16 @@ import PlaybookIndex from './pages/PlaybookIndex'
 import PlaybookReader from './pages/PlaybookReader'
 import ProStudyLibrary from './pages/ProStudyLibrary'
 import ProStudyReview from './pages/ProStudyReview'
+import MapIndex from './pages/MapIndex'
+import MapHub from './pages/MapHub'
 import AppShell from './components/AppShell'
 import { useSession } from './lib/auth'
 import { migrateLegacyLocalLinks } from './lib/mapFundamentals'
 import { loadGameContent } from './lib/gameContent'
 
 // Warm the registry as early as possible so name→UUID resolution is ready by
-// the time Match Library renders legacy rows that have no map_id/agent_id.
+// the time Home or the Match Library renders legacy rows that have no
+// map_id/agent_id.
 loadGameContent().catch(err => {
   console.warn('[gameContent] initial load failed — images will fall back to placeholders', err)
 })
@@ -50,7 +54,10 @@ function App() {
     <BrowserRouter>
       <AppShell>
         <Routes>
-          <Route path="/" element={<MatchLibrary />} />
+          <Route path="/" element={<Home />} />
+          <Route path="/matches" element={<MatchLibrary />} />
+          <Route path="/maps" element={<MapIndex />} />
+          <Route path="/maps/:slug" element={<MapHub />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/review/:matchId" element={<VodReview />} />
           <Route path="/analytics" element={<Dashboard />} />

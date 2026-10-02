@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { MATCHES_SYNCED_EVENT } from '../lib/loadLatest'
 import { useLoadLatest } from '../hooks/useLoadLatest'
@@ -7,10 +7,12 @@ import { mapImageFor, agentImageFor } from '../lib/gameContent'
 import { useGameContent } from '../hooks/useGameContent'
 import GameImage from '../components/GameImage'
 import ReplayFolderLink from '../components/ReplayFolderLink'
+import { winRate as computeWinRate } from '../lib/homeStats'
 import type { Match } from '../lib/types'
 import { RefreshCw, Swords, Filter, ChevronDown, Crosshair, Target, Percent, Trophy, Calendar, TrendingUp, FileDown, Star, Radar, Settings as SettingsIcon } from 'lucide-react'
 import {
   VALORANT_ACTS,
+  getActByCode,
   getActForDate,
   getCurrentAct,
   isActComplete,
@@ -115,8 +117,7 @@ function ActRecapCard({
   const losses = matches.filter((m) => m.result === 'L').length
   const draws = matches.filter((m) => m.result === 'draw').length
   // Draws excluded from win-rate denominator
-  const decisive = wins + losses
-  const winRate = decisive > 0 ? Math.round((wins / decisive) * 100) : 0
+  const winRate = computeWinRate(wins, losses) ?? 0
   const avgAcs = Math.round(matches.reduce((s, m) => s + m.acs, 0) / matches.length)
   const avgKd = (matches.reduce((s, m) => s + m.kd, 0) / matches.length).toFixed(2)
   const avgHs = (matches.reduce((s, m) => s + m.headshot_pct, 0) / matches.length).toFixed(1)
@@ -255,19 +256,39 @@ function HighlightTile({
   )
 }
 
+/**
+ * A filter value from the URL, matched against what the library can actually
+ * show, in any letter case. Anything it doesn't know falls back to 'all', so a
+ * stale or mistyped link opens the full library rather than an empty one.
+ */
+function knownFilter(value: string, options: string[]): string {
+  if (value === 'all') return 'all'
+  const wanted = value.trim().toLowerCase()
+  return options.find((option) => option.toLowerCase() === wanted) ?? 'all'
+}
+
 export default function MatchLibrary() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const { registry } = useGameContent()
   const { sync: handleSync, syncing, player } = useLoadLatest()
   const [matches, setMatches] = useState<Match[]>([])
   const [loading, setLoading] = useState(true)
   const [resultFilter, setResultFilter] = useState<'all' | 'W' | 'L' | 'draw'>('all')
-  const [mapFilter, setMapFilter] = useState('all')
-  const [agentFilter, setAgentFilter] = useState('all')
+  // Seeded from ?map= / ?agent= / ?act= so Home can link to a filtered library.
+  // Map and agent are checked against the loaded matches further down.
+  const [mapChoice, setMapFilter] = useState(() => searchParams.get('map') ?? 'all')
+  const [agentChoice, setAgentFilter] = useState(() => searchParams.get('agent') ?? 'all')
   const [showMapDropdown, setShowMapDropdown] = useState(false)
   const [showAgentDropdown, setShowAgentDropdown] = useState(false)
-  const [actFilter, setActFilter] = useState<string>('all')
+  const [actFilter, setActFilter] = useState<string>(
+    () => getActByCode((searchParams.get('act') ?? '').toUpperCase())?.code ?? 'all',
+  )
   const [showActDropdown, setShowActDropdown] = useState(false)
+  // Opened from a filtered link. Home counts its cards over the whole history,
+  // so the library it opens has to load the whole history too, or the two
+  // would disagree for anyone with more than 50 matches.
+  const [openedFiltered] = useState(() => ['map', 'agent', 'act'].some((key) => searchParams.has(key)))
   // Matches with replay data, for the "Map" badge. Filled by ReplayFolderLink.
   const [replayIds, setReplayIds] = useState<Set<string>>(() => new Set())
   const handleReplayMatches = useCallback((ids: Set<string>) => setReplayIds(new Set(ids)), [])
@@ -276,12 +297,12 @@ export default function MatchLibrary() {
     try {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
-      const { data, error } = await supabase
+      const query = supabase
         .from('matches')
         .select('*')
         .eq('user_id', user.id)
         .order('match_date', { ascending: false })
-        .limit(50)
+      const { data, error } = await (openedFiltered ? query : query.limit(50))
       if (error) throw error
       setMatches(data || [])
     } catch (err) {
@@ -289,7 +310,7 @@ export default function MatchLibrary() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [openedFiltered])
 
   useEffect(() => {
     loadMatches()
@@ -300,6 +321,12 @@ export default function MatchLibrary() {
     window.addEventListener(MATCHES_SYNCED_EVENT, loadMatches)
     return () => window.removeEventListener(MATCHES_SYNCED_EVENT, loadMatches)
   }, [loadMatches])
+
+  const playedMaps = [...new Set(matches.map((m) => m.map))].sort()
+  const playedAgents = [...new Set(matches.map((m) => m.agent))].sort()
+
+  const mapFilter = knownFilter(mapChoice, playedMaps)
+  const agentFilter = knownFilter(agentChoice, playedAgents)
 
   const filtered = matches.filter((m) => {
     if (resultFilter !== 'all' && m.result !== resultFilter) return false
@@ -316,11 +343,7 @@ export default function MatchLibrary() {
   const filteredLosses = filtered.filter((m) => m.result === 'L').length
   const filteredDraws = filtered.filter((m) => m.result === 'draw').length
   // Draws excluded from win-rate denominator — they're neither a win nor a loss
-  const decisive = filteredWins + filteredLosses
-  const filteredWinRate = decisive > 0 ? Math.round((filteredWins / decisive) * 100) : 0
-
-  const playedMaps = [...new Set(matches.map((m) => m.map))].sort()
-  const playedAgents = [...new Set(matches.map((m) => m.agent))].sort()
+  const filteredWinRate = computeWinRate(filteredWins, filteredLosses) ?? 0
 
   // The registry supplies canonical names/order; until it loads, fall back to
   // the names on the matches themselves so the filters are never empty.

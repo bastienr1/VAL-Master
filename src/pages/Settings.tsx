@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import { ArrowLeft, Loader2 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { signOut } from '../lib/auth'
@@ -7,6 +7,7 @@ import { useProfile, resolveRiotAccount } from '../lib/profile'
 import { backfillContentIds } from '../lib/gameContent'
 import type { BackfillResult } from '../lib/gameContent'
 import { useGameContent } from '../hooks/useGameContent'
+import HomeArtManager from '../components/HomeArtManager'
 
 const REGIONS = [
   { value: 'ap', label: 'AP — Asia-Pacific' },
@@ -34,16 +35,19 @@ type Status =
   | { kind: 'err'; msg: string }
 
 function SectionCard({
+  id,
   title,
   description,
   children,
 }: {
+  /** Anchor for links that open Settings at this section, e.g. `/settings#weekly-goal`. */
+  id?: string
   title: string
   description?: string
   children: React.ReactNode
 }) {
   return (
-    <section className="bg-bg-card border border-bg-elevated rounded-xl p-5 space-y-4">
+    <section id={id} className="bg-bg-card border border-bg-elevated rounded-xl p-5 space-y-4 scroll-mt-4">
       <div>
         <h2 className="font-heading text-lg font-bold text-text-primary">{title}</h2>
         {description && <p className="text-xs text-text-secondary mt-1">{description}</p>}
@@ -67,6 +71,14 @@ const btnPrimary =
 
 export default function Settings() {
   const { profile, loading, save } = useProfile()
+  const { hash } = useLocation()
+
+  // The router doesn't scroll to a #section itself, and the sections only exist
+  // once the profile has loaded.
+  useEffect(() => {
+    if (loading || !hash) return
+    document.getElementById(hash.slice(1))?.scrollIntoView({ block: 'start' })
+  }, [loading, hash])
   const { registry, status: contentStatus } = useGameContent()
 
   // Game content backfill
@@ -200,7 +212,7 @@ export default function Settings() {
     <div className="max-w-2xl mx-auto space-y-6">
       <div>
         <Link
-          to="/"
+          to="/matches"
           className="inline-flex items-center gap-1.5 text-xs text-text-muted hover:text-text-secondary transition-colors"
         >
           <ArrowLeft className="w-3 h-3" />
@@ -304,8 +316,9 @@ export default function Settings() {
       </SectionCard>
 
       <SectionCard
+        id="weekly-goal"
         title="Weekly Goal"
-        description="Shown on Dashboard and Check-In."
+        description="Shown on Home, Dashboard and Check-In."
       >
         <label className="block space-y-1.5">
           <span className="text-xs text-text-secondary uppercase tracking-wider font-medium">
@@ -385,6 +398,14 @@ export default function Settings() {
               )}
           </div>
         )}
+      </SectionCard>
+
+      <SectionCard
+        id="home-art"
+        title="Home Art"
+        description="Every picture on Home sits in a slot. Give a slot your own image and it replaces the default; remove it and the default comes back."
+      >
+        <HomeArtManager />
       </SectionCard>
 
       <SectionCard title="Account">

@@ -655,7 +655,7 @@ export default function VodReview() {
     return (
       <div className="flex flex-col items-center justify-center py-20 text-center">
         <h2 className="text-xl font-heading font-bold mb-4">Match not found</h2>
-        <Link to="/" className="flex items-center gap-1 text-text-secondary hover:text-val-cyan transition-colors text-sm">
+        <Link to="/matches" className="flex items-center gap-1 text-text-secondary hover:text-val-cyan transition-colors text-sm">
           <ArrowLeft className="w-4 h-4" />
           Back to Matches
         </Link>
@@ -677,7 +677,7 @@ export default function VodReview() {
     <div className="space-y-4">
       {/* Breadcrumb */}
       <div className="flex items-center gap-2 px-1 mb-2">
-        <Link to="/" className="text-text-secondary hover:text-val-cyan transition-colors text-xs">
+        <Link to="/matches" className="text-text-secondary hover:text-val-cyan transition-colors text-xs">
           Matches
         </Link>
         <span className="text-text-muted text-xs">/</span>

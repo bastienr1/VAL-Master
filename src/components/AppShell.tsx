@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
-import { List, BarChart3, BookOpen, GraduationCap, Tag, LogOut, RefreshCw, Settings as SettingsIcon } from 'lucide-react'
+import { Home as HomeIcon, List, Map as MapIcon, BarChart3, BookOpen, GraduationCap, Tag, LogOut, RefreshCw, Settings as SettingsIcon } from 'lucide-react'
 import { signOut, useSession } from '../lib/auth'
 import { useLoadLatest } from '../hooks/useLoadLatest'
 import { MatchSearchPanelContext } from '../hooks/useMatchSearchPanel'
@@ -131,7 +131,7 @@ export default function AppShell({ children }: AppShellProps) {
     [],
   )
 
-  // Match Library is the homepage — no rail, but it shares the top bar
+  // Home is full-bleed — no rail, but it shares the top bar
   if (location.pathname === '/') {
     return (
       <MatchSearchPanelContext.Provider value={searchPanel}>
@@ -157,8 +157,14 @@ export default function AppShell({ children }: AppShellProps) {
             VM
           </div>
           <div className="flex flex-col gap-1 items-center">
-            <NavLink to="/" end className={railLinkClass} title="Matches">
+            <NavLink to="/" end className={railLinkClass} title="Home">
+              <HomeIcon className="w-4 h-4" />
+            </NavLink>
+            <NavLink to="/matches" className={railLinkClass} title="Matches">
               <List className="w-4 h-4" />
+            </NavLink>
+            <NavLink to="/maps" className={railLinkClass} title="Maps">
+              <MapIcon className="w-4 h-4" />
             </NavLink>
             <NavLink to="/analytics" className={railLinkClass} title="Insights">
               <BarChart3 className="w-4 h-4" />

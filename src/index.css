@@ -20,6 +20,8 @@
 
   /* Fonts */
   --font-heading: "Rajdhani", sans-serif;
+  /* Hero headline and Home section titles only. Loaded in italic 700/800. */
+  --font-display: "Barlow Condensed", "Rajdhani", sans-serif;
   --font-body: "Inter", sans-serif;
   --font-stats: "JetBrains Mono", monospace;
 }
@@ -39,6 +41,18 @@
     font-family: var(--font-heading);
     font-weight: 600;
   }
+}
+
+/**
+ * Horizontal card rows (Home carousels, Map Hub shelves) scroll by drag, wheel,
+ * arrow buttons and keys; the bar itself would only add a stripe under the art.
+ */
+.vm-scroll-row {
+  scrollbar-width: none;
+}
+
+.vm-scroll-row::-webkit-scrollbar {
+  display: none;
 }
 
 /**
