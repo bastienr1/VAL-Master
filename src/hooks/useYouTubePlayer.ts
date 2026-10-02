@@ -15,6 +15,12 @@ interface UseYouTubePlayerResult {
   seek: (offsetSeconds: number) => void
   seekTo: (seconds: number) => void
   pause: () => void
+  /**
+   * The playhead right now, read from the player itself. `currentTime` is only
+   * polled while playing, so it misses a scrub made while paused; use this when
+   * the exact second matters, e.g. to hand the moment to another page.
+   */
+  getCurrentTime: () => number
 }
 
 /**
@@ -145,8 +151,17 @@ export function useYouTubePlayer(videoId: string | null): UseYouTubePlayerResult
     playerRef.current?.pauseVideo()
   }, [])
 
+  const getCurrentTime = useCallback(() => {
+    if (playerRef.current && ready) {
+      try {
+        return playerRef.current.getCurrentTime()
+      } catch { /* a torn-down player: fall through to the last reading */ }
+    }
+    return currentTime
+  }, [ready, currentTime])
+
   return {
     containerRef, ready, isPlaying, currentTime, duration, embedBlocked,
-    togglePlay, seek, seekTo, pause,
+    togglePlay, seek, seekTo, pause, getCurrentTime,
   }
 }

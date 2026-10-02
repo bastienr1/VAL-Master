@@ -4,7 +4,7 @@
 
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { reviewHeading, shortCreator } from './guideDisplay.ts'
+import { proStudyLink, reviewHeading, shortCreator } from './guideDisplay.ts'
 
 test('a guide leads with its title', () => {
   assert.equal(
@@ -36,4 +36,18 @@ test('shortCreator drops unknown and empty creators', () => {
   assert.equal(shortCreator('unknown'), null)
   assert.equal(shortCreator(''), null)
   assert.equal(shortCreator(null), null)
+})
+
+test('proStudyLink carries the moment as whole seconds', () => {
+  assert.equal(proStudyLink('abc', 754.9), '/study/abc?t=754')
+  assert.equal(proStudyLink('abc', 90), '/study/abc?t=90')
+})
+
+test('proStudyLink is the plain page when nothing has played', () => {
+  assert.equal(proStudyLink('abc'), '/study/abc')
+  assert.equal(proStudyLink('abc', null), '/study/abc')
+  assert.equal(proStudyLink('abc', 0), '/study/abc')
+  assert.equal(proStudyLink('abc', 0.6), '/study/abc')
+  assert.equal(proStudyLink('abc', Number.NaN), '/study/abc')
+  assert.equal(proStudyLink('abc', -5), '/study/abc')
 })

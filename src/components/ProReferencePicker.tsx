@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ChevronDown, ChevronRight, ExternalLink, Film, X } from 'lucide-react'
+import { ChevronDown, ChevronRight, ExternalLink, Film, NotebookPen, X } from 'lucide-react'
 import {
   addProReference,
   listCandidateReferences,
@@ -12,6 +12,8 @@ import {
   type ReviewMarker,
 } from '../lib/proReferences'
 import { formatTimestamp } from '../lib/playbookParser'
+import { proStudyLink } from '../lib/guideDisplay'
+import { useYouTubePlayer } from '../hooks/useYouTubePlayer'
 import type { ReferenceReview } from '../lib/types'
 
 /**
@@ -52,11 +54,16 @@ function optionLabel(review: ReferenceReview): string {
  * One attached pro VOD: the row, and behind a toggle the video itself plus the
  * moments already marked on it.
  *
- * Same shape as the playbook half of the dock — collapsed by default, iframe
- * mounted only on expand, no IFrame API. The marker dropdown is what makes it
- * more than an embed: a pro VOD you have already reviewed carries your notes
- * and tags at specific seconds, so the useful entry point is "jump to the
- * retake I marked", not "play from zero".
+ * Same shape as the playbook half of the dock — collapsed by default, player
+ * mounted only on expand. The marker dropdown is what makes it more than an
+ * embed: a pro VOD you have already reviewed carries your notes and tags at
+ * specific seconds, so the useful entry point is "jump to the retake I marked",
+ * not "play from zero".
+ *
+ * The video runs on the IFrame API player rather than a bare embed, because the
+ * page has to know where the tape is: watching here is how you find the moment
+ * worth a note, and "Take notes in Pro Study" opens the review screen at that
+ * second so the note can be captured against it.
  */
 function AttachedProVod({ row, onRemove }: { row: ProReferenceRow; onRemove: () => void }) {
   const [open, setOpen] = useState(false)
@@ -65,6 +72,22 @@ function AttachedProVod({ row, onRemove }: { row: ProReferenceRow; onRemove: () 
   const [seconds, setSeconds] = useState<number | null>(null)
 
   const videoId = row.review.video_id
+
+  // Mounted only while expanded: four attached VODs should not load four players.
+  const { containerRef, ready, currentTime, embedBlocked, seekTo, pause, getCurrentTime } =
+    useYouTubePlayer(open ? videoId : null)
+
+  /**
+   * Points the link at the second on screen, read at the moment of the click:
+   * the polled `currentTime` misses a scrub made while paused. The href is set
+   * on the element so a middle-click or ctrl-click carries it too. The video
+   * here pauses, so it isn't left talking over the one about to open.
+   */
+  const openAtThisMoment = (e: React.MouseEvent<HTMLAnchorElement>) => {
+    if (!open) return
+    e.currentTarget.href = proStudyLink(row.reference_review_id, getCurrentTime())
+    pause()
+  }
 
   // Fetched on first expand, not with the row: four attached VODs should not
   // pull four sets of notes nobody has opened.
@@ -116,10 +139,12 @@ function AttachedProVod({ row, onRemove }: { row: ProReferenceRow; onRemove: () 
           <span className="font-stats text-[10px] text-text-muted shrink-0">{stamp(row.review)}</span>
         )}
         <a
-          href={`/study/${row.reference_review_id}`}
+          href={proStudyLink(row.reference_review_id, open ? currentTime : null)}
           target="_blank"
           rel="noopener noreferrer"
-          title="Open in Pro Study"
+          onClick={openAtThisMoment}
+          onAuxClick={openAtThisMoment}
+          title={open && currentTime >= 1 ? `Open in Pro Study at ${formatTimestamp(Math.floor(currentTime))}` : 'Open in Pro Study'}
           className="text-text-muted hover:text-val-cyan transition-colors shrink-0"
         >
           <ExternalLink className="w-3.5 h-3.5" />
@@ -141,8 +166,14 @@ function AttachedProVod({ row, onRemove }: { row: ProReferenceRow; onRemove: () 
           ) : markers.length > 0 ? (
             <select
               value={seconds ?? ''}
-              onChange={e => setSeconds(e.target.value === '' ? null : Number(e.target.value))}
-              className="w-full bg-bg-card border border-bg-elevated rounded-lg px-2.5 py-1 text-[12px] text-text-primary focus:outline-none focus:border-val-cyan/30"
+              onChange={e => {
+                const next = e.target.value === '' ? null : Number(e.target.value)
+                setSeconds(next)
+                seekTo(next ?? 0)
+              }}
+              // The player can't seek until it has loaded.
+              disabled={!ready}
+              className="w-full bg-bg-card border border-bg-elevated rounded-lg px-2.5 py-1 text-[12px] text-text-primary focus:outline-none focus:border-val-cyan/30 disabled:opacity-60"
             >
               <option value="">Start from the beginning</option>
               {/* One row per marked second — a moment tagged DEFENSE, A and
@@ -166,17 +197,29 @@ function AttachedProVod({ row, onRemove }: { row: ProReferenceRow; onRemove: () 
             className="relative w-full bg-black rounded-lg overflow-hidden"
             style={{ paddingBottom: '56.25%' }}
           >
-            {/* Keyed on the chosen second so picking a moment re-mounts the
-                iframe there — the embed only reads `start` on load. */}
-            <iframe
-              key={`${videoId}-${seconds ?? 'start'}`}
-              src={`https://www.youtube.com/embed/${videoId}?rel=0${seconds != null ? `&start=${seconds}` : ''}`}
-              title={`${row.review.player} — ${row.review.map ?? 'pro VOD'}`}
-              allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-              allowFullScreen
-              className="absolute inset-0 w-full h-full border-0"
-            />
+            <div ref={containerRef} className="absolute inset-0 w-full h-full" />
           </div>
+
+          {embedBlocked && (
+            <p className="text-[11px] text-val-yellow">
+              This one won't play here: the channel blocks embedding, or the video is gone.
+            </p>
+          )}
+
+          {/* Watching here finds the moment; the notes are taken over there. */}
+          <a
+            href={proStudyLink(row.reference_review_id, currentTime)}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={openAtThisMoment}
+            onAuxClick={openAtThisMoment}
+            title="Opens this pro VOD in Pro Study, in a new tab, at the second you are watching. Your match review stays where it is."
+            className="flex items-center justify-center gap-1.5 w-full px-3 py-1.5 bg-val-cyan/10 text-val-cyan border border-val-cyan/20 rounded-lg text-xs font-medium hover:bg-val-cyan/20 transition-colors"
+          >
+            <NotebookPen className="w-3.5 h-3.5" />
+            Take notes in Pro Study
+            <span className="font-stats text-val-cyan/80">at {formatTimestamp(Math.floor(currentTime))}</span>
+          </a>
         </div>
       )}
     </div>
