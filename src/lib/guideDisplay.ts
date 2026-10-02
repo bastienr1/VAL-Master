@@ -1,4 +1,4 @@
-import type { ReferenceReview } from './types'
+import type { PracticeDrill, ReferenceReview } from './types'
 
 /**
  * How a Pro Study review names itself, on the library card and the review
@@ -56,4 +56,30 @@ export function parseActionItems(markdown: string | null | undefined): ActionIte
     if (task) items.push({ done: task[1] !== ' ', text: task[2] })
   }
   return items
+}
+
+/**
+ * The drill a stretch of the video was turned into, if any.
+ *
+ * A drill's Source range is where the note-taker saw the habit, so a moment or
+ * chapter that contains the start of that range is the footage to watch before
+ * practising it. Matched on the start alone: a drill sourced from a whole
+ * chapter then lands on that chapter's first moment instead of on every moment
+ * inside it. `end` is exclusive; pass null for a single point in time, which
+ * only an identical start matches.
+ *
+ * A dropped drill left the note, so nothing links to it.
+ */
+export function drillForRange<T extends Pick<PracticeDrill, 'status' | 'source_start_seconds'>>(
+  drills: T[],
+  start: number,
+  end: number | null,
+): T | null {
+  return (
+    drills.find(drill => {
+      if (drill.status === 'dropped' || drill.source_start_seconds === null) return false
+      const at = drill.source_start_seconds
+      return end === null ? at === start : at >= start && at < end
+    }) ?? null
+  )
 }

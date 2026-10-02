@@ -5,7 +5,7 @@ import ReferenceCapturePanel from '../components/ReferenceCapturePanel'
 import ReferenceNotesPanel from '../components/ReferenceNotesPanel'
 import ChapterRail from '../components/ChapterRail'
 import GuideEssence from '../components/GuideEssence'
-import GuideStudyPanel from '../components/GuideStudyPanel'
+import GuideStudyPanel, { type StudyTab } from '../components/GuideStudyPanel'
 import MomentTagLane from '../components/MomentTagLane'
 import TagPicker from '../components/TagPicker'
 import { useSplitter, SplitterHandle } from '../components/ColumnSplitter'
@@ -97,6 +97,11 @@ export default function ProStudyReview() {
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
 
+  // Owned here because two columns share them: a moment in the chapter rail
+  // opens the Practice tab under the player and marks the drill drawn from it.
+  const [studyTab, setStudyTab] = useState<StudyTab | null>(null)
+  const [drillFocus, setDrillFocus] = useState<{ position: number; nonce: number } | null>(null)
+
   const [captureOpen, setCaptureOpen] = useState(false)
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null)
 
@@ -154,6 +159,16 @@ export default function ProStudyReview() {
       cancelled = true
     }
   }, [id])
+
+  /** A moment with no drill lets go of the last mark but leaves the tab alone. */
+  const handleDrillFocus = useCallback((position: number | null) => {
+    if (position === null) {
+      setDrillFocus(null)
+      return
+    }
+    setStudyTab('practice')
+    setDrillFocus(prev => ({ position, nonce: (prev?.nonce ?? 0) + 1 }))
+  }, [])
 
   const openCapture = useCallback(() => {
     if (!ready) return
@@ -426,6 +441,8 @@ export default function ProStudyReview() {
                 currentTime={currentTime}
                 readingMode={false}
                 onSeek={seekTo}
+                drills={drills}
+                onDrillFocus={handleDrillFocus}
               />
             </div>
             <SplitterHandle {...chapterDragHandlers} />
@@ -456,7 +473,14 @@ export default function ProStudyReview() {
           )}
 
           {isGuide && !hasVideo && (
-            <ChapterRail sections={sections} currentTime={0} readingMode onSeek={seekTo} />
+            <ChapterRail
+              sections={sections}
+              currentTime={0}
+              readingMode
+              onSeek={seekTo}
+              drills={drills}
+              onDrillFocus={handleDrillFocus}
+            />
           )}
 
           {/* Embed refused by the channel — link out, same pattern as the Valoplant row. */}
@@ -602,6 +626,9 @@ export default function ProStudyReview() {
               habitCues={review.habit_cues_md ?? null}
               actionItems={review.action_items_md ?? null}
               onSeek={hasVideo ? seekTo : undefined}
+              tab={studyTab}
+              onTabChange={setStudyTab}
+              drillFocus={drillFocus}
             />
           )}
 
