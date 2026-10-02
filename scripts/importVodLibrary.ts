@@ -9,6 +9,10 @@
  * "capture outside, re-run the import" pattern as the Notion seed — the markdown
  * is the source of truth and the app has no editor for guide content.
  *
+ * Each review row also carries the note's frame — Essence, Key Takeaways, habit
+ * cues and Action Items — as markdown, for the review page to show around the
+ * video.
+ *
  * Idempotent. Reviews upsert on `vault_path`, sections are replaced wholesale,
  * drills upsert on `(reference_review_id, position)` touching content columns
  * only so a drill the user set to `active` stays active, and `practice_logs` is
@@ -110,6 +114,10 @@ interface GuideRow {
   focus: string[] | null
   maps: string[] | null
   agents: string[] | null
+  essence_md: string | null
+  takeaways_md: string | null
+  habit_cues_md: string | null
+  action_items_md: string | null
   updated_at: string
 }
 
@@ -175,11 +183,38 @@ function buildRow(vaultPath: string, parsed: ParsedGuide, warnings: string[]): G
     focus: arrayOrNull(listValue(fm['focus'])),
     maps: arrayOrNull(maps),
     agents: arrayOrNull(agents),
+    // The note's frame. Written even when null, so a section deleted from the
+    // note disappears from the app on the next import.
+    ...parsed.study,
     updated_at: new Date().toISOString(),
   }
 }
 
 // ---------------------------------------------------------------------- writing
+
+const STUDY_NOTES_MIGRATION = 'supabase/migrations/20261002c_guide_study_notes.sql'
+
+/**
+ * Stops before the first write when the study-note columns are missing.
+ *
+ * Migrations here are applied by hand, so the script can run ahead of one.
+ * Without this check the very first upsert fails on an unknown column, with a
+ * PostgREST message that does not say which file to run.
+ */
+async function assertStudyNoteColumns(): Promise<void> {
+  const { error } = await supabase()
+    .from('reference_reviews')
+    .select('essence_md, takeaways_md, habit_cues_md, action_items_md')
+    .limit(1)
+
+  if (!error) return
+
+  console.error('')
+  console.error(`reference_reviews is missing the study-note columns (${error.message}).`)
+  console.error(`Run ${STUDY_NOTES_MIGRATION} in the Supabase SQL editor, then import again.`)
+  console.error('Nothing was written.')
+  process.exit(1)
+}
 
 async function writeSections(reviewId: string, sections: ParsedSection[]): Promise<void> {
   // Replaced wholesale: the note is the source of truth and nothing the user
@@ -350,6 +385,8 @@ async function main() {
     console.log('--dry: nothing written.')
     return
   }
+
+  await assertStudyNoteColumns()
 
   console.log('')
   let dropped = 0

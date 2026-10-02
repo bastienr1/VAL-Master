@@ -22,6 +22,7 @@ import {
   parseFrontmatter,
   parseGuideNote,
   parseSections,
+  parseStudyNotes,
   parseTargetSessions,
   splitPlayerAndTeam,
 } from './vodLibraryParser.ts'
@@ -264,4 +265,111 @@ test('parseGuideNote is clean on a well-formed note', () => {
   assert.deepEqual(parsed.warnings, [])
   assert.equal(parsed.sections.length, 2)
   assert.equal(parsed.drills.length, 2)
+})
+
+// ----------------------------------------------------------------- study notes
+
+const FRAMED_NOTE = `---
+title: Framed
+type: transcript
+---
+
+# Framed
+
+> [!abstract] Essence
+> Slow halves and late peeks. **Take a fight, then go somewhere else.**
+> Second line of the callout.
+
+## Key Takeaways
+- **Patience is the play style.** Rounds speed up only after a kill.
+- **Fight, then relocate.**
+
+---
+
+## Video Overview
+Not a takeaway.
+
+> [!tip] Why this note matters
+> Not the essence.
+
+## Core Breakdown
+
+### One chapter \`[00:10–00:40]\`
+- A bullet that is not a habit cue.
+
+## Practice Extraction
+| # | Drill / rep | Where | Cue to watch for | Success signal | Source |
+|---|---|---|---|---|---|
+| 1 | First-flick spray | Deathmatch — 3 sessions | Tapping | Kills inside six bullets | \`[00:10–00:40]\` |
+
+**Habit cues (one-liners to keep on screen):**
+- *"Fight or show, then go somewhere else."*
+- *"Flick, micro, hold."*
+
+---
+
+## Notable Quotes
+> "Not a cue."
+
+## Action Items
+- [ ] Run drill #1 for 3 deathmatch sessions
+- [x] Add this note to [[Valorant VOD Library MOC]]
+Some prose that is not a task.
+
+> [!question]- Open Loops
+> - Not an action item.
+`
+
+test('parseStudyNotes lifts the essence callout without its quote markers', () => {
+  const { body } = parseFrontmatter(FRAMED_NOTE)
+  assert.equal(
+    parseStudyNotes(body).essence_md,
+    'Slow halves and late peeks. **Take a fight, then go somewhere else.**\nSecond line of the callout.',
+  )
+})
+
+test('parseStudyNotes reads takeaways up to the next section, dropping the rule', () => {
+  const { body } = parseFrontmatter(FRAMED_NOTE)
+  assert.equal(
+    parseStudyNotes(body).takeaways_md,
+    '- **Patience is the play style.** Rounds speed up only after a kill.\n- **Fight, then relocate.**',
+  )
+})
+
+test('parseStudyNotes keeps only the habit-cue bullets of Practice Extraction', () => {
+  const { body } = parseFrontmatter(FRAMED_NOTE)
+  assert.equal(
+    parseStudyNotes(body).habit_cues_md,
+    '- *"Fight or show, then go somewhere else."*\n- *"Flick, micro, hold."*',
+  )
+})
+
+test('parseStudyNotes keeps task lines only, checked or not', () => {
+  const { body } = parseFrontmatter(FRAMED_NOTE)
+  assert.equal(
+    parseStudyNotes(body).action_items_md,
+    '- [ ] Run drill #1 for 3 deathmatch sessions\n- [x] Add this note to [[Valorant VOD Library MOC]]',
+  )
+})
+
+test('parseStudyNotes returns nulls for a note with no frame', () => {
+  const { body } = parseFrontmatter(MAP_GUIDE_NOTE)
+  assert.deepEqual(parseStudyNotes(body), {
+    essence_md: null,
+    takeaways_md: null,
+    habit_cues_md: null,
+    action_items_md: null,
+  })
+})
+
+test('parseGuideNote carries the study notes alongside chapters and drills', () => {
+  const parsed = parseGuideNote(FRAMED_NOTE)
+  assert.equal(parsed.sections.length, 1)
+  assert.equal(parsed.drills.length, 1)
+  assert.ok(parsed.study.essence_md?.startsWith('Slow halves'))
+  // The older fixture has takeaways and a bare "Habit cues:" label.
+  const legacy = parseGuideNote(MECHANICS_NOTE)
+  assert.equal(legacy.study.takeaways_md, '- Not a chapter.')
+  assert.equal(legacy.study.habit_cues_md, '- Not a drill row.')
+  assert.equal(legacy.study.essence_md, null)
 })

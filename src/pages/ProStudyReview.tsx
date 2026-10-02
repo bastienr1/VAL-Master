@@ -4,6 +4,8 @@ import { ArrowLeft, Clock, ExternalLink, Pause, Play, SkipBack, SkipForward, Vid
 import ReferenceCapturePanel from '../components/ReferenceCapturePanel'
 import ReferenceNotesPanel from '../components/ReferenceNotesPanel'
 import ChapterRail from '../components/ChapterRail'
+import GuideEssence from '../components/GuideEssence'
+import GuideStudyPanel from '../components/GuideStudyPanel'
 import MomentTagLane from '../components/MomentTagLane'
 import TagPicker from '../components/TagPicker'
 import { useSplitter, SplitterHandle } from '../components/ColumnSplitter'
@@ -18,6 +20,7 @@ import { addMomentTag, listMomentTags, listReviewTags, removeMomentTag } from '.
 import { REFERENCE_LABEL_COLORS, hexWithAlpha } from '../lib/tagColors'
 import { formatTime } from '../lib/youtube'
 import type {
+  DrillWithProgress,
   MomentTag,
   ReferenceNote,
   ReferenceReview,
@@ -89,6 +92,7 @@ export default function ProStudyReview() {
 
   const [review, setReview] = useState<ReferenceReview | null>(null)
   const [sections, setSections] = useState<ReferenceSection[]>([])
+  const [drills, setDrills] = useState<DrillWithProgress[]>([])
   const [notes, setNotes] = useState<ReferenceNote[]>([])
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
@@ -126,6 +130,7 @@ export default function ProStudyReview() {
         }
         setReview(found.review)
         setSections(found.sections)
+        setDrills(found.drills)
         const [loadedNotes, loadedTags, loadedMoments] = await Promise.all([
           getNotes(found.review.id),
           listReviewTags(),
@@ -405,6 +410,9 @@ export default function ProStudyReview() {
         </div>
       </div>
 
+      {/* What the video argues, read before pressing play. */}
+      {isGuide && review.essence_md && <GuideEssence essence={review.essence_md} />}
+
       <div className="flex gap-4">
         {/* === FAR LEFT: chapter rail, beside a video ===
             With no video there is nothing for the rail to sit beside, so the
@@ -582,6 +590,18 @@ export default function ProStudyReview() {
               onRemoveMomentTag={handleRemoveMomentTag}
               onTagDeleted={handleTagDeleted}
               editingMoments={editingMoments}
+            />
+          )}
+
+          {/* The note's frame, in the space under the player. Renders nothing for
+              a Notion pro VOD, or a guide imported before these were read. */}
+          {isGuide && (
+            <GuideStudyPanel
+              takeaways={review.takeaways_md ?? null}
+              drills={drills}
+              habitCues={review.habit_cues_md ?? null}
+              actionItems={review.action_items_md ?? null}
+              onSeek={hasVideo ? seekTo : undefined}
             />
           )}
 

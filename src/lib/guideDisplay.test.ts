@@ -4,7 +4,7 @@
 
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { proStudyLink, reviewHeading, shortCreator } from './guideDisplay.ts'
+import { parseActionItems, proStudyLink, reviewHeading, shortCreator } from './guideDisplay.ts'
 
 test('a guide leads with its title', () => {
   assert.equal(
@@ -50,4 +50,21 @@ test('proStudyLink is the plain page when nothing has played', () => {
   assert.equal(proStudyLink('abc', 0.6), '/study/abc')
   assert.equal(proStudyLink('abc', Number.NaN), '/study/abc')
   assert.equal(proStudyLink('abc', -5), '/study/abc')
+})
+
+test('action items keep their order and their ticks', () => {
+  assert.deepEqual(
+    parseActionItems('- [ ] Run drill #1 for 3 sessions\n- [x] Add the note to the MOC\n* [X] Starred bullet'),
+    [
+      { done: false, text: 'Run drill #1 for 3 sessions' },
+      { done: true, text: 'Add the note to the MOC' },
+      { done: true, text: 'Starred bullet' },
+    ],
+  )
+})
+
+test('action items ignore anything that is not a task line', () => {
+  assert.deepEqual(parseActionItems('Some prose\n- a plain bullet\n- [ ]   \n'), [])
+  assert.deepEqual(parseActionItems(null), [])
+  assert.deepEqual(parseActionItems(undefined), [])
 })

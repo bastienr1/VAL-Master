@@ -5,8 +5,9 @@
  * a chapter container (`## Core Breakdown` / `## Core Concepts`, plus `## …
  * Half` blocks on the older map guides) whose `###` headings each carry a
  * `` `[MM:SS–MM:SS]` `` range, and — on the newer notes — a `## Practice
- * Extraction` table. This module turns that text into rows; the import script
- * around it does the file walking and the Supabase writes.
+ * Extraction` table. Around those sits the note's frame: an Essence callout, Key
+ * Takeaways, habit cues and Action Items. This module turns that text into rows;
+ * the import script around it does the file walking and the Supabase writes.
  *
  * Kept DOM-free and dependency-free in `src/lib` for two reasons: `npm test`
  * only looks at `src/**`, and this frontmatter is simple enough that a
@@ -358,6 +359,107 @@ export function parseDrills(body: string): ParsedDrills {
   }
 }
 
+// ----------------------------------------------------------------- study notes
+
+/**
+ * The parts of a note that frame the chapters rather than being one: what the
+ * video argues, what to remember, what to do next.
+ *
+ * Kept as markdown, not split into rows. Nothing the user does in the app lives
+ * on them — unlike a drill, which carries status and logs — so they ride on the
+ * review row and are overwritten by every import.
+ */
+export interface ParsedStudyNotes {
+  /** Body of the `> [!abstract] Essence` callout, without the quote markers. */
+  essence_md: string | null
+  /** Body of `## Key Takeaways` — a bullet list in every note so far. */
+  takeaways_md: string | null
+  /** The bullets under `**Habit cues …:**` inside Practice Extraction. */
+  habit_cues_md: string | null
+  /** The `- [ ]` / `- [x]` lines of `## Action Items`, and nothing else. */
+  action_items_md: string | null
+}
+
+/** Lines between a `## <heading>` and the next `##`, or null when it is absent. */
+function h2Block(lines: string[], heading: RegExp): string[] | null {
+  const start = lines.findIndex(line => {
+    const h2 = line.match(/^##\s+(.*)$/)
+    return h2 !== null && heading.test(h2[1])
+  })
+  if (start === -1) return null
+
+  const end = lines.findIndex((line, i) => i > start && /^##\s+/.test(line))
+  return lines.slice(start + 1, end === -1 ? lines.length : end)
+}
+
+/** A `---` between sections is layout in the vault, not content. */
+const HORIZONTAL_RULE = /^\s*([-*_])(\s*\1){2,}\s*$/
+
+function blockText(block: string[] | null): string | null {
+  if (!block) return null
+  const text = block
+    .filter(line => !HORIZONTAL_RULE.test(line))
+    .join('\n')
+    .trim()
+  return text === '' ? null : text
+}
+
+const TASK_LINE = /^\s*[-*]\s+\[[ xX]\]\s+\S/
+const BULLET_LINE = /^\s*[-*]\s+\S/
+
+/**
+ * Essence, takeaways, habit cues and action items.
+ *
+ * Each is located by the marker the skill writes, anywhere in the note, and is
+ * null when the note has none — the older map guides predate some of them, and
+ * a missing frame must never cost a note its chapters.
+ */
+export function parseStudyNotes(body: string): ParsedStudyNotes {
+  const lines = body.split(/\r?\n/)
+
+  // The callout runs for as long as the lines stay quoted.
+  let essence: string | null = null
+  const abstract = lines.findIndex(line => /^>\s*\[!abstract\]/i.test(line))
+  if (abstract !== -1) {
+    const quoted: string[] = []
+    for (const line of lines.slice(abstract + 1)) {
+      if (!line.startsWith('>')) break
+      quoted.push(line.replace(/^>\s?/, ''))
+    }
+    essence = blockText(quoted)
+  }
+
+  // Bullets after the "Habit cues" label, up to the first line that is neither
+  // a bullet nor blank. The label's own wording has varied, so only its start
+  // is matched.
+  let habitCues: string | null = null
+  const practice = h2Block(lines, /^practice extraction\b/i)
+  if (practice) {
+    const label = practice.findIndex(line => /^\*\*habit cues\b/i.test(line.trim()))
+    if (label !== -1) {
+      const cues: string[] = []
+      for (const line of practice.slice(label + 1)) {
+        if (BULLET_LINE.test(line)) cues.push(line.trim())
+        else if (line.trim() !== '') break
+      }
+      habitCues = cues.length > 0 ? cues.join('\n') : null
+    }
+  }
+
+  // Only the task lines: the section ends in an "Open Loops" callout that is the
+  // note-taker's housekeeping, not something to act on.
+  const actions = (h2Block(lines, /^action items\b/i) ?? [])
+    .filter(line => TASK_LINE.test(line))
+    .map(line => line.trim())
+
+  return {
+    essence_md: essence,
+    takeaways_md: blockText(h2Block(lines, /^key takeaways\b/i)),
+    habit_cues_md: habitCues,
+    action_items_md: actions.length > 0 ? actions.join('\n') : null,
+  }
+}
+
 // ----------------------------------------------------------------- whole notes
 
 /** `Mada (NRG)` → player and team; the vault writes them in one field. */
@@ -405,6 +507,7 @@ export interface ParsedGuide {
   frontmatter: Frontmatter
   sections: ParsedSection[]
   drills: ParsedDrill[]
+  study: ParsedStudyNotes
   /** Everything worth printing in the import summary for this note. */
   warnings: string[]
   unranged: string[]
@@ -415,6 +518,7 @@ export function parseGuideNote(raw: string): ParsedGuide {
   const { frontmatter, body } = parseFrontmatter(raw)
   const { sections, unranged } = parseSections(body)
   const { drills, warnings } = parseDrills(body)
+  const study = parseStudyNotes(body)
 
   const all = [...warnings]
   if (sections.length === 0) {
@@ -426,5 +530,5 @@ export function parseGuideNote(raw: string): ParsedGuide {
     )
   }
 
-  return { frontmatter, sections, drills, warnings: all, unranged }
+  return { frontmatter, sections, drills, study, warnings: all, unranged }
 }

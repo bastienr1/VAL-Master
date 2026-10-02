@@ -287,6 +287,16 @@ export interface ReferenceReview {
   /** Every map the guide covers; `map` holds the first, for the card splash. */
   maps: string[] | null
   agents: string[] | null
+  /**
+   * The note's frame, as markdown: the Essence callout, Key Takeaways, the habit
+   * cues under Practice Extraction and the Action Items task lines. Overwritten
+   * by every import. Null when the note has no such section; absent on rows
+   * read before `20261002c_guide_study_notes.sql` was applied.
+   */
+  essence_md?: string | null
+  takeaways_md?: string | null
+  habit_cues_md?: string | null
+  action_items_md?: string | null
 }
 
 /**
