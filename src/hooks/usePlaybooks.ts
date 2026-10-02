@@ -1,15 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
-import { PLAYBOOKS_CHANGED_EVENT } from '../lib/playbooks'
+import { PLAYBOOKS_CHANGED_EVENT, listPlaybooks, type PlaybookFilters } from '../lib/playbooks'
 import type { Playbook, PlaybookChapter, PlaybookWithCount } from '../lib/types'
-
-interface PlaybookFilters {
-  map?: string
-  agent?: string
-  side?: Playbook['side']
-}
-
-type PlaybookRowWithCount = Playbook & { playbook_chapters: { count: number }[] | null }
 
 /**
  * The signed-in user's playbooks (RLS scopes the rows), newest first, with
@@ -33,23 +25,15 @@ export function usePlaybooks({ map, agent, side }: PlaybookFilters = {}) {
     let cancelled = false
 
     async function load() {
-      let query = supabase
-        .from('playbooks')
-        .select('*, playbook_chapters(count)')
-        .order('updated_at', { ascending: false })
-      if (map) query = query.eq('map', map)
-      if (agent) query = query.eq('agent', agent)
-      if (side) query = query.eq('side', side)
-
-      const { data, error } = await query
-      if (cancelled) return
-      if (error) {
-        console.error('[usePlaybooks] load failed', error)
-        setError(error.message)
-      } else {
-        const rows = (data ?? []) as PlaybookRowWithCount[]
-        setPlaybooks(rows.map(({ playbook_chapters, ...p }) => ({ ...p, chapter_count: playbook_chapters?.[0]?.count ?? 0 })))
+      try {
+        const rows = await listPlaybooks({ map, agent, side })
+        if (cancelled) return
+        setPlaybooks(rows)
         setError(null)
+      } catch (err) {
+        if (cancelled) return
+        console.error('[usePlaybooks] load failed', err)
+        setError(err instanceof Error ? err.message : String(err))
       }
       setLoading(false)
     }

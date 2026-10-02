@@ -31,6 +31,13 @@ interface ArtLayerProps {
   priority?: boolean
   className?: string
   imgClassName?: string
+  /**
+   * Framing for the API image only, which is composed for the game's own UI
+   * rather than for the slot. An override or bundled file is made to the slot's
+   * brief and uses `focal` and `imgClassName` alone.
+   */
+  apiFocal?: { x: number; y: number }
+  apiImgClassName?: string
   /** Reports what ended up on screen, once it is known. */
   onResolve?: (source: ArtSource) => void
   children?: React.ReactNode
@@ -56,6 +63,8 @@ export function ArtLayer({
   priority = false,
   className = '',
   imgClassName = '',
+  apiFocal,
+  apiImgClassName = '',
   onResolve,
   children,
 }: ArtLayerProps) {
@@ -66,6 +75,8 @@ export function ArtLayer({
 
   const current = candidates.find(c => !failed.includes(c.src)) ?? null
   const exhausted = candidates.length > 0 && !current
+  const isApi = current?.source === 'api'
+  const position = isApi && apiFocal ? apiFocal : focal
 
   const resolved: ArtSource | null = exhausted
     ? 'gradient'
@@ -88,8 +99,8 @@ export function ArtLayer({
           loading={priority ? 'eager' : 'lazy'}
           fetchPriority={priority ? 'high' : 'auto'}
           decoding="async"
-          className={`absolute inset-0 w-full h-full object-cover ${imgClassName}`}
-          style={{ objectPosition: `${focal.x * 100}% ${focal.y * 100}%` }}
+          className={`absolute inset-0 w-full h-full object-cover ${imgClassName} ${isApi ? apiImgClassName : ''}`}
+          style={{ objectPosition: `${position.x * 100}% ${position.y * 100}%` }}
           onLoad={() => setLoadedSrc(current.src)}
           onError={() => {
             const next = candidates.find(c => c.src !== current.src && !failed.includes(c.src))
@@ -109,19 +120,25 @@ export function ArtLayer({
 }
 
 interface ArtSlotProps
-  extends Pick<ArtLayerProps, 'scrim' | 'gradientFallback' | 'priority' | 'className' | 'imgClassName' | 'onResolve' | 'children'> {
+  extends Pick<
+    ArtLayerProps,
+    | 'scrim'
+    | 'gradientFallback'
+    | 'priority'
+    | 'className'
+    | 'imgClassName'
+    | 'apiFocal'
+    | 'apiImgClassName'
+    | 'onResolve'
+    | 'children'
+  > {
   slotKey: string
   /** The game API image for this slot. Maps and agents only. */
   apiDefault?: string | null
-  /**
-   * Framing for the API image, which is composed for the game's own UI rather
-   * than for the slot. An override uses its own saved focal point instead.
-   */
-  apiFocal?: { x: number; y: number }
 }
 
 /** A swappable picture: the user's override, else the API image, else the bundled file, else a gradient. */
-export default function ArtSlot({ slotKey, apiDefault, apiFocal, ...layer }: ArtSlotProps) {
+export default function ArtSlot({ slotKey, apiDefault, ...layer }: ArtSlotProps) {
   const slot = useArtSlot(slotKey, apiDefault)
 
   return (
@@ -129,7 +146,7 @@ export default function ArtSlot({ slotKey, apiDefault, apiFocal, ...layer }: Art
       {...layer}
       slotKey={slotKey}
       candidates={slot.candidates}
-      focal={!slot.override && apiDefault && apiFocal ? apiFocal : slot.focal}
+      focal={slot.focal}
       overlay={slot.overlay}
     />
   )
