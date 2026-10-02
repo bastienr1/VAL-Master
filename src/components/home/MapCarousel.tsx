@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import MapPortalCard from './MapPortalCard'
 import { contentForMap, type MapContent, type PortalMap } from '../../lib/mapContent'
@@ -14,7 +14,8 @@ interface MapCarouselProps {
 }
 
 // Card width. The row is padded by half the leftover on each side, so the first
-// card starts centred and the last can still reach the centre.
+// and last cards can still reach the centre. On load the row opens a few cards
+// in (see the layout effect below) so that padding is never visible by default.
 const CARD_WIDTH = '13rem'
 
 const arrowClass =
@@ -51,6 +52,22 @@ export default function MapCarousel({ maps, grouped, records, recordLabel }: Map
   }, [])
 
   useEffect(() => () => cancelAnimationFrame(frame.current), [])
+
+  // Open with the row filled edge to edge: centre the first card that has enough
+  // neighbours on its left to cover the leading padding. With too few maps to
+  // fill both sides, fall back to the middle card.
+  useLayoutEffect(() => {
+    const el = scroller.current
+    const first = el?.children[0] as HTMLElement | undefined
+    if (!el || !first) return
+    const second = el.children[1] as HTMLElement | undefined
+    const step = second ? second.offsetLeft - first.offsetLeft : first.offsetWidth
+    const side = (el.clientWidth - first.offsetWidth) / 2
+    const start = Math.max(0, Math.min(Math.ceil(side / step), Math.floor((maps.length - 1) / 2)))
+    const card = el.children[start] as HTMLElement
+    el.scrollLeft = card.offsetLeft - (el.clientWidth - card.offsetWidth) / 2
+    setActive(start)
+  }, [maps.length])
 
   const go = (index: number) => {
     const el = scroller.current
