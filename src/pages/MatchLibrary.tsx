@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { MATCHES_SYNCED_EVENT } from '../lib/loadLatest'
 import { useLoadLatest } from '../hooks/useLoadLatest'
@@ -12,6 +12,7 @@ import type { Match } from '../lib/types'
 import { RefreshCw, Swords, Filter, ChevronDown, Crosshair, Target, Percent, Trophy, Calendar, TrendingUp, FileDown, Star, Radar, Settings as SettingsIcon } from 'lucide-react'
 import {
   VALORANT_ACTS,
+  getActByCode,
   getActForDate,
   getCurrentAct,
   isActComplete,
@@ -255,18 +256,34 @@ function HighlightTile({
   )
 }
 
+/**
+ * A filter value from the URL, matched against what the library can actually
+ * show, in any letter case. Anything it doesn't know falls back to 'all', so a
+ * stale or mistyped link opens the full library rather than an empty one.
+ */
+function knownFilter(value: string, options: string[]): string {
+  if (value === 'all') return 'all'
+  const wanted = value.trim().toLowerCase()
+  return options.find((option) => option.toLowerCase() === wanted) ?? 'all'
+}
+
 export default function MatchLibrary() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const { registry } = useGameContent()
   const { sync: handleSync, syncing, player } = useLoadLatest()
   const [matches, setMatches] = useState<Match[]>([])
   const [loading, setLoading] = useState(true)
   const [resultFilter, setResultFilter] = useState<'all' | 'W' | 'L' | 'draw'>('all')
-  const [mapFilter, setMapFilter] = useState('all')
-  const [agentFilter, setAgentFilter] = useState('all')
+  // Seeded from ?map= / ?agent= / ?act= so Home can link to a filtered library.
+  // Map and agent are checked against the loaded matches further down.
+  const [mapChoice, setMapFilter] = useState(() => searchParams.get('map') ?? 'all')
+  const [agentChoice, setAgentFilter] = useState(() => searchParams.get('agent') ?? 'all')
   const [showMapDropdown, setShowMapDropdown] = useState(false)
   const [showAgentDropdown, setShowAgentDropdown] = useState(false)
-  const [actFilter, setActFilter] = useState<string>('all')
+  const [actFilter, setActFilter] = useState<string>(
+    () => getActByCode((searchParams.get('act') ?? '').toUpperCase())?.code ?? 'all',
+  )
   const [showActDropdown, setShowActDropdown] = useState(false)
   // Matches with replay data, for the "Map" badge. Filled by ReplayFolderLink.
   const [replayIds, setReplayIds] = useState<Set<string>>(() => new Set())
@@ -301,6 +318,12 @@ export default function MatchLibrary() {
     return () => window.removeEventListener(MATCHES_SYNCED_EVENT, loadMatches)
   }, [loadMatches])
 
+  const playedMaps = [...new Set(matches.map((m) => m.map))].sort()
+  const playedAgents = [...new Set(matches.map((m) => m.agent))].sort()
+
+  const mapFilter = knownFilter(mapChoice, playedMaps)
+  const agentFilter = knownFilter(agentChoice, playedAgents)
+
   const filtered = matches.filter((m) => {
     if (resultFilter !== 'all' && m.result !== resultFilter) return false
     if (mapFilter !== 'all' && m.map !== mapFilter) return false
@@ -317,9 +340,6 @@ export default function MatchLibrary() {
   const filteredDraws = filtered.filter((m) => m.result === 'draw').length
   // Draws excluded from win-rate denominator — they're neither a win nor a loss
   const filteredWinRate = computeWinRate(filteredWins, filteredLosses) ?? 0
-
-  const playedMaps = [...new Set(matches.map((m) => m.map))].sort()
-  const playedAgents = [...new Set(matches.map((m) => m.agent))].sort()
 
   // The registry supplies canonical names/order; until it loads, fall back to
   // the names on the matches themselves so the filters are never empty.
