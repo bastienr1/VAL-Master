@@ -37,6 +37,11 @@ export interface GameAgent {
   role: string | null
   displayIcon: string
   fullPortrait: string | null
+  /**
+   * The agent's own backdrop colours, top to bottom, as RRGGBBAA hex. Only
+   * valorant-api.com carries them; null from the Henrik fallback.
+   */
+  gradient: string[] | null
 }
 
 export interface GameContentRegistry {
@@ -115,6 +120,7 @@ function agentFromValorantApi(raw: any): GameAgent {
     role: raw?.role?.displayName ?? null,
     displayIcon: raw.displayIcon ?? agentIconUrl(raw.uuid),
     fullPortrait: raw.fullPortrait ?? null,
+    gradient: Array.isArray(raw.backgroundGradientColors) ? raw.backgroundGradientColors : null,
   }
 }
 
@@ -217,6 +223,7 @@ async function fromHenrik(): Promise<GameContentRegistry> {
         role: null,
         displayIcon: agentIconUrl(a.id),
         fullPortrait: null,
+        gradient: null,
       })),
   )
   return registry
@@ -352,6 +359,19 @@ export function agentImageFor(
   const id = p.agent_id ?? resolveAgentId(p.agent)
   if (!id) return null
   return variant === 'icon' ? agentIconUrl(id) : agentPortraitUrl(id)
+}
+
+const HEX_RGBA = /^[0-9a-f]{8}$/i
+
+/**
+ * The agent's backdrop as a CSS gradient, for behind their portrait. Null when
+ * the registry has no colours for them — the caller falls back to a neutral one.
+ */
+export function agentGradientCss(agent: Pick<GameAgent, 'gradient'> | null | undefined): string | null {
+  const stops = (agent?.gradient ?? []).filter(hex => HEX_RGBA.test(hex))
+  if (stops.length === 0) return null
+  if (stops.length === 1) return `#${stops[0]}`
+  return `linear-gradient(180deg, ${stops.map(hex => `#${hex}`).join(', ')})`
 }
 
 // ──────────────────────────────────────────────────────────────────────────
