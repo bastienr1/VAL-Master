@@ -13,6 +13,7 @@ import {
   artStoragePath,
   bundledArtUrl,
   clamp01,
+  focalFromClick,
   pickActiveSlots,
   slotRowStatus,
   validateArtFile,
@@ -136,4 +137,32 @@ test('clamp01 keeps focal points and overlay inside the table check', () => {
   assert.equal(clamp01(-0.2), 0)
   assert.equal(clamp01(1.4), 1)
   assert.equal(clamp01(0.3), 0.3)
+})
+
+const near = (actual: { x: number; y: number }, expected: { x: number; y: number }) => {
+  assert.ok(Math.abs(actual.x - expected.x) < 1e-9, `x ${actual.x} ≠ ${expected.x}`)
+  assert.ok(Math.abs(actual.y - expected.y) < 1e-9, `y ${actual.y} ≠ ${expected.y}`)
+}
+
+test('a click on an uncropped image is its own focal point', () => {
+  const frame = { width: 400, height: 200 }
+  near(focalFromClick({ x: 0.25, y: 0.75 }, frame, { width: 800, height: 400 }, { x: 0.5, y: 0.5 }), { x: 0.25, y: 0.75 })
+})
+
+test('a click on a cropped image accounts for the part outside the frame', () => {
+  // A 2:1 image in a 1:1 frame: half of its width is cropped away.
+  const frame = { width: 200, height: 200 }
+  const image = { width: 400, height: 200 }
+
+  // Centred: the frame shows the image from 25% to 75% across.
+  near(focalFromClick({ x: 0, y: 0.5 }, frame, image, { x: 0.5, y: 0.5 }), { x: 0.25, y: 0.5 })
+  near(focalFromClick({ x: 1, y: 0.5 }, frame, image, { x: 0.5, y: 0.5 }), { x: 0.75, y: 0.5 })
+  // Pinned left: the frame shows 0% to 50%.
+  near(focalFromClick({ x: 1, y: 0.5 }, frame, image, { x: 0, y: 0.5 }), { x: 0.5, y: 0.5 })
+  // The uncropped axis passes straight through.
+  near(focalFromClick({ x: 0.5, y: 0.2 }, frame, image, { x: 0.5, y: 0.5 }), { x: 0.5, y: 0.2 })
+})
+
+test('with the image size unknown, the click is used as is', () => {
+  near(focalFromClick({ x: 0.3, y: 1.2 }, { width: 200, height: 200 }, null, { x: 0.5, y: 0.5 }), { x: 0.3, y: 1 })
 })

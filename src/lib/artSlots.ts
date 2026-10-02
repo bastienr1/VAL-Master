@@ -261,3 +261,42 @@ export function artStoragePath(userId: string, slotKey: string, mimeType: string
 export function clamp01(value: number): number {
   return Math.min(1, Math.max(0, value))
 }
+
+// ──────────────────────────────────────────────────────────────────────────
+// Focal point
+// ──────────────────────────────────────────────────────────────────────────
+
+interface Size {
+  width: number
+  height: number
+}
+
+/**
+ * Turns a click on a cropped (`object-fit: cover`) preview into a focal point.
+ *
+ * The click is a spot in the frame; the focal point is a spot in the image. They
+ * differ whenever the image is cropped, by how far the current focal point has
+ * already shifted it. With the image's real size unknown the click is used as
+ * is, which is exact for an uncropped image and close for the rest.
+ *
+ * All points are 0–1 fractions: `click` and the result of the frame and image
+ * respectively, `current` the focal point the preview is drawn with.
+ */
+export function focalFromClick(
+  click: { x: number; y: number },
+  frame: Size,
+  image: Size | null,
+  current: { x: number; y: number },
+): { x: number; y: number } {
+  if (!image || image.width <= 0 || image.height <= 0 || frame.width <= 0 || frame.height <= 0) {
+    return { x: clamp01(click.x), y: clamp01(click.y) }
+  }
+  const scale = Math.max(frame.width / image.width, frame.height / image.height)
+  const shown = { width: image.width * scale, height: image.height * scale }
+  // How much of the scaled image hangs outside the frame on each axis.
+  const overflow = { x: shown.width - frame.width, y: shown.height - frame.height }
+  return {
+    x: clamp01((click.x * frame.width + overflow.x * current.x) / shown.width),
+    y: clamp01((click.y * frame.height + overflow.y * current.y) / shown.height),
+  }
+}
