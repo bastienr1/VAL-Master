@@ -285,6 +285,10 @@ export default function MatchLibrary() {
     () => getActByCode((searchParams.get('act') ?? '').toUpperCase())?.code ?? 'all',
   )
   const [showActDropdown, setShowActDropdown] = useState(false)
+  // Opened from a filtered link. Home counts its cards over the whole history,
+  // so the library it opens has to load the whole history too, or the two
+  // would disagree for anyone with more than 50 matches.
+  const [openedFiltered] = useState(() => ['map', 'agent', 'act'].some((key) => searchParams.has(key)))
   // Matches with replay data, for the "Map" badge. Filled by ReplayFolderLink.
   const [replayIds, setReplayIds] = useState<Set<string>>(() => new Set())
   const handleReplayMatches = useCallback((ids: Set<string>) => setReplayIds(new Set(ids)), [])
@@ -293,12 +297,12 @@ export default function MatchLibrary() {
     try {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
-      const { data, error } = await supabase
+      const query = supabase
         .from('matches')
         .select('*')
         .eq('user_id', user.id)
         .order('match_date', { ascending: false })
-        .limit(50)
+      const { data, error } = await (openedFiltered ? query : query.limit(50))
       if (error) throw error
       setMatches(data || [])
     } catch (err) {
@@ -306,7 +310,7 @@ export default function MatchLibrary() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [openedFiltered])
 
   useEffect(() => {
     loadMatches()
