@@ -35,3 +35,25 @@ export function proStudyLink(reviewId: string, seconds?: number | null): string 
   const t = seconds != null && Number.isFinite(seconds) ? Math.floor(seconds) : 0
   return t > 0 ? `/study/${reviewId}?t=${t}` : `/study/${reviewId}`
 }
+
+export interface ActionItem {
+  text: string
+  /** `- [x]` in the note. */
+  done: boolean
+}
+
+/**
+ * The task lines of a guide's Action Items, as the importer stored them.
+ *
+ * The importer keeps only `- [ ]` / `- [x]` lines, so anything else here would
+ * be a hand-edited row; it is skipped rather than shown as an open task.
+ */
+export function parseActionItems(markdown: string | null | undefined): ActionItem[] {
+  if (!markdown) return []
+  const items: ActionItem[] = []
+  for (const line of markdown.split(/\r?\n/)) {
+    const task = line.match(/^\s*[-*]\s+\[([ xX])\]\s+(.*\S)\s*$/)
+    if (task) items.push({ done: task[1] !== ' ', text: task[2] })
+  }
+  return items
+}
