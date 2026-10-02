@@ -51,6 +51,8 @@ function match(patch: Partial<HomeMatch>): HomeMatch {
     kills: 20,
     deaths: 12,
     assists: 5,
+    kda: 2.08,
+    headshot_pct: 25,
     ...patch,
   }
 }

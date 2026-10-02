@@ -3,13 +3,15 @@ import { ArrowLeft, Map as MapIcon } from 'lucide-react'
 import ArtSlot from '../components/ArtSlot'
 import ContentShelf from '../components/ContentShelf'
 import GameImage from '../components/GameImage'
+import MapAgentPanel from '../components/MapAgentPanel'
 import PlaybookCard from '../components/PlaybookCard'
 import ReviewCard from '../components/ReviewCard'
 import { usePortalMaps } from '../hooks/useMapContent'
 import { mapSlotKey } from '../lib/artSlots'
 import { agentImageFor, mapImageFor } from '../lib/gameContent'
-import { formatScore, groupByAgent, summarize } from '../lib/homeStats'
+import { formatScore, summarize } from '../lib/homeStats'
 import { contentForMap, filterContentByAgent, mapSlug, type MapVod } from '../lib/mapContent'
+import { agentStatsForMap, pickBestAgent } from '../lib/mapStats'
 
 // Class names spelled out in full so Tailwind sees them.
 const RESULT = {
@@ -83,7 +85,8 @@ export default function MapHub() {
   // One map's worth of rows, so it is recounted each render rather than memoised.
   const played = (content?.myVods ?? []).map(v => v.match)
   const record = summarize(played)
-  const agents = groupByAgent(played).map(g => g.name)
+  const agentStats = agentStatsForMap(played)
+  const agents = agentStats.map(a => a.name)
 
   if (loading) {
     return (
@@ -163,6 +166,15 @@ export default function MapHub() {
         </div>
       )}
 
+      <MapAgentPanel
+        mapName={map.name}
+        agents={agentStats}
+        best={pickBestAgent(agentStats)}
+        selected={agent}
+        onSelectAgent={selectAgent}
+        playbooksLink={content.playbooks.length > 0 ? `/playbook?map=${encodeURIComponent(map.name)}` : null}
+      />
+
       {agents.length > 0 && (
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-[10px] uppercase tracking-wider text-text-muted w-12 shrink-0">Agent</span>
@@ -177,6 +189,12 @@ export default function MapHub() {
           ))}
         </div>
       )}
+
+      <ContentShelf title="My VODs" emptyLine={`Play ${map.name}, hit Load Latest, then add a VOD link to the match.`}>
+        {shown.myVods.map(vod => (
+          <VodCard key={vod.match.match_id} vod={vod} />
+        ))}
+      </ContentShelf>
 
       <ContentShelf title="Strategy" emptyLine="Import a playbook from the vault: Playbook → Import from vault.">
         {shown.playbooks.map(playbook => (
@@ -200,12 +218,6 @@ export default function MapHub() {
       >
         {shown.proVods.map(review => (
           <ReviewCard key={review.id} review={review} counts={guideCounts.get(review.id)} />
-        ))}
-      </ContentShelf>
-
-      <ContentShelf title="Your VODs" emptyLine={`Play ${map.name}, hit Load Latest, then add a VOD link to the match.`}>
-        {shown.myVods.map(vod => (
-          <VodCard key={vod.match.match_id} vod={vod} />
         ))}
       </ContentShelf>
     </div>

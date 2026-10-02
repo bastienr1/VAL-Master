@@ -23,7 +23,7 @@ import type { PlaybookWithCount, ReferenceReview } from './types'
 const REFRESH_AFTER_MS = 15_000
 
 const HOME_MATCH_COLUMNS =
-  'id, match_id, match_date, map, map_id, agent, agent_id, result, score, acs, kills, deaths, assists'
+  'id, match_id, match_date, map, map_id, agent, agent_id, result, score, acs, kills, deaths, assists, kda, headshot_pct'
 
 // PostgREST caps a response at 1000 rows whether or not the query sets a limit.
 const PAGE_SIZE = 1000

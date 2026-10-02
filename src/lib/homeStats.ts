@@ -25,6 +25,8 @@ export type HomeMatch = Pick<
   | 'kills'
   | 'deaths'
   | 'assists'
+  | 'kda'
+  | 'headshot_pct'
 >
 
 /**
