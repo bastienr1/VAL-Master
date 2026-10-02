@@ -23,3 +23,15 @@ export function shortCreator(creator: string | null): string | null {
   const name = creator.split(' (')[0].trim()
   return name && !/^unknown$/i.test(name) ? name : null
 }
+
+/**
+ * The Pro Study page for a review, optionally opened at a moment of its video.
+ *
+ * `?t=` is whole seconds, the shape the review page seeks to once its player is
+ * ready. Left off for the very start of the tape, so a link made before anything
+ * has played is the plain page.
+ */
+export function proStudyLink(reviewId: string, seconds?: number | null): string {
+  const t = seconds != null && Number.isFinite(seconds) ? Math.floor(seconds) : 0
+  return t > 0 ? `/study/${reviewId}?t=${t}` : `/study/${reviewId}`
+}
