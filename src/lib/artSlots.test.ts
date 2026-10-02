@@ -14,6 +14,8 @@ import {
   bundledArtUrl,
   clamp01,
   focalFromClick,
+  mapHeaderSlotSpec,
+  mapSlotSpec,
   pickActiveSlots,
   slotRowStatus,
   validateArtFile,
@@ -119,6 +121,14 @@ test('every static slot has a distinct key and a bundled path', () => {
   assert.equal(new Set(keys).size, keys.length)
   assert.deepEqual(keys, ['hero.background', 'tile.playbook', 'tile.stats', 'tile.provod', 'tile.goals', 'cta.banner'])
   assert.equal(bundledArtUrl('hero.background'), '/art/hero.background.webp')
+})
+
+test('a map has a card slot and a separate, wide page-header slot', () => {
+  const header = mapHeaderSlotSpec('abc', 'Haven')
+  assert.equal(header.key, 'mapheader.abc')
+  assert.notEqual(header.key, mapSlotSpec('abc', 'Haven').key)
+  assert.equal(header.width / header.height, 4)
+  assert.equal(header.scrim, 'left')
 })
 
 test('validateArtFile enforces type and the 5 MB limit', () => {

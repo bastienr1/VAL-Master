@@ -6,8 +6,9 @@ import GameImage from '../components/GameImage'
 import MapAgentPanel from '../components/MapAgentPanel'
 import PlaybookCard from '../components/PlaybookCard'
 import ReviewCard from '../components/ReviewCard'
+import { useArtSlotRows } from '../hooks/useArtSlot'
 import { usePortalMaps } from '../hooks/useMapContent'
-import { mapSlotKey } from '../lib/artSlots'
+import { mapHeaderSlotKey, mapSlotKey } from '../lib/artSlots'
 import { agentImageFor, mapImageFor } from '../lib/gameContent'
 import { formatScore, summarize } from '../lib/homeStats'
 import { contentForMap, filterContentByAgent, mapSlug, type MapVod } from '../lib/mapContent'
@@ -77,6 +78,7 @@ export default function MapHub() {
   const { slug = '' } = useParams()
   const [searchParams, setSearchParams] = useSearchParams()
   const { maps, grouped, guideCounts, loading, error } = usePortalMaps()
+  const { active: artOverrides } = useArtSlotRows()
 
   const map = maps.find(m => mapSlug(m.name) === mapSlug(slug)) ?? null
   const content = map ? contentForMap(grouped, map.name) : null
@@ -127,16 +129,21 @@ export default function MapHub() {
         : 'bg-transparent text-text-muted border-bg-elevated hover:border-text-muted'
     }`
 
+  // The header has a wide picture of its own once one is uploaded. Until then
+  // it borrows the map card's, which is made for a tall frame.
+  const artId = map.uuid ?? mapSlug(map.name)
+  const headerKey = mapHeaderSlotKey(artId)
+
   return (
     <div className="max-w-6xl mx-auto space-y-8">
       <ArtSlot
-        slotKey={mapSlotKey(map.uuid ?? mapSlug(map.name))}
+        slotKey={artOverrides.has(headerKey) ? headerKey : mapSlotKey(artId)}
         apiDefault={map.splash}
         scrim="left"
         defaultOverlay={0.85}
         className="rounded-xl border border-bg-elevated"
       >
-        <div className="relative px-6 py-8 min-h-[11rem] flex flex-col justify-end">
+        <div className="relative px-6 py-8 min-h-[15rem] flex flex-col justify-end">
           <Link
             to="/maps"
             className="inline-flex items-center gap-1.5 self-start text-xs text-text-secondary hover:text-val-cyan transition-colors"

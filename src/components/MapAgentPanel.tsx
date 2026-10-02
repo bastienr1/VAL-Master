@@ -69,60 +69,59 @@ export default function MapAgentPanel({ mapName, agents, best, selected, onSelec
   return (
     <section className="bg-bg-card border border-bg-elevated rounded-xl overflow-hidden">
       <div className={`grid ${others.length > 0 ? 'lg:grid-cols-2' : ''}`}>
-        <div className="p-5 space-y-4">
-          <h2
-            className="font-display italic font-bold uppercase text-2xl leading-none tracking-wide"
-            title={
-              best
-                ? `Best win rate among agents with ${BEST_AGENT_MIN_MATCHES}+ matches on ${mapName}`
-                : `No agent has ${BEST_AGENT_MIN_MATCHES} matches on ${mapName} yet`
-            }
-          >
-            {best ? 'Best agent' : 'Most played'} on {mapName}
-          </h2>
+        <div className="flex">
+          {/* Flush to the card's edge and as tall as the card, fading into it on the right. */}
+          <div className="relative w-36 sm:w-56 shrink-0">
+            <AgentArt agent={featured} className="absolute inset-0" />
+            <div className="absolute inset-y-0 right-0 w-16 bg-gradient-to-l from-bg-card to-transparent pointer-events-none" />
+          </div>
 
-          <div className="flex gap-5">
-            <AgentArt
-              agent={featured}
-              className="w-32 sm:w-40 aspect-square shrink-0 rounded-lg overflow-hidden border border-bg-elevated"
-            />
+          <div className="min-w-0 flex-1 p-5 flex flex-col justify-between gap-4">
+            <h2
+              className="font-display italic font-bold uppercase text-2xl leading-none tracking-wide"
+              title={
+                best
+                  ? `Best win rate among agents with ${BEST_AGENT_MIN_MATCHES}+ matches on ${mapName}`
+                  : `No agent has ${BEST_AGENT_MIN_MATCHES} matches on ${mapName} yet`
+              }
+            >
+              {best ? 'Best agent' : 'Most played'} on {mapName}
+            </h2>
 
-            <div className="min-w-0 flex-1 flex flex-col justify-between gap-3">
-              <div>
-                <div className="font-display italic font-extrabold uppercase text-4xl leading-none tracking-wide truncate">
-                  {featured.name}
-                </div>
-                <div className="mt-1.5 font-stats text-xs text-text-secondary">
-                  <span className="text-val-cyan">{featured.wins}W</span>{' '}
-                  <span className="text-val-red">{featured.losses}L</span>
-                  {featured.draws > 0 && <> {featured.draws}D</>} · {matchCount(featured.total)}
-                </div>
+            <div>
+              <div className="font-display italic font-extrabold uppercase text-4xl leading-none tracking-wide truncate">
+                {featured.name}
               </div>
-
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                <Stat label="Win rate" value={winRateText(featured.winRate)} accent />
-                <Stat label="Avg KDA" value={featured.avgKda.toFixed(2)} />
-                <Stat label="Avg ACS" value={String(featured.avgAcs)} />
-                <Stat label="Avg HS%" value={`${featured.avgHsPct.toFixed(1)}%`} />
+              <div className="mt-1.5 font-stats text-xs text-text-secondary">
+                <span className="text-val-cyan">{featured.wins}W</span>{' '}
+                <span className="text-val-red">{featured.losses}L</span>
+                {featured.draws > 0 && <> {featured.draws}D</>} · {matchCount(featured.total)}
               </div>
-
-              {playbooksLink && (
-                <Link
-                  to={playbooksLink}
-                  className="self-start inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-val-cyan/40 text-sm text-val-cyan hover:bg-val-cyan/10 transition-colors"
-                >
-                  View {mapName} playbooks
-                  <ArrowRight className="w-4 h-4" />
-                </Link>
-              )}
             </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <Stat label="Win rate" value={winRateText(featured.winRate)} accent />
+              <Stat label="Avg KDA" value={featured.avgKda.toFixed(2)} />
+              <Stat label="Avg ACS" value={String(featured.avgAcs)} />
+              <Stat label="Avg HS%" value={`${featured.avgHsPct.toFixed(1)}%`} />
+            </div>
+
+            {playbooksLink && (
+              <Link
+                to={playbooksLink}
+                className="self-start inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-val-cyan/40 text-sm text-val-cyan hover:bg-val-cyan/10 transition-colors"
+              >
+                View {mapName} playbooks
+                <ArrowRight className="w-4 h-4" />
+              </Link>
+            )}
           </div>
         </div>
 
         {others.length > 0 && (
           <div className="p-5 space-y-3 border-t lg:border-t-0 lg:border-l border-bg-elevated">
             <h3 className="text-[10px] uppercase tracking-wider text-text-muted">Other agents · most played first</h3>
-            <div className="grid grid-cols-3 sm:grid-cols-5 lg:grid-cols-4 xl:grid-cols-5 gap-2">
+            <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
               {others.map(agent => {
                 const active = selected === agent.name
                 return (

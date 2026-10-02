@@ -129,6 +129,8 @@ export const STATIC_SLOTS: SlotSpec[] = [
 
 export const mapSlotKey = (uuid: string) => `map.${uuid}`
 export const agentSlotKey = (uuid: string) => `agent.${uuid}`
+/** The wide picture across the top of a map's own page. Without one the page falls back to the map slot. */
+export const mapHeaderSlotKey = (uuid: string) => `mapheader.${uuid}`
 
 export function mapSlotSpec(uuid: string, name: string): SlotSpec {
   return {
@@ -139,6 +141,18 @@ export function mapSlotSpec(uuid: string, name: string): SlotSpec {
     composition: 'Landmark in the upper half. Lower 40% gets the stats overlay',
     scrim: 'bottom',
     sample: { title: name, sub: '2 guides · 3 pro VODs · 5 your VODs' },
+  }
+}
+
+export function mapHeaderSlotSpec(uuid: string, name: string): SlotSpec {
+  return {
+    key: mapHeaderSlotKey(uuid),
+    label: `${name} page header`,
+    width: 2400,
+    height: 600,
+    composition: 'Landmark centre-right. Left 40% calm for the map name',
+    scrim: 'left',
+    sample: { title: name, sub: '6W 5L · 55% WR · 11 matches' },
   }
 }
 
