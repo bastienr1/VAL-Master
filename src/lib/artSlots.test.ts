@@ -124,7 +124,8 @@ test('every static slot has a distinct key and a bundled path', () => {
 test('validateArtFile enforces type and the 5 MB limit', () => {
   assert.equal(validateArtFile({ size: 300_000, type: 'image/webp' }), null)
   assert.equal(validateArtFile({ size: 5 * 1024 * 1024, type: 'image/png' }), null)
-  assert.match(validateArtFile({ size: 5 * 1024 * 1024 + 1, type: 'image/png' })!, /limit is 5 MB/)
+  assert.equal(validateArtFile({ size: 5 * 1024 * 1024 + 1, type: 'image/png' }), 'That image is 5.1 MB. The limit is 5 MB.')
+  assert.match(validateArtFile({ size: 12 * 1024 * 1024, type: 'image/png' })!, /12.0 MB/)
   assert.match(validateArtFile({ size: 10, type: 'image/gif' })!, /WebP, PNG or JPEG/)
 })
 

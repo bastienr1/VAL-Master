@@ -248,7 +248,8 @@ export const ART_ACCEPT = Object.keys(ART_EXTENSIONS).join(',')
 export function validateArtFile(file: { size: number; type: string }): string | null {
   if (!(file.type in ART_EXTENSIONS)) return 'Use a WebP, PNG or JPEG image.'
   if (file.size > MAX_ART_BYTES) {
-    return `That image is ${(file.size / 1024 / 1024).toFixed(1)} MB. The limit is 5 MB.`
+    // Rounded up, so a file just over the line never reads as "5.0 MB".
+    return `That image is ${(Math.ceil((file.size / 1024 / 1024) * 10) / 10).toFixed(1)} MB. The limit is 5 MB.`
   }
   return null
 }

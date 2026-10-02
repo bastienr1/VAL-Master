@@ -322,6 +322,9 @@ function SlotEditor({ slot, draft, rows, allRows, busy, error, onChange, onSave,
     [previewSrc],
   )
 
+  // Which saved image is being asked about before it is removed.
+  const [confirmingId, setConfirmingId] = useState<string | null>(null)
+
   const hrefTrimmed = draft?.href.trim() ?? ''
   const hrefValid = isSafeUrl(hrefTrimmed)
   const hrefNormalized = hrefTrimmed ? normalizeUrl(hrefTrimmed) : null
@@ -478,18 +481,39 @@ function SlotEditor({ slot, draft, rows, allRows, busy, error, onChange, onSave,
                   from {formatWhen(row.active_from)}
                   {row.active_until && ` until ${formatWhen(row.active_until)}`}
                 </span>
-                <button type="button" onClick={() => onEditRow(row)} disabled={busy} className={smallButton}>
-                  Edit
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onRemoveRow(row)}
-                  disabled={busy}
-                  className={`${smallButton} hover:text-val-red hover:border-val-red/40`}
-                  aria-label="Remove this saved image"
-                >
-                  <Trash2 className="w-3 h-3" />
-                </button>
+                {confirmingId === row.id ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setConfirmingId(null)
+                        onRemoveRow(row)
+                      }}
+                      disabled={busy}
+                      className="px-2 py-1.5 rounded-md text-xs text-val-red border border-val-red/25 bg-val-red/10 hover:bg-val-red/20"
+                    >
+                      Remove
+                    </button>
+                    <button type="button" onClick={() => setConfirmingId(null)} className="px-2 py-1.5 rounded-md text-xs text-text-muted hover:text-text-secondary">
+                      Keep
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button type="button" onClick={() => onEditRow(row)} disabled={busy} className={smallButton}>
+                      Edit
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmingId(row.id)}
+                      disabled={busy}
+                      className={`${smallButton} hover:text-val-red hover:border-val-red/40`}
+                      aria-label="Remove this saved image"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  </>
+                )}
               </div>
             )
           })}
