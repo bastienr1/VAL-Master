@@ -1,3 +1,5 @@
+import type { SkillGroup } from './skillTaxonomy'
+
 export interface MatchCheckin {
   id: string
   created_at: string
@@ -297,6 +299,34 @@ export interface ReferenceReview {
   takeaways_md?: string | null
   habit_cues_md?: string | null
   action_items_md?: string | null
+  /**
+   * The vault's shelf fields: `series` is "<creator> · <playlist>" on a series
+   * note, `skill` the one skill the video trains (null on map guides, which
+   * group by map), `skill_group` derived from it at import, `published` the
+   * video's upload date. Absent on rows read before
+   * `20261003_guide_series_skill.sql` was applied.
+   */
+  series?: string | null
+  skill?: string | null
+  skill_group?: SkillGroup | null
+  playlist_index?: number | null
+  difficulty?: GuideDifficulty | null
+  published?: string | null
+}
+
+export type GuideDifficulty = 'beginner' | 'intermediate' | 'advanced'
+export const GUIDE_DIFFICULTIES: GuideDifficulty[] = ['beginner', 'intermediate', 'advanced']
+
+/**
+ * Chapter and drill counts per guide, for the library cards and shelf headers.
+ * Here rather than beside the query that fills it so the pure shelf module and
+ * its tests can name the shape without pulling in the Supabase client.
+ */
+export interface GuideCounts {
+  chapters: number
+  drills: number
+  /** Drills the user has activated — the library badges a guide that has any. */
+  activeDrills: number
 }
 
 /**

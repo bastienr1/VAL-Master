@@ -2,16 +2,24 @@ import { useEffect, useMemo, useState } from 'react'
 import { GraduationCap } from 'lucide-react'
 import { getGuideCounts, listReviews, type GuideCounts } from '../lib/referenceReviews'
 import { agentImageFor } from '../lib/gameContent'
+import {
+  GROUP_BY_LABELS,
+  GROUP_BY_OPTIONS,
+  buildShelves,
+  type GroupBy,
+} from '../lib/libraryShelves'
+import { skillLabel, skillOrder } from '../lib/skillTaxonomy'
 import { useGameContent } from '../hooks/useGameContent'
 import GameImage from '../components/GameImage'
+import LibraryShelf from '../components/LibraryShelf'
 import ReviewCard from '../components/ReviewCard'
-import type { GuideContentType, ReferenceReview } from '../lib/types'
+import { GUIDE_DIFFICULTIES, type GuideContentType, type ReferenceReview } from '../lib/types'
 
 /**
  * The two capture surfaces, as the chip row spells them.
  *
  * There is no "All" chip: `FilterRow` clears on a click of the active chip, so
- * no selection already means everything — one convention across all five rows.
+ * no selection already means everything — one convention across all the rows.
  */
 const SOURCE_LABELS = { 'Pro VODs': 'notion', Guides: 'vault' } as const
 type SourceLabel = keyof typeof SOURCE_LABELS
@@ -24,6 +32,43 @@ const CONTENT_TYPES: GuideContentType[] = [
   'mindset',
 ]
 
+// --------------------------------------------------------------- remembered UI
+
+const GROUP_BY_KEY = 'prostudy.library.groupBy'
+const OPEN_BLOCKS_KEY = 'prostudy.library.open'
+
+/**
+ * The grouping and which shelves are open survive a reload, the way the replay
+ * layers and the column splitter do. Storage can be missing or blocked, so a
+ * failed read is the default and a failed write is nothing.
+ */
+function readStored<T>(key: string, fallback: T, accept: (value: unknown) => value is T): T {
+  try {
+    const raw = window.localStorage.getItem(key)
+    if (raw === null) return fallback
+    const parsed: unknown = JSON.parse(raw)
+    return accept(parsed) ? parsed : fallback
+  } catch {
+    return fallback
+  }
+}
+
+function writeStored(key: string, value: unknown): void {
+  try {
+    window.localStorage.setItem(key, JSON.stringify(value))
+  } catch {
+    // nothing to do — the choice just will not be remembered
+  }
+}
+
+const isGroupBy = (value: unknown): value is GroupBy =>
+  typeof value === 'string' && (GROUP_BY_OPTIONS as string[]).includes(value)
+
+const isOpenMap = (value: unknown): value is Record<string, boolean> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value)
+
+// --------------------------------------------------------------------- chips
+
 interface FilterRowProps {
   label: string
   options: string[]
@@ -31,9 +76,11 @@ interface FilterRowProps {
   onSelect: (value: string | null) => void
   /** Optional per-option thumbnail — agents are quicker to spot by face. */
   iconFor?: (option: string) => string | null
+  /** What the chip says when the option value is not for display (a skill slug). */
+  labelFor?: (option: string) => string
 }
 
-function FilterRow({ label, options, selected, onSelect, iconFor }: FilterRowProps) {
+function FilterRow({ label, options, selected, onSelect, iconFor, labelFor }: FilterRowProps) {
   if (options.length === 0) return null
 
   return (
@@ -41,6 +88,7 @@ function FilterRow({ label, options, selected, onSelect, iconFor }: FilterRowPro
       <span className="text-[10px] uppercase tracking-wider text-text-muted w-12 shrink-0">{label}</span>
       {options.map(option => {
         const active = selected === option
+        const text = labelFor ? labelFor(option) : option
         return (
           <button
             key={option}
@@ -64,13 +112,15 @@ function FilterRow({ label, options, selected, onSelect, iconFor }: FilterRowPro
                 className="w-4 h-4 rounded-full shrink-0"
               />
             )}
-            <span className={`truncate max-w-[14rem] ${iconFor ? '' : 'pl-1.5'}`}>{option}</span>
+            <span className={`truncate max-w-[14rem] ${iconFor ? '' : 'pl-1.5'}`}>{text}</span>
           </button>
         )
       })}
     </div>
   )
 }
+
+// ---------------------------------------------------------------------- page
 
 export default function ProStudyLibrary() {
   const [reviews, setReviews] = useState<ReferenceReview[]>([])
@@ -82,9 +132,16 @@ export default function ProStudyLibrary() {
   // is synchronous against the shared cache.
   useGameContent()
 
+  const [groupBy, setGroupBy] = useState<GroupBy>(() => readStored(GROUP_BY_KEY, 'series', isGroupBy))
+  const [openBlocks, setOpenBlocks] = useState<Record<string, boolean>>(() =>
+    readStored(OPEN_BLOCKS_KEY, {}, isOpenMap),
+  )
+
   const [source, setSource] = useState<SourceLabel | null>(null)
   const [contentType, setContentType] = useState<string | null>(null)
   const [creator, setCreator] = useState<string | null>(null)
+  const [skill, setSkill] = useState<string | null>(null)
+  const [difficulty, setDifficulty] = useState<string | null>(null)
   const [player, setPlayer] = useState<string | null>(null)
   const [map, setMap] = useState<string | null>(null)
   const [agent, setAgent] = useState<string | null>(null)
@@ -110,9 +167,22 @@ export default function ProStudyLibrary() {
     }
   }, [])
 
+  const chooseGroupBy = (value: GroupBy) => {
+    setGroupBy(value)
+    writeStored(GROUP_BY_KEY, value)
+  }
+
+  const toggleBlock = (key: string) => {
+    setOpenBlocks(current => {
+      const next = { ...current, [key]: !current[key] }
+      writeStored(OPEN_BLOCKS_KEY, next)
+      return next
+    })
+  }
+
   // The whole library is a couple of hundred rows — filtering stays client-side.
   const options = useMemo(() => {
-    const unique = (values: Array<string | null>) =>
+    const unique = (values: Array<string | null | undefined>) =>
       [...new Set(values.filter((v): v is string => !!v))].sort((a, b) => a.localeCompare(b))
 
     // Every row the source chip lets through, so the remaining rows offer only
@@ -130,9 +200,15 @@ export default function ProStudyLibrary() {
       // Only the content types actually present, in the skill's own order.
       contentTypes: CONTENT_TYPES.filter(type => inScope.some(r => r.content_type === type)),
       creators: unique(guides.map(r => r.creator)),
+      // In the taxonomy's order, a value the list does not know after the rest.
+      skills: unique(guides.map(r => r.skill)).sort(
+        (a, b) => skillOrder(a) - skillOrder(b) || a.localeCompare(b),
+      ),
+      difficulties: GUIDE_DIFFICULTIES.filter(level => guides.some(r => r.difficulty === level)),
       players: unique(proVods.map(r => r.player)),
       maps: unique(inScope.map(r => r.map)),
-      agents: unique(inScope.map(r => r.agent)),
+      // One chip per agent: a guide names every agent it covers, a pro VOD one.
+      agents: unique(inScope.flatMap(r => (r.agents?.length ? r.agents : [r.agent]))),
     }
   }, [reviews, source])
 
@@ -143,12 +219,17 @@ export default function ProStudyLibrary() {
           (!source || r.source === SOURCE_LABELS[source]) &&
           (!contentType || r.content_type === contentType) &&
           (!creator || r.creator === creator) &&
+          (!skill || r.skill === skill) &&
+          (!difficulty || r.difficulty === difficulty) &&
           (!player || r.player === player) &&
           (!map || r.map === map) &&
-          (!agent || r.agent === agent),
+          (!agent || r.agent === agent || (r.agents?.includes(agent) ?? false)),
       ),
-    [reviews, source, contentType, creator, player, map, agent],
+    [reviews, source, contentType, creator, skill, difficulty, player, map, agent],
   )
+
+  // Null for Date added — that is the flat grid below.
+  const shelves = useMemo(() => buildShelves(filtered, counts, groupBy), [filtered, counts, groupBy])
 
   if (loading) {
     return (
@@ -188,17 +269,30 @@ export default function ProStudyLibrary() {
       ) : (
         <>
           <div className="space-y-2">
+            {/* Single-select: one grouping is always active, so a click on the
+                active chip (which the row reports as null) changes nothing. */}
+            <FilterRow
+              label="Group by"
+              options={GROUP_BY_OPTIONS}
+              selected={groupBy}
+              onSelect={value => {
+                if (isGroupBy(value)) chooseGroupBy(value)
+              }}
+              labelFor={option => GROUP_BY_LABELS[option as GroupBy]}
+            />
             <FilterRow
               label="Source"
               options={options.sources}
               selected={source}
               onSelect={value => {
                 setSource(value as SourceLabel | null)
-                // Content type and creator only mean something inside Guides;
-                // a stale one would silently empty the grid.
+                // Type, creator, skill and difficulty only mean something inside
+                // Guides; a stale one would silently empty the grid.
                 if (value !== 'Guides') {
                   setContentType(null)
                   setCreator(null)
+                  setSkill(null)
+                  setDifficulty(null)
                 }
                 if (value === 'Guides') setPlayer(null)
               }}
@@ -217,6 +311,19 @@ export default function ProStudyLibrary() {
                   selected={creator}
                   onSelect={setCreator}
                 />
+                <FilterRow
+                  label="Skill"
+                  options={options.skills}
+                  selected={skill}
+                  onSelect={setSkill}
+                  labelFor={skillLabel}
+                />
+                <FilterRow
+                  label="Level"
+                  options={options.difficulties}
+                  selected={difficulty}
+                  onSelect={setDifficulty}
+                />
               </>
             )}
             <FilterRow label="Player" options={options.players} selected={player} onSelect={setPlayer} />
@@ -234,6 +341,18 @@ export default function ProStudyLibrary() {
             <p className="text-text-muted text-sm py-8 text-center">
               No pro VODs match those filters.
             </p>
+          ) : shelves ? (
+            <div className="space-y-3">
+              {shelves.map(block => (
+                <LibraryShelf
+                  key={block.key}
+                  block={block}
+                  open={!!openBlocks[block.key]}
+                  onToggle={() => toggleBlock(block.key)}
+                  counts={counts}
+                />
+              ))}
+            </div>
           ) : (
             <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
               {filtered.map(review => (

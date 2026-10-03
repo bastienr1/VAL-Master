@@ -2,6 +2,7 @@ import { supabase } from './supabase'
 import type {
   DrillWithProgress,
   GuideContentType,
+  GuideCounts,
   PracticeDrill,
   PracticeLog,
   PracticeOutcome,
@@ -153,12 +154,7 @@ export async function getReviewWithGuide(id: string): Promise<ReviewWithGuide | 
   return { review, sections, drills: await withProgress(drills) }
 }
 
-export interface GuideCounts {
-  chapters: number
-  drills: number
-  /** Drills the user has activated — the library badges a guide that has any. */
-  activeDrills: number
-}
+export type { GuideCounts }
 
 /**
  * Chapter and drill counts per guide, for the library cards.

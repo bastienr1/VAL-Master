@@ -116,6 +116,33 @@ test('parseFrontmatter keeps a colon-bearing quoted value intact', () => {
   assert.equal(frontmatter.creator, 'Unknown (names in chat: Darius, Jason)')
 })
 
+test('parseFrontmatter reads an inline [a, b] list as a list', () => {
+  const { frontmatter } = parseFrontmatter(
+    [
+      '---',
+      'agents: [Jett, Clove]',
+      'none: []',
+      'quoted: ["Jett", \'Clove\']',
+      'map: [Lotus, Abyss]',
+      'title: Why [not] peek',
+      'bracketed: "[Guide] Haven"',
+      'tags: [valorant, vod-library]',
+      '---',
+      '',
+    ].join('\n'),
+  )
+  assert.deepEqual(frontmatter.agents, ['Jett', 'Clove'])
+  assert.deepEqual(frontmatter.none, [])
+  assert.deepEqual(frontmatter.quoted, ['Jett', 'Clove'])
+  assert.deepEqual(frontmatter.map, ['Lotus', 'Abyss'])
+  assert.equal(frontmatter.title, 'Why [not] peek')
+  assert.equal(frontmatter.bracketed, '[Guide] Haven')
+  assert.deepEqual(frontmatter.tags, ['valorant', 'vod-library'])
+  // What the importer sees: one chip per agent, and nothing for `[]`.
+  assert.deepEqual(listValue(frontmatter.agents), ['Jett', 'Clove'])
+  assert.deepEqual(listValue(frontmatter.none), [])
+})
+
 test('parseFrontmatter returns the whole note as body when there is no frontmatter', () => {
   const { frontmatter, body } = parseFrontmatter('# Just a heading\n')
   assert.deepEqual(frontmatter, {})
