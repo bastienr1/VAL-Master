@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { GraduationCap } from 'lucide-react'
-import { getGuideCounts, listReviews, type GuideCounts } from '../lib/referenceReviews'
+import { getGuideCounts, listReviews, listWatched, type GuideCounts } from '../lib/referenceReviews'
 import { agentImageFor } from '../lib/gameContent'
 import {
   GROUP_BY_LABELS,
@@ -125,6 +125,8 @@ function FilterRow({ label, options, selected, onSelect, iconFor, labelFor }: Fi
 export default function ProStudyLibrary() {
   const [reviews, setReviews] = useState<ReferenceReview[]>([])
   const [counts, setCounts] = useState<Map<string, GuideCounts>>(new Map())
+  // Review ids the user marked watched on the review page.
+  const [watched, setWatched] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -149,11 +151,12 @@ export default function ProStudyLibrary() {
   useEffect(() => {
     let cancelled = false
 
-    Promise.all([listReviews(), getGuideCounts()])
-      .then(([data, guideCounts]) => {
+    Promise.all([listReviews(), getGuideCounts(), listWatched()])
+      .then(([data, guideCounts, watchedAt]) => {
         if (cancelled) return
         setReviews(data)
         setCounts(guideCounts)
+        setWatched(new Set(watchedAt.keys()))
       })
       .catch((err: Error) => {
         if (!cancelled) setError(err.message)
@@ -229,7 +232,10 @@ export default function ProStudyLibrary() {
   )
 
   // Null for Date added — that is the flat grid below.
-  const shelves = useMemo(() => buildShelves(filtered, counts, groupBy), [filtered, counts, groupBy])
+  const shelves = useMemo(
+    () => buildShelves(filtered, counts, groupBy, watched),
+    [filtered, counts, groupBy, watched],
+  )
 
   if (loading) {
     return (
@@ -350,13 +356,20 @@ export default function ProStudyLibrary() {
                   open={!!openBlocks[block.key]}
                   onToggle={() => toggleBlock(block.key)}
                   counts={counts}
+                  watched={watched}
                 />
               ))}
             </div>
           ) : (
+            // The flat grid has no series, so no "Up next" — only the check.
             <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
               {filtered.map(review => (
-                <ReviewCard key={review.id} review={review} counts={counts.get(review.id)} />
+                <ReviewCard
+                  key={review.id}
+                  review={review}
+                  counts={counts.get(review.id)}
+                  badge={watched.has(review.id) ? 'watched' : null}
+                />
               ))}
             </div>
           )}

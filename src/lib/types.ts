@@ -330,6 +330,16 @@ export interface GuideCounts {
 }
 
 /**
+ * A review the user marked watched, from the review page. Explicit only — a
+ * logged drill session never implies it (decision 5 of 2026-10-03). One row
+ * per review; unmarking deletes it.
+ */
+export interface GuideWatch {
+  reference_review_id: string
+  watched_at: string
+}
+
+/**
  * One chapter of a study guide — a `###` heading carrying a `[MM:SS–MM:SS]`
  * range.
  *

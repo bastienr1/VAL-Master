@@ -50,6 +50,13 @@ export interface ShelfBlock {
   title: string
   stats: ShelfStats
   sections: ShelfSection[]
+  /**
+   * Series blocks only: how many of the block's videos are marked watched, and
+   * the first unwatched one in reading order — the one to watch next. Null
+   * when every video is watched; absent on blocks that are not a series.
+   */
+  watched?: number
+  upNextId?: string | null
 }
 
 const NO_MAP = 'No map'
@@ -189,15 +196,38 @@ function mapSections(reviews: ReferenceReview[], keyPrefix: string): ShelfSectio
 // ---------------------------------------------------------------------- build
 
 /**
+ * A series' progress: watched count and the first unwatched video in reading
+ * order. Reading order rather than the section order on screen, so "up next"
+ * is the next episode, not the next entry in whichever skill section comes
+ * first.
+ */
+function withProgress(
+  block: ShelfBlock | null,
+  reviews: ReferenceReview[],
+  watched: Set<string>,
+): ShelfBlock | null {
+  if (!block) return null
+  const inOrder = [...reviews].sort(readingOrder)
+  return {
+    ...block,
+    watched: inOrder.filter(review => watched.has(review.id)).length,
+    upNextId: inOrder.find(review => !watched.has(review.id))?.id ?? null,
+  }
+}
+
+/**
  * Null for `date`: that is today's flat grid and the page renders it as is.
  *
  * Reviews arrive in `listReviews` order (newest first), which the untitled
  * sections keep; only series and skill sections re-sort into reading order.
+ * `watched` is the set of review ids the user marked; it only affects series
+ * blocks, which carry their progress.
  */
 export function buildShelves(
   reviews: ReferenceReview[],
   counts: Map<string, GuideCounts>,
   groupBy: GroupBy,
+  watched: Set<string> = new Set(),
 ): ShelfBlock[] | null {
   if (groupBy === 'date') return null
 
@@ -219,7 +249,13 @@ export function buildShelves(
 
     const seriesBlocks = [...bucket(inSeries, review => review.series!).entries()]
       .sort(([a, as], [b, bs]) => bs.length - as.length || a.localeCompare(b))
-      .map(([series, items]) => block(`series:${series}`, series, skillSections(items, `series:${series}`), counts))
+      .map(([series, items]) =>
+        withProgress(
+          block(`series:${series}`, series, skillSections(items, `series:${series}`), counts),
+          items,
+          watched,
+        ),
+      )
 
     return [
       ...seriesBlocks.filter((b): b is ShelfBlock => b !== null),
