@@ -9,6 +9,8 @@ interface ContentShelfProps {
   children: React.ReactNode
   /** Something small beside the title — a link to the full list, say. */
   action?: React.ReactNode
+  /** A row between the heading and the cards — a chip filter, say. Shown whenever given. */
+  toolbar?: React.ReactNode
 }
 
 /**
@@ -16,7 +18,7 @@ interface ContentShelfProps {
  * fits offers "View all", which lays the same cards out as a grid. An empty
  * shelf stays on the page and says how to fill it.
  */
-export default function ContentShelf({ title, emptyLine, children, action }: ContentShelfProps) {
+export default function ContentShelf({ title, emptyLine, children, action, toolbar }: ContentShelfProps) {
   const cards = Children.toArray(children)
   const [overflowing, setOverflowing] = useState(false)
   const [expanded, setExpanded] = useState(false)
@@ -42,6 +44,8 @@ export default function ContentShelf({ title, emptyLine, children, action }: Con
           </button>
         )}
       </div>
+
+      {toolbar}
 
       {cards.length === 0 ? (
         <p className="border border-dashed border-bg-elevated rounded-xl px-4 py-5 text-sm text-text-muted">{emptyLine}</p>

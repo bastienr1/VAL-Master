@@ -17,7 +17,8 @@ import { useGameContent, useGameContentNames } from '../hooks/useGameContent'
 import { useResource } from '../hooks/useResource'
 import { useYouTubePlayer } from '../hooks/useYouTubePlayer'
 import { deleteNote, getNotes, getReviewWithGuide, getWatchedAt, setWatched } from '../lib/referenceReviews'
-import { removeSavedDrill, saveDrill, savedDrillsResource } from '../lib/savedDrills'
+import { categoryOptions as categoryOptionsFor } from '../lib/drillCategories'
+import { removeSavedDrill, saveDrill, savedDrillsResource, setSavedDrillCategory } from '../lib/savedDrills'
 import { defaultScope, scopeOptions as scopeOptionsFor } from '../lib/savedDrillScope'
 import { addMomentTag, listMomentTags, listReviewTags, removeMomentTag } from '../lib/momentTags'
 import { REFERENCE_LABEL_COLORS, hexWithAlpha } from '../lib/tagColors'
@@ -282,6 +283,8 @@ export default function ProStudyReview() {
         source_end_seconds: drill.source_end_seconds,
         source_title: review.title,
         note: null,
+        // A move keeps the category; a fresh save starts without one.
+        category: previous?.category ?? null,
         created_at: previous?.created_at ?? new Date().toISOString(),
       }
       setSavedOverrides(current => new Map(current).set(drill.id, placeholder))
@@ -301,6 +304,23 @@ export default function ProStudyReview() {
     },
     [review, savedByDrillId],
   )
+
+  // The picker's category chips: the seed list plus everything in use.
+  const categoryOptions = useMemo(() => categoryOptionsFor(savedState.data ?? []), [savedState.data])
+
+  /** Optimistic like a save: the line shows the category at once, reverts on error. */
+  const handleSetCategory = useCallback(async (saved: SavedDrill, category: string | null) => {
+    if (!saved.drill_id) return
+    const drillId = saved.drill_id
+    setSavedOverrides(current => new Map(current).set(drillId, { ...saved, category }))
+    try {
+      const updated = await setSavedDrillCategory(saved.id, category)
+      setSavedOverrides(current => new Map(current).set(drillId, updated))
+    } catch (err) {
+      console.error('Failed to set drill category:', err)
+      setSavedOverrides(current => new Map(current).set(drillId, saved))
+    }
+  }, [])
 
   const handleRemoveSaved = useCallback(async (saved: SavedDrill) => {
     if (!saved.drill_id) return
@@ -797,6 +817,8 @@ export default function ProStudyReview() {
               scopeOptions={scopeOptions}
               onSaveDrill={handleSaveDrill}
               onRemoveSaved={handleRemoveSaved}
+              categoryOptions={categoryOptions}
+              onSetCategory={handleSetCategory}
             />
           )}
 

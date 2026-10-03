@@ -100,6 +100,22 @@ export async function getDrillLogCounts(drillIds: string[]): Promise<Map<string,
   return counts
 }
 
+/**
+ * Sets or clears a save's category. The caller normalises and matches the
+ * text (`drillCategories.ts`); this never writes an empty string.
+ */
+export async function setSavedDrillCategory(id: string, category: string | null): Promise<SavedDrill> {
+  const { data, error } = await supabase
+    .from('saved_drills')
+    .update({ category: category?.trim() || null })
+    .eq('id', id)
+    .select('*')
+    .single()
+  if (error) throw new Error(error.message)
+  savedDrillsResource.invalidate()
+  return data as SavedDrill
+}
+
 export async function removeSavedDrill(id: string): Promise<void> {
   const { error } = await supabase.from('saved_drills').delete().eq('id', id)
   if (error) throw new Error(error.message)
