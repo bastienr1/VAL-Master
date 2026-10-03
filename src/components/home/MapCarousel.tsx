@@ -21,14 +21,27 @@ const CARD_WIDTH = '13rem'
 const arrowClass =
   'absolute top-1/2 -translate-y-1/2 z-20 w-9 h-9 rounded-full border border-bg-elevated bg-bg-primary/80 text-text-secondary flex items-center justify-center hover:text-val-cyan hover:border-val-cyan/50 transition-colors disabled:opacity-30 disabled:pointer-events-none'
 
+// A mouse wheel notch is about 100 units of deltaY; a trackpad sends many small
+// ones. A step fires once the accumulated delta passes the threshold, with a
+// short cooldown so one notch is one card. Notches arriving while the row is
+// still gliding step from the card it is heading for, not the one it is
+// passing, so spinning the wheel walks the row one card per notch.
+const WHEEL_STEP = 40
+const WHEEL_COOLDOWN_MS = 120
+const WHEEL_SETTLE_MS = 200
+const WHEEL_GLIDE_MS = 600
+
 /**
  * Explore Maps: a scroll-snap row with the centred card scaled up. Scrolls by
- * drag, wheel, the arrow buttons, or ←/→ while focused. No carousel library.
+ * drag, the mouse wheel (one card per notch), a trackpad swipe, the arrow
+ * buttons, or ←/→ while focused. No carousel library.
  */
 export default function MapCarousel({ maps, grouped, records, recordLabel }: MapCarouselProps) {
   const scroller = useRef<HTMLDivElement>(null)
   const frame = useRef(0)
   const [active, setActive] = useState(0)
+  // Mirrors `active` for the native wheel listener, which cannot see state.
+  const activeRef = useRef(0)
 
   // The centred card is whichever one sits closest to the middle of the row.
   const handleScroll = useCallback(() => {
@@ -47,6 +60,7 @@ export default function MapCarousel({ maps, grouped, records, recordLabel }: Map
           nearest = i
         }
       })
+      activeRef.current = nearest
       setActive(nearest)
     })
   }, [])
@@ -66,15 +80,60 @@ export default function MapCarousel({ maps, grouped, records, recordLabel }: Map
     const start = Math.max(0, Math.min(Math.ceil(side / step), Math.floor((maps.length - 1) / 2)))
     const card = el.children[start] as HTMLElement
     el.scrollLeft = card.offsetLeft - (el.clientWidth - card.offsetWidth) / 2
+    activeRef.current = start
     setActive(start)
   }, [maps.length])
 
-  const go = (index: number) => {
+  const go = useCallback(
+    (index: number) => {
+      const el = scroller.current
+      const card = el?.children[Math.max(0, Math.min(maps.length - 1, index))] as HTMLElement | undefined
+      if (!el || !card) return
+      el.scrollTo({ left: card.offsetLeft - (el.clientWidth - card.offsetWidth) / 2, behavior: 'smooth' })
+    },
+    [maps.length],
+  )
+
+  // A plain mouse wheel over the row steps it one card at a time. Browsers only
+  // move a horizontal row on shift+wheel or a trackpad swipe, so a mouse user
+  // got page scroll and nothing else. A native listener, because React's
+  // onWheel is passive and cannot preventDefault. At either end the event is
+  // left alone, so the page still scrolls past the carousel. A mostly
+  // horizontal delta (trackpad swipe) is left to the browser, which already
+  // handles it.
+  useEffect(() => {
     const el = scroller.current
-    const card = el?.children[Math.max(0, Math.min(maps.length - 1, index))] as HTMLElement | undefined
-    if (!el || !card) return
-    el.scrollTo({ left: card.offsetLeft - (el.clientWidth - card.offsetWidth) / 2, behavior: 'smooth' })
-  }
+    if (!el) return
+    let accumulated = 0
+    let lastEvent = 0
+    let lastStep = 0
+    let target = 0
+
+    const onWheel = (event: WheelEvent) => {
+      if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return
+      const direction = event.deltaY > 0 ? 1 : -1
+      const now = performance.now()
+      // Where the row is, or where it is still heading after a recent step.
+      const from = now - lastStep < WHEEL_GLIDE_MS ? target : activeRef.current
+      const atEnd = direction > 0 ? from >= maps.length - 1 : from <= 0
+      if (atEnd) return
+      event.preventDefault()
+
+      // A pause resets the running total, so a nudge after a while is a fresh start.
+      if (now - lastEvent > WHEEL_SETTLE_MS) accumulated = 0
+      lastEvent = now
+      accumulated += event.deltaMode === WheelEvent.DOM_DELTA_LINE ? event.deltaY * 16 : event.deltaY
+
+      if (Math.abs(accumulated) < WHEEL_STEP || now - lastStep < WHEEL_COOLDOWN_MS) return
+      accumulated = 0
+      lastStep = now
+      target = from + direction
+      go(target)
+    }
+
+    el.addEventListener('wheel', onWheel, { passive: false })
+    return () => el.removeEventListener('wheel', onWheel)
+  }, [maps.length, go])
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'ArrowLeft') {
