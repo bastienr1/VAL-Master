@@ -10,7 +10,14 @@ import SavedDrillCard, { SAVED_DRILLS_EMPTY } from '../components/SavedDrillCard
 import { useArtSlotRows } from '../hooks/useArtSlot'
 import { usePortalMaps } from '../hooks/useMapContent'
 import { useResource } from '../hooks/useResource'
-import { removeSavedDrill, savedDrillsResource } from '../lib/savedDrills'
+import {
+  UNCATEGORISED,
+  categoryOptions,
+  inCategory,
+  resolveCategoryParam,
+  usedCategories,
+} from '../lib/drillCategories'
+import { removeSavedDrill, savedDrillsResource, setSavedDrillCategory } from '../lib/savedDrills'
 import { drillsForMap } from '../lib/savedDrillScope'
 import { mapHeaderSlotKey, mapSlotKey } from '../lib/artSlots'
 import { agentImageFor, mapImageFor } from '../lib/gameContent'
@@ -127,7 +134,24 @@ export default function MapHub() {
   // Saves made with no agent are about the map and stay under any chip.
   const savedHere = drillsForMap(savedDrills ?? [], map.name, agent)
 
-  const selectAgent = (name: string | null) => setSearchParams(name ? { agent: name } : {}, { replace: true })
+  // `?category=` narrows the saved-drills shelf the way `?agent=` narrows the
+  // page; the chip row only exists once the map's saves span two categories.
+  const categoriesHere = [
+    ...usedCategories(savedHere),
+    ...(savedHere.some(row => !row.category) ? [UNCATEGORISED] : []),
+  ]
+  const category = resolveCategoryParam(searchParams.get('category'), savedHere)
+  const savedShown = category ? savedHere.filter(row => inCategory(row, category)) : savedHere
+  const allCategoryOptions = categoryOptions(savedDrills ?? [])
+
+  // One param at a time, the other kept.
+  const setParam = (key: 'agent' | 'category', value: string | null) => {
+    const next = new URLSearchParams(searchParams)
+    if (value) next.set(key, value)
+    else next.delete(key)
+    setSearchParams(next, { replace: true })
+  }
+  const selectAgent = (name: string | null) => setParam('agent', name)
 
   const chip = (active: boolean) =>
     `pl-1 pr-2.5 py-1 rounded-full text-[11px] font-medium border transition-colors flex items-center gap-1.5 ${
@@ -247,15 +271,41 @@ export default function MapHub() {
             way to retire a drill once it is trained enough. */}
         <ContentShelf
           title="Saved drills"
-          emptyLine={SAVED_DRILLS_EMPTY}
+          emptyLine={
+            category && savedHere.length > 0
+              ? `No ${category === UNCATEGORISED ? 'uncategorised' : category} drills saved to ${map.name}.`
+              : SAVED_DRILLS_EMPTY
+          }
           action={
             <Link to="/study/drills" className="text-xs font-body font-normal tracking-normal text-text-secondary hover:text-val-cyan transition-colors">
               All saved drills
             </Link>
           }
+          toolbar={
+            categoriesHere.length >= 2 ? (
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-[10px] uppercase tracking-wider text-text-muted w-12 shrink-0">Category</span>
+                <button type="button" onClick={() => setParam('category', null)} aria-pressed={category === null} className={`${chip(category === null)} pl-2.5`}>
+                  All
+                </button>
+                {categoriesHere.map(name => (
+                  <button key={name} type="button" onClick={() => setParam('category', name)} aria-pressed={category === name} className={`${chip(category === name)} pl-2.5`}>
+                    {name}
+                    <span className="font-stats text-[10px] opacity-70">{savedHere.filter(row => inCategory(row, name)).length}</span>
+                  </button>
+                ))}
+              </div>
+            ) : undefined
+          }
         >
-          {savedHere.map(row => (
-            <SavedDrillCard key={row.id} saved={row} onRemove={() => removeSavedDrill(row.id).catch(console.error)} />
+          {savedShown.map(row => (
+            <SavedDrillCard
+              key={row.id}
+              saved={row}
+              onRemove={() => removeSavedDrill(row.id).catch(console.error)}
+              categoryOptions={allCategoryOptions}
+              onSetCategory={value => setSavedDrillCategory(row.id, value).catch(console.error)}
+            />
           ))}
         </ContentShelf>
       </div>

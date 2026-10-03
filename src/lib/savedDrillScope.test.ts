@@ -40,6 +40,7 @@ function saved(overrides: Partial<SavedDrill> = {}): SavedDrill {
     source_end_seconds: 439,
     source_title: 'How to Entry Better',
     note: null,
+    category: null,
     created_at: `2026-10-03T10:00:${String(nextId).padStart(2, '0')}Z`,
     ...overrides,
   }

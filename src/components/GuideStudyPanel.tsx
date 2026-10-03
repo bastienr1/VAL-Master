@@ -2,10 +2,12 @@ import { useEffect, useRef, useState } from 'react'
 import { CheckSquare, Dumbbell, Lightbulb, ListChecks, Play, Square } from 'lucide-react'
 import NoteMarkdown from './NoteMarkdown'
 import SaveDrillButton from './SaveDrillButton'
+import ScopeMenu from './ScopeMenu'
+import type { CategoryOption } from '../lib/drillCategories'
 import { parseActionItems } from '../lib/guideDisplay'
 import { guideMarkdown } from '../lib/guideMarkdown'
 import { linkifyTimestamps } from '../lib/playbookMoments'
-import { sameScope, scopeLabel } from '../lib/savedDrillScope'
+import { scopeLabel } from '../lib/savedDrillScope'
 import { formatTime } from '../lib/youtube'
 import type { DrillWithProgress, SavedDrill, SavedDrillScope } from '../lib/types'
 
@@ -37,91 +39,15 @@ interface GuideStudyPanelProps {
   scopeOptions?: SavedDrillScope[]
   onSaveDrill?: (drill: DrillWithProgress, scope: SavedDrillScope | null) => Promise<SaveDrillResult>
   onRemoveSaved?: (saved: SavedDrill) => Promise<void>
+  /**
+   * The save's category, edited from the same menu. Optional on top of the
+   * four above: without these the menu offers places only.
+   */
+  categoryOptions?: CategoryOption[]
+  onSetCategory?: (saved: SavedDrill, category: string | null) => Promise<void>
 }
 
 export type StudyTab = 'takeaways' | 'practice' | 'actions'
-
-const SCOPE_GROUPS: Array<{ type: SavedDrillScope['type']; heading: string }> = [
-  { type: 'map', heading: 'Map' },
-  { type: 'agent', heading: 'Agent' },
-  { type: 'concept', heading: 'Skill' },
-]
-
-/**
- * The inline "save to" menu under a drill row: every place the guide allows,
- * grouped, the current one marked. Lives in the row (no portal) so it scrolls
- * with the list; Escape and a click outside close it.
- */
-function ScopeMenu({
-  options,
-  current,
-  onPick,
-  onClose,
-}: {
-  options: SavedDrillScope[]
-  current: Pick<SavedDrillScope, 'type' | 'value'> | null
-  onPick: (scope: SavedDrillScope) => void
-  onClose: () => void
-}) {
-  const ref = useRef<HTMLDivElement | null>(null)
-
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose()
-    }
-    const onPointer = (event: MouseEvent) => {
-      if (ref.current && !ref.current.contains(event.target as Node)) onClose()
-    }
-    document.addEventListener('keydown', onKey)
-    document.addEventListener('mousedown', onPointer)
-    return () => {
-      document.removeEventListener('keydown', onKey)
-      document.removeEventListener('mousedown', onPointer)
-    }
-  }, [onClose])
-
-  return (
-    <div
-      ref={ref}
-      role="menu"
-      className="absolute left-0 top-full mt-1 z-20 w-60 max-h-72 overflow-y-auto bg-bg-card border border-bg-elevated rounded-lg shadow-lg p-1.5 space-y-1.5"
-    >
-      {SCOPE_GROUPS.map(group => {
-        const items = options.filter(option => option.type === group.type)
-        if (items.length === 0) return null
-        return (
-          <div key={group.type}>
-            <div className="px-1.5 pb-0.5 text-[10px] uppercase tracking-wider text-text-muted">{group.heading}</div>
-            <div className="flex flex-wrap gap-1">
-              {items.map(option => {
-                const active = current !== null && sameScope(current, option)
-                return (
-                  <button
-                    key={`${option.type}:${option.value}`}
-                    type="button"
-                    role="menuitemradio"
-                    aria-checked={active}
-                    onClick={() => onPick(option)}
-                    className={`px-2 py-0.5 rounded-full text-[11px] font-medium border transition-colors ${
-                      active
-                        ? 'bg-val-cyan/10 text-val-cyan border-val-cyan/30'
-                        : 'bg-transparent text-text-secondary border-bg-elevated hover:border-text-muted'
-                    }`}
-                  >
-                    {scopeLabel(option)}
-                  </button>
-                )
-              })}
-            </div>
-          </div>
-        )
-      })}
-      {options.length === 0 && (
-        <p className="px-1.5 py-1 text-[11px] text-text-muted">Nothing to save to yet — the map pool is still loading.</p>
-      )}
-    </div>
-  )
-}
 
 const STATUS_STYLE: Record<string, string> = {
   active: 'bg-val-cyan/10 text-val-cyan border-val-cyan/20',
@@ -164,12 +90,15 @@ export default function GuideStudyPanel({
   scopeOptions,
   onSaveDrill,
   onRemoveSaved,
+  categoryOptions,
+  onSetCategory,
 }: GuideStudyPanelProps) {
   // A dropped drill left the note; it stays in the table only for its logs.
   const liveDrills = drills.filter(drill => drill.status !== 'dropped')
   const actions = parseActionItems(actionItems)
 
   const canSave = !!(savedByDrillId && scopeOptions && onSaveDrill && onRemoveSaved)
+  const canCategorise = canSave && !!(categoryOptions && onSetCategory)
   // Which row has its "save to" menu open, and which one has a write in flight.
   const [menuFor, setMenuFor] = useState<string | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
@@ -328,8 +257,9 @@ export default function GuideStudyPanel({
                           </dl>
                         )}
 
-                        {/* Where the save went, and the way to move it. The menu
-                            also opens on its own when the guide has no default. */}
+                        {/* Where the save went, its category, and the way to change
+                            either. The menu also opens on its own when the guide
+                            has no default place. */}
                         {canSave && (saved || menuOpen) && (
                           <div className="relative mt-1.5 text-[11px] text-text-muted">
                             {saved ? (
@@ -338,6 +268,12 @@ export default function GuideStudyPanel({
                                 <span className="text-text-secondary">
                                   {scopeLabel({ type: saved.scope_type, value: saved.scope_value })}
                                 </span>
+                                {canCategorise && saved.category && (
+                                  <>
+                                    {' · '}
+                                    <span className="text-val-yellow">{saved.category}</span>
+                                  </>
+                                )}
                                 {' · '}
                               </>
                             ) : (
@@ -345,11 +281,14 @@ export default function GuideStudyPanel({
                             )}
                             <button
                               type="button"
+                              // Stops the menu's outside-click from closing it first,
+                              // which would make this click reopen it.
+                              onMouseDown={event => event.stopPropagation()}
                               onClick={() => setMenuFor(menuOpen ? null : drill.id)}
                               aria-expanded={menuOpen}
                               className="text-val-cyan hover:underline"
                             >
-                              {saved ? 'Change' : 'Pick a place'}
+                              {!saved ? 'Pick a place' : canCategorise && !saved.category ? 'Add category' : 'Change'}
                             </button>
                             {menuOpen && (
                               <ScopeMenu
@@ -357,6 +296,18 @@ export default function GuideStudyPanel({
                                 current={saved ? { type: saved.scope_type, value: saved.scope_value } : null}
                                 onPick={scope => pickScope(drill, scope)}
                                 onClose={() => setMenuFor(null)}
+                                category={
+                                  canCategorise && saved
+                                    ? {
+                                        options: categoryOptions!,
+                                        current: saved.category,
+                                        onPick: category => {
+                                          setMenuFor(null)
+                                          onSetCategory!(saved, category).catch(console.error)
+                                        },
+                                      }
+                                    : undefined
+                                }
                               />
                             )}
                           </div>

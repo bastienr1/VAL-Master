@@ -1,6 +1,9 @@
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Play, X } from 'lucide-react'
+import { Play, Tag, X } from 'lucide-react'
 import NoteMarkdown from './NoteMarkdown'
+import ScopeMenu from './ScopeMenu'
+import type { CategoryOption } from '../lib/drillCategories'
 import { guideMarkdown } from '../lib/guideMarkdown'
 import { snapshotChanged } from '../lib/savedDrillScope'
 import { formatTime } from '../lib/youtube'
@@ -20,6 +23,9 @@ interface SavedDrillCardProps {
   live?: Pick<PracticeDrill, 'title' | 'status' | 'position'> | null
   logCount?: number
   onRemove?: () => void
+  /** Both together make the category chip editable in place; without them it is read-only. */
+  categoryOptions?: CategoryOption[]
+  onSetCategory?: (category: string | null) => void
 }
 
 /** `6:11 - 7:19`, or the start alone when the note gave no end. */
@@ -36,8 +42,17 @@ function sourceLabel(saved: SavedDrill): string {
  * two have drifted. The jump link carries the drill so the review page opens
  * its Practice tab with that row marked.
  */
-export default function SavedDrillCard({ saved, live = null, logCount = 0, onRemove }: SavedDrillCardProps) {
+export default function SavedDrillCard({
+  saved,
+  live = null,
+  logCount = 0,
+  onRemove,
+  categoryOptions,
+  onSetCategory,
+}: SavedDrillCardProps) {
   const changed = snapshotChanged(saved, live?.title ?? null)
+  const canCategorise = !!(categoryOptions && onSetCategory)
+  const [categoryMenu, setCategoryMenu] = useState(false)
   // The review page marks a drill by id or position; the id is on the save
   // itself, so the mark works from a shelf that never looked the drill up.
   const mark = live ? String(live.position) : saved.drill_id
@@ -64,7 +79,49 @@ export default function SavedDrillCard({ saved, live = null, logCount = 0, onRem
         )}
       </div>
 
-      <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+      <div className="relative mt-1.5 flex flex-wrap items-center gap-1.5">
+        {/* The category leads the row, in the bookmark's yellow. Editable in
+            place when the page passes the options; plain otherwise. */}
+        {canCategorise ? (
+          <button
+            type="button"
+            onMouseDown={event => event.stopPropagation()}
+            onClick={() => setCategoryMenu(open => !open)}
+            aria-expanded={categoryMenu}
+            title={saved.category ? 'Change category' : 'Add a category'}
+            className={`px-1.5 py-0.5 rounded-full border text-[10px] font-medium flex items-center gap-1 transition-colors ${
+              saved.category
+                ? 'bg-val-yellow/15 border-val-yellow/30 text-val-yellow hover:bg-val-yellow/25'
+                : 'bg-transparent border-dashed border-bg-elevated text-text-muted hover:border-text-muted'
+            }`}
+          >
+            <Tag className="w-2.5 h-2.5" />
+            {saved.category ?? 'Add category'}
+          </button>
+        ) : (
+          saved.category && (
+            <span className="px-1.5 py-0.5 rounded-full bg-val-yellow/15 border border-val-yellow/30 text-val-yellow text-[10px] font-medium flex items-center gap-1">
+              <Tag className="w-2.5 h-2.5" />
+              {saved.category}
+            </span>
+          )
+        )}
+        {categoryMenu && canCategorise && (
+          <ScopeMenu
+            options={[]}
+            current={null}
+            onPick={() => undefined}
+            onClose={() => setCategoryMenu(false)}
+            category={{
+              options: categoryOptions!,
+              current: saved.category,
+              onPick: category => {
+                setCategoryMenu(false)
+                onSetCategory!(category)
+              },
+            }}
+          />
+        )}
         {saved.venue && (
           <span className="px-1.5 py-0.5 rounded bg-bg-elevated text-text-secondary text-[10px] font-medium">
             {saved.venue}

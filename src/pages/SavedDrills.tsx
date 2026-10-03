@@ -3,23 +3,32 @@ import { Link } from 'react-router-dom'
 import { ArrowLeft, Bookmark } from 'lucide-react'
 import SavedDrillCard, { SAVED_DRILLS_EMPTY } from '../components/SavedDrillCard'
 import { useResource } from '../hooks/useResource'
+import { UNCATEGORISED, categoryOptions, groupByCategory } from '../lib/drillCategories'
 import { mapSlug } from '../lib/mapContent'
-import { getDrillLogCounts, getLiveDrills, removeSavedDrill, savedDrillsResource } from '../lib/savedDrills'
+import {
+  getDrillLogCounts,
+  getLiveDrills,
+  removeSavedDrill,
+  savedDrillsResource,
+  setSavedDrillCategory,
+} from '../lib/savedDrills'
 import { groupSaved, scopeLabel } from '../lib/savedDrillScope'
 import type { PracticeDrill, SavedDrill, SavedDrillScopeType } from '../lib/types'
 
-const SECTIONS: Array<{ type: SavedDrillScopeType; heading: string }> = [
-  { type: 'map', heading: 'Map' },
-  { type: 'agent', heading: 'Agent' },
-  { type: 'concept', heading: 'Skill' },
+const PLACE_SECTIONS: Array<{ type: SavedDrillScopeType; word: string }> = [
+  { type: 'map', word: 'map' },
+  { type: 'agent', word: 'agent' },
+  { type: 'concept', word: 'skill' },
 ]
 
 /**
- * `/study/drills` — every saved drill, by place.
+ * `/study/drills` — every saved drill, category first, then place.
  *
- * The one page where agent and skill saves are listed (the Map Hub only shows
- * a map's). Cards here get the live drill behind the save, loaded in one
- * query, so they can show status, logged sessions and a note that changed.
+ * Category is the axis Bastien reads by ("this one would be Routing"); the
+ * place is the second key inside it. The one page where agent and skill
+ * saves are listed (the Map Hub only shows a map's). Cards here get the live
+ * drill behind the save, loaded in one query, so they can show status,
+ * logged sessions and a note that changed.
  */
 export default function SavedDrills() {
   const { data, loading, error } = useResource(savedDrillsResource)
@@ -27,7 +36,7 @@ export default function SavedDrills() {
 
   const [live, setLive] = useState<Map<string, PracticeDrill>>(new Map())
   const [logCounts, setLogCounts] = useState<Map<string, number>>(new Map())
-  const [removeError, setRemoveError] = useState<string | null>(null)
+  const [writeError, setWriteError] = useState<string | null>(null)
 
   // Keyed on the ids as a string so a refetch with the same saves is a no-op.
   const drillIds = useMemo(
@@ -50,15 +59,31 @@ export default function SavedDrills() {
     }
   }, [idsKey])
 
-  const groups = useMemo(() => groupSaved(saved), [saved])
+  const byCategory = useMemo(() => groupByCategory(saved), [saved])
+  const options = useMemo(() => categoryOptions(saved), [saved])
 
-  const remove = async (row: SavedDrill) => {
-    setRemoveError(null)
+  const run = async (action: () => Promise<unknown>, what: string) => {
+    setWriteError(null)
     try {
-      await removeSavedDrill(row.id)
+      await action()
     } catch (err) {
-      setRemoveError(err instanceof Error ? err.message : String(err))
+      setWriteError(`Couldn't ${what} — ${err instanceof Error ? err.message : String(err)}`)
     }
+  }
+
+  const card = (row: SavedDrill) => {
+    const drill = row.drill_id ? (live.get(row.drill_id) ?? null) : null
+    return (
+      <SavedDrillCard
+        key={row.id}
+        saved={row}
+        live={drill}
+        logCount={row.drill_id ? (logCounts.get(row.drill_id) ?? 0) : 0}
+        onRemove={() => run(() => removeSavedDrill(row.id), 'remove the drill')}
+        categoryOptions={options}
+        onSetCategory={category => run(() => setSavedDrillCategory(row.id, category), 'set the category')}
+      />
+    )
   }
 
   if (loading && data === null) {
@@ -86,9 +111,9 @@ export default function SavedDrills() {
         </div>
       </div>
 
-      {(error || removeError) && (
+      {(error || writeError) && (
         <div className="bg-bg-card border border-val-red/30 rounded-lg px-4 py-3 text-sm text-val-red">
-          {removeError ? `Couldn't remove the drill — ${removeError}` : `Couldn't load saved drills — ${error}`}
+          {writeError ?? `Couldn't load saved drills — ${error}`}
         </div>
       )}
 
@@ -97,48 +122,35 @@ export default function SavedDrills() {
           {SAVED_DRILLS_EMPTY}
         </p>
       ) : (
-        SECTIONS.map(section => {
-          const buckets = groups[section.type]
-          if (buckets.length === 0) return null
+        byCategory.map(([category, rows]) => {
+          const places = groupSaved(rows)
           return (
-            <section key={section.type} className="space-y-4">
+            <section key={category ?? UNCATEGORISED} className="space-y-4">
               <h2 className="font-heading text-lg font-bold tracking-wide">
-                {section.heading}
-                <span className="ml-2 font-stats text-xs font-normal text-text-muted">
-                  {buckets.reduce((sum, [, rows]) => sum + rows.length, 0)}
-                </span>
+                {category ?? UNCATEGORISED}
+                <span className="ml-2 font-stats text-xs font-normal text-text-muted">{rows.length}</span>
               </h2>
-              {buckets.map(([value, rows]) => {
-                const label = scopeLabel({ type: section.type, value })
-                return (
-                  <div key={value} className="space-y-2">
-                    <h3 className="flex items-center gap-2 text-[10px] uppercase tracking-wider text-text-muted">
-                      {section.type === 'map' ? (
-                        <Link to={`/maps/${mapSlug(value)}`} className="hover:text-val-cyan transition-colors">
-                          {label}
-                        </Link>
-                      ) : (
-                        <span>{label}</span>
-                      )}
-                      <span className="font-stats">{rows.length}</span>
-                    </h3>
-                    <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
-                      {rows.map(row => {
-                        const drill = row.drill_id ? (live.get(row.drill_id) ?? null) : null
-                        return (
-                          <SavedDrillCard
-                            key={row.id}
-                            saved={row}
-                            live={drill}
-                            logCount={row.drill_id ? (logCounts.get(row.drill_id) ?? 0) : 0}
-                            onRemove={() => remove(row)}
-                          />
-                        )
-                      })}
+              {PLACE_SECTIONS.map(section =>
+                places[section.type].map(([value, placeRows]) => {
+                  const label = scopeLabel({ type: section.type, value })
+                  return (
+                    <div key={`${section.type}:${value}`} className="space-y-2">
+                      <h3 className="flex items-center gap-2 text-[10px] uppercase tracking-wider text-text-muted">
+                        {section.type === 'map' ? (
+                          <Link to={`/maps/${mapSlug(value)}`} className="hover:text-val-cyan transition-colors">
+                            {label}
+                          </Link>
+                        ) : (
+                          <span>{label}</span>
+                        )}
+                        <span className="normal-case tracking-normal opacity-70">· {section.word}</span>
+                        <span className="font-stats">{placeRows.length}</span>
+                      </h3>
+                      <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">{placeRows.map(card)}</div>
                     </div>
-                  </div>
-                )
-              })}
+                  )
+                }),
+              )}
             </section>
           )
         })

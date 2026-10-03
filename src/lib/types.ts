@@ -372,6 +372,8 @@ export interface SavedDrill {
   source_end_seconds: number | null
   source_title: string | null
   note: string | null
+  /** User-set, free text (Routing, Peeking…); null = uncategorised, never ''. */
+  category: string | null
   created_at: string
 }
 
