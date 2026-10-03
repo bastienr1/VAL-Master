@@ -41,11 +41,15 @@ export default function ReviewCard({ review, counts }: { review: ReferenceReview
   const agentSrc = agentSrcFor(review)
 
   // A guide puts its creator and structure beneath the title, where a pro VOD
-  // puts the agent · map beneath the player.
+  // puts the agent · map beneath the player. A series note leads with its
+  // playlist position — the `#` the vault MOCs use — so a shelf can be checked
+  // against them; difficulty rides along when the note states it.
   const heading = reviewHeading(review)
   const subLine = isGuide
     ? [
+        review.playlist_index != null ? `#${review.playlist_index}` : null,
         shortCreator(review.creator),
+        review.difficulty ?? null,
         `${counts?.chapters ?? 0} chapter${counts?.chapters === 1 ? '' : 's'}`,
         `${counts?.drills ?? 0} drill${counts?.drills === 1 ? '' : 's'}`,
       ]

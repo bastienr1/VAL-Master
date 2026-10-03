@@ -17,7 +17,10 @@
 
 // ------------------------------------------------------------------ frontmatter
 
-/** A frontmatter value is a scalar or a `- ` list; nothing here nests deeper. */
+/**
+ * A frontmatter value is a scalar or a list — written either as indented
+ * `- item` lines or inline as `[a, b]`; nothing here nests deeper.
+ */
 export type FrontmatterValue = string | string[]
 export type Frontmatter = Record<string, FrontmatterValue>
 
@@ -30,12 +33,30 @@ function unquote(raw: string): string {
 }
 
 /**
+ * `[Jett, Clove]` → `['Jett', 'Clove']`, `[]` → `[]`, anything else → null.
+ *
+ * The skill writes `agents`, `map`, `focus` and `tags` this way. Before this
+ * the bracketed text was stored as one string, which the library then showed
+ * as a single `[Jett, Clove]` chip — and `[]` as an empty one. A quoted scalar
+ * never gets here, so a title wrapped in quotes may start with `[`.
+ */
+function inlineList(raw: string): string[] | null {
+  const value = raw.trim()
+  if (!value.startsWith('[') || !value.endsWith(']')) return null
+  return value
+    .slice(1, -1)
+    .split(',')
+    .map(item => unquote(item))
+    .filter(item => item !== '')
+}
+
+/**
  * Splits a note into frontmatter and body.
  *
- * Only the two shapes these notes use are recognised — `key: value`, and a
- * `key:` followed by indented `- item` lines. An indented line that is not a
- * list item is skipped rather than guessed at, so a future nested block cannot
- * silently land in the wrong key.
+ * Only the three shapes these notes use are recognised — `key: value`, an
+ * inline `key: [a, b]` list, and a `key:` followed by indented `- item` lines.
+ * An indented line that is not a list item is skipped rather than guessed at,
+ * so a future nested block cannot silently land in the wrong key.
  */
 export function parseFrontmatter(raw: string): { frontmatter: Frontmatter; body: string } {
   // A byte-order mark ahead of the opening `---` would hide the frontmatter.
@@ -69,7 +90,7 @@ export function parseFrontmatter(raw: string): { frontmatter: Frontmatter; body:
     currentKey = key
     // An empty value may open a list — or may just be an empty field. Store the
     // empty string; a following `- item` replaces it with the array.
-    frontmatter[key] = unquote(rest)
+    frontmatter[key] = inlineList(rest) ?? unquote(rest)
   }
 
   return { frontmatter, body: lines.slice(closing + 1).join('\n') }
