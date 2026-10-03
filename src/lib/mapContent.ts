@@ -68,14 +68,23 @@ export function sameMap(a: string | null | undefined, b: string | null | undefin
 
 type ReviewKind = Pick<ReferenceReview, 'source' | 'content_type'>
 
-/** A pro match: seeded from Notion, or a vault note filed as a pro review. */
+/**
+ * A pro match seeded from Notion. A vault note filed as a pro review used to
+ * count too; it is a coaching breakdown, not a match, and reads better beside
+ * the map guides (Bastien, 2026-10-03), so it is a video guide now.
+ */
 export function isProVod(review: ReviewKind): boolean {
-  return review.source === 'notion' || review.content_type === 'pro-review'
+  return review.source === 'notion'
 }
 
 /** A map-guide video from the vault. Never also a pro VOD. */
 export function isMapGuide(review: ReviewKind): boolean {
   return review.source === 'vault' && review.content_type === 'map-guide'
+}
+
+/** What the Video guides shelf holds: a map guide or a pro review from the vault. */
+export function isVideoGuide(review: ReviewKind): boolean {
+  return review.source === 'vault' && (review.content_type === 'map-guide' || review.content_type === 'pro-review')
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -148,7 +157,7 @@ export function groupContentByMap(input: MapContentInput): Map<string, MapConten
     const draft = bucket(review.map)
     if (!draft) continue
     if (isProVod(review)) draft.proVods.push(review)
-    else if (isMapGuide(review)) draft.guides.push(review)
+    else if (isVideoGuide(review)) draft.guides.push(review)
     // Agent guides, mechanics and mindset notes aren't about a map even when
     // they name one, and stay in Pro Study.
   }
@@ -196,16 +205,20 @@ export function sortMapsForPortal<T extends { name: string }>(maps: T[], grouped
 }
 
 /**
- * Narrows the two shelves that have an agent — pro VODs and the player's own —
+ * Narrows the shelves that have an agent — pro VODs and the player's own —
  * so "Raze on Ascent" puts pros playing Raze beside the player's Raze games.
- * Strategy and video guides are about the map and stay as they are.
+ * Strategy and map guides are about the map and stay as they are, whatever
+ * agent they happen to name. A pro review is about the agent it coaches, so
+ * it drops out under another agent's chip (and stays when it names none).
  */
 export function filterContentByAgent(content: MapContent, agent: string | null): MapContent {
   if (!agent) return content
   const wanted = nameKey(agent)
   const narrowed = {
     playbooks: content.playbooks,
-    guides: content.guides,
+    guides: content.guides.filter(
+      r => r.content_type !== 'pro-review' || r.agent == null || nameKey(r.agent) === wanted,
+    ),
     proVods: content.proVods.filter(r => r.agent != null && nameKey(r.agent) === wanted),
     myVods: content.myVods.filter(v => nameKey(v.match.agent) === wanted),
   }
