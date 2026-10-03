@@ -217,19 +217,22 @@ export default function ProStudyReview() {
     setDrillFocus(prev => ({ position, nonce: (prev?.nonce ?? 0) + 1 }))
   }, [])
 
-  // `?drill=<position>` opens the Practice tab with that row marked — the way a
-  // saved drill's card links back. Its own effect, not the `?t=` one below: that
-  // one waits for the player, and a guide with no video has none to wait for.
+  // `?drill=<id or position>` opens the Practice tab with that row marked — the
+  // way a saved drill's card links back. A saved drill knows its drill's id but
+  // not its position, so both are accepted. Its own effect, not the `?t=` one
+  // below: that one waits for the player, and a guide with no video has none.
   const [searchParams] = useSearchParams()
   const drillLinkDone = useRef(false)
   useEffect(() => {
     if (drillLinkDone.current || drills.length === 0) return
     const raw = searchParams.get('drill')
     if (!raw) return
-    const position = Number.parseInt(raw, 10)
-    if (drills.some(drill => drill.position === position && drill.status !== 'dropped')) {
+    const target = drills.find(
+      drill => drill.status !== 'dropped' && (drill.id === raw || String(drill.position) === raw),
+    )
+    if (target) {
       drillLinkDone.current = true
-      handleDrillFocus(position)
+      handleDrillFocus(target.position)
     }
   }, [drills, searchParams, handleDrillFocus])
 

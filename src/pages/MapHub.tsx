@@ -10,7 +10,7 @@ import SavedDrillCard, { SAVED_DRILLS_EMPTY } from '../components/SavedDrillCard
 import { useArtSlotRows } from '../hooks/useArtSlot'
 import { usePortalMaps } from '../hooks/useMapContent'
 import { useResource } from '../hooks/useResource'
-import { savedDrillsResource } from '../lib/savedDrills'
+import { removeSavedDrill, savedDrillsResource } from '../lib/savedDrills'
 import { drillsForMap } from '../lib/savedDrillScope'
 import { mapHeaderSlotKey, mapSlotKey } from '../lib/artSlots'
 import { agentImageFor, mapImageFor } from '../lib/gameContent'
@@ -210,22 +210,6 @@ export default function MapHub() {
           </div>
         )}
 
-        {/* Drills the player bookmarked to this map from Pro Study guides. No
-            live drill lookup here — the card shows the copy taken at save time. */}
-        <ContentShelf
-          title="Saved drills"
-          emptyLine={SAVED_DRILLS_EMPTY}
-          action={
-            <Link to="/study/drills" className="text-xs font-body font-normal tracking-normal text-text-secondary hover:text-val-cyan transition-colors">
-              All saved drills
-            </Link>
-          }
-        >
-          {savedHere.map(row => (
-            <SavedDrillCard key={row.id} saved={row} />
-          ))}
-        </ContentShelf>
-
         <ContentShelf title="My VODs" emptyLine={`Play ${map.name}, hit Load Latest, then add a VOD link to the match.`}>
           {shown.myVods.map(vod => (
             <VodCard key={vod.match.match_id} vod={vod} />
@@ -254,6 +238,24 @@ export default function MapHub() {
         >
           {shown.proVods.map(review => (
             <ReviewCard key={review.id} review={review} counts={guideCounts.get(review.id)} />
+          ))}
+        </ContentShelf>
+
+        {/* Drills the player bookmarked to this map from Pro Study guides, last
+            so the map's own material comes first. No live drill lookup here —
+            the card shows the copy taken at save time. The remove button is the
+            way to retire a drill once it is trained enough. */}
+        <ContentShelf
+          title="Saved drills"
+          emptyLine={SAVED_DRILLS_EMPTY}
+          action={
+            <Link to="/study/drills" className="text-xs font-body font-normal tracking-normal text-text-secondary hover:text-val-cyan transition-colors">
+              All saved drills
+            </Link>
+          }
+        >
+          {savedHere.map(row => (
+            <SavedDrillCard key={row.id} saved={row} onRemove={() => removeSavedDrill(row.id).catch(console.error)} />
           ))}
         </ContentShelf>
       </div>

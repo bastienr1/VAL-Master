@@ -33,14 +33,17 @@ function sourceLabel(saved: SavedDrill): string {
  * the way back to the moment in the guide it came from.
  *
  * Shows the copy taken at save time, not the live drill, and says so when the
- * two have drifted. The jump link carries the drill's position so the review
- * page opens its Practice tab with that row marked.
+ * two have drifted. The jump link carries the drill so the review page opens
+ * its Practice tab with that row marked.
  */
 export default function SavedDrillCard({ saved, live = null, logCount = 0, onRemove }: SavedDrillCardProps) {
   const changed = snapshotChanged(saved, live?.title ?? null)
+  // The review page marks a drill by id or position; the id is on the save
+  // itself, so the mark works from a shelf that never looked the drill up.
+  const mark = live ? String(live.position) : saved.drill_id
   const jump =
     saved.reference_review_id && saved.source_start_seconds !== null
-      ? `/study/${saved.reference_review_id}?t=${saved.source_start_seconds}${live ? `&drill=${live.position}` : ''}`
+      ? `/study/${saved.reference_review_id}?t=${saved.source_start_seconds}${mark ? `&drill=${mark}` : ''}`
       : null
 
   return (
@@ -53,7 +56,7 @@ export default function SavedDrillCard({ saved, live = null, logCount = 0, onRem
           <button
             type="button"
             onClick={onRemove}
-            title="Remove saved drill"
+            title="Trained enough? Remove the bookmark"
             className="shrink-0 -mr-1 -mt-0.5 p-1 rounded text-text-muted hover:text-val-red transition-colors"
           >
             <X className="w-3.5 h-3.5" />
