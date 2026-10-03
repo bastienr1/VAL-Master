@@ -14,6 +14,7 @@ import {
   groupContentByMap,
   isMapGuide,
   isProVod,
+  isVideoGuide,
   mapFromSlug,
   mapSlug,
   sameMap,
@@ -91,7 +92,11 @@ test('isProVod and isMapGuide never both claim a row', () => {
     }
   }
   assert.equal(isProVod({ source: 'notion', content_type: null }), true)
-  assert.equal(isProVod({ source: 'vault', content_type: 'pro-review' }), true)
+  // A vault pro review is a coaching breakdown, not a match: a video guide.
+  assert.equal(isProVod({ source: 'vault', content_type: 'pro-review' }), false)
+  assert.equal(isVideoGuide({ source: 'vault', content_type: 'pro-review' }), true)
+  assert.equal(isVideoGuide({ source: 'vault', content_type: 'map-guide' }), true)
+  assert.equal(isVideoGuide({ source: 'notion', content_type: null }), false)
   assert.equal(isMapGuide({ source: 'vault', content_type: 'map-guide' }), true)
   assert.equal(isMapGuide({ source: 'vault', content_type: 'mechanics' }), false)
 })
@@ -130,8 +135,37 @@ test('content is grouped onto its map across all three tables', () => {
   assert.equal(ascent.proVods.length, 1)
   assert.equal(ascent.myVods.length, 2)
 
+  // Haven's pro review is a video guide: the playbook and it make two.
   const haven = contentForMap(grouped, 'haven')
-  assert.deepEqual(haven.counts, { guides: 1, proVods: 1, myVods: 1 })
+  assert.equal(haven.proVods.length, 0)
+  assert.deepEqual(haven.counts, { guides: 2, proVods: 0, myVods: 1 })
+})
+
+test('the agent chip keeps map guides whatever they name, and narrows pro reviews', () => {
+  const grouped = groupContentByMap({
+    playbooks: [],
+    reviews: [
+      review({ source: 'vault', content_type: 'map-guide', agent: 'Sova' }),
+      review({ source: 'vault', content_type: 'pro-review', agent: 'Clove' }),
+      review({ source: 'vault', content_type: 'pro-review', agent: 'Jett' }),
+      review({ source: 'vault', content_type: 'pro-review', agent: null }),
+    ],
+    matches: [],
+    reviewedMatchIds: new Set(),
+  })
+  const all = contentForMap(grouped, 'Ascent')
+  assert.equal(all.guides.length, 4)
+
+  const clove = filterContentByAgent(all, 'clove')
+  assert.deepEqual(
+    clove.guides.map(r => [r.content_type, r.agent]),
+    [
+      ['map-guide', 'Sova'],
+      ['pro-review', 'Clove'],
+      ['pro-review', null],
+    ],
+  )
+  assert.equal(clove.counts.guides, 3)
 })
 
 test('counts equal the list lengths', () => {
