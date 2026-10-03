@@ -175,6 +175,41 @@ test('map view: every source, fullest map first, No map last', () => {
   assert.equal(blocks.find(b => b.title === 'Abyss')!.stats.videos, 2)
 })
 
+// --------------------------------------------------------------------- watched
+
+test('a series with nothing watched counts 0 and points at its first episode', () => {
+  const reviews = corpus()
+  const blocks = buildShelves(reviews, countsFor(reviews), 'series')!
+  const dopai = blocks.find(b => b.title === DOPAI)!
+
+  assert.equal(dopai.watched, 0)
+  // #13 is the oldest upload, whatever section it sits in.
+  assert.equal(dopai.upNextId, reviews.find(r => r.playlist_index === 13)!.id)
+  // Not a series: no progress fields at all.
+  assert.equal(blocks.find(b => b.title === 'Map playbooks')!.upNextId, undefined)
+})
+
+test('a half-watched series skips watched episodes in reading order', () => {
+  const reviews = corpus()
+  const byIndex = (n: number) => reviews.find(r => r.series === DOPAI && r.playlist_index === n)!.id
+  const watched = new Set([byIndex(13), byIndex(11)]) // first and third episodes
+  const blocks = buildShelves(reviews, countsFor(reviews), 'series', watched)!
+  const dopai = blocks.find(b => b.title === DOPAI)!
+
+  assert.equal(dopai.watched, 2)
+  assert.equal(dopai.upNextId, byIndex(12))
+})
+
+test('a fully watched series has no up next', () => {
+  const reviews = corpus()
+  const watched = new Set(reviews.filter(r => r.series === DOPAI).map(r => r.id))
+  const blocks = buildShelves(reviews, countsFor(reviews), 'series', watched)!
+  const dopai = blocks.find(b => b.title === DOPAI)!
+
+  assert.equal(dopai.watched, 3)
+  assert.equal(dopai.upNextId, null)
+})
+
 // ------------------------------------------------------------------------ date
 
 test('date view is the flat grid: null', () => {

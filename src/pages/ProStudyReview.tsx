@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
-import { ArrowLeft, Clock, ExternalLink, Pause, Play, SkipBack, SkipForward, VideoOff } from 'lucide-react'
+import { ArrowLeft, CheckCircle2, Clock, ExternalLink, Pause, Play, SkipBack, SkipForward, VideoOff } from 'lucide-react'
 import ReferenceCapturePanel from '../components/ReferenceCapturePanel'
 import ReferenceNotesPanel from '../components/ReferenceNotesPanel'
 import ChapterRail from '../components/ChapterRail'
@@ -15,7 +15,7 @@ import { agentImageFor, mapImageFor } from '../lib/gameContent'
 import { reviewHeading, shortCreator } from '../lib/guideDisplay'
 import { useGameContent } from '../hooks/useGameContent'
 import { useYouTubePlayer } from '../hooks/useYouTubePlayer'
-import { deleteNote, getNotes, getReviewWithGuide } from '../lib/referenceReviews'
+import { deleteNote, getNotes, getReviewWithGuide, getWatchedAt, setWatched } from '../lib/referenceReviews'
 import { addMomentTag, listMomentTags, listReviewTags, removeMomentTag } from '../lib/momentTags'
 import { REFERENCE_LABEL_COLORS, hexWithAlpha } from '../lib/tagColors'
 import { formatTime } from '../lib/youtube'
@@ -28,6 +28,13 @@ import type {
   ReviewRef,
   ReviewTag,
 } from '../lib/types'
+
+/** "3 Oct" — the day is enough; the year would only matter a long time later. */
+function formatWatchedAt(iso: string): string {
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return ''
+  return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
+}
 
 /**
  * Note-anchored timeline.
@@ -111,6 +118,11 @@ export default function ProStudyReview() {
   const [tagFilter, setTagFilter] = useState<string | null>(null)
   const [quickDropOpen, setQuickDropOpen] = useState(false)
 
+  // Explicit watched mark (decision 5 of 2026-10-03): the user sets it here,
+  // the library reads it for series progress and "Up next". Never inferred.
+  const [watchedAt, setWatchedAt] = useState<string | null>(null)
+  const [watchBusy, setWatchBusy] = useState(false)
+
   // Mounted so the header re-renders once the registry lands.
   useGameContent()
 
@@ -136,15 +148,17 @@ export default function ProStudyReview() {
         setReview(found.review)
         setSections(found.sections)
         setDrills(found.drills)
-        const [loadedNotes, loadedTags, loadedMoments] = await Promise.all([
+        const [loadedNotes, loadedTags, loadedMoments, loadedWatchedAt] = await Promise.all([
           getNotes(found.review.id),
           listReviewTags(),
           listMomentTags({ type: 'reference', id: found.review.id }),
+          getWatchedAt(found.review.id),
         ])
         if (!cancelled) {
           setNotes(loadedNotes)
           setTags(loadedTags)
           setMoments(loadedMoments)
+          setWatchedAt(loadedWatchedAt)
         }
       } catch (err) {
         console.error('Failed to load pro VOD:', err)
@@ -159,6 +173,23 @@ export default function ProStudyReview() {
       cancelled = true
     }
   }, [id])
+
+  /** Optimistic: the chip flips at once and flips back if the write fails. */
+  const toggleWatched = useCallback(async () => {
+    if (!review || watchBusy) return
+    const before = watchedAt
+    const next = !before
+    setWatchBusy(true)
+    setWatchedAt(next ? new Date().toISOString() : null)
+    try {
+      setWatchedAt(await setWatched(review.id, next))
+    } catch (err) {
+      console.error('Failed to update watched state:', err)
+      setWatchedAt(before)
+    } finally {
+      setWatchBusy(false)
+    }
+  }, [review, watchedAt, watchBusy])
 
   /** A moment with no drill lets go of the last mark but leaves the tab alone. */
   const handleDrillFocus = useCallback((position: number | null) => {
@@ -419,8 +450,25 @@ export default function ProStudyReview() {
             </span>
           )}
           {review.event && <span className="text-[11px] text-text-muted">{review.event}</span>}
+          {/* The watched mark sits at the right edge with the date: a state of
+              the user's, not a fact about the video like the chips before it. */}
+          <button
+            type="button"
+            onClick={toggleWatched}
+            disabled={watchBusy}
+            aria-pressed={!!watchedAt}
+            title={watchedAt ? 'Marked watched — click to unmark' : 'Mark this video as watched'}
+            className={`ml-auto shrink-0 flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium border transition-colors disabled:opacity-60 ${
+              watchedAt
+                ? 'bg-val-cyan/10 text-val-cyan border-val-cyan/30'
+                : 'bg-transparent text-text-muted border-bg-elevated hover:border-text-muted'
+            }`}
+          >
+            <CheckCircle2 className="w-3.5 h-3.5" />
+            {watchedAt ? `Watched · ${formatWatchedAt(watchedAt)}` : 'Mark as watched'}
+          </button>
           {review.played_at && (
-            <span className="font-stats text-[10px] text-text-muted ml-auto">{review.played_at}</span>
+            <span className="font-stats text-[10px] text-text-muted">{review.played_at}</span>
           )}
         </div>
       </div>

@@ -3,6 +3,7 @@ import type {
   DrillWithProgress,
   GuideContentType,
   GuideCounts,
+  GuideWatch,
   PracticeDrill,
   PracticeLog,
   PracticeOutcome,
@@ -155,6 +156,57 @@ export async function getReviewWithGuide(id: string): Promise<ReviewWithGuide | 
 }
 
 export type { GuideCounts }
+
+// ------------------------------------------------------------------- watched
+
+/**
+ * Every guide the user has marked watched, as review id → `watched_at`.
+ *
+ * One flat read for the library, which needs the set to count a series'
+ * progress and to find its next unwatched video.
+ */
+export async function listWatched(): Promise<Map<string, string>> {
+  const { data, error } = await supabase
+    .from('guide_watches')
+    .select('reference_review_id, watched_at')
+
+  if (error) throw new Error(error.message)
+  return new Map((data ?? []).map((row: GuideWatch) => [row.reference_review_id, row.watched_at]))
+}
+
+/** When one review was marked watched, or null when it was not. */
+export async function getWatchedAt(reviewId: string): Promise<string | null> {
+  const { data, error } = await supabase
+    .from('guide_watches')
+    .select('watched_at')
+    .eq('reference_review_id', reviewId)
+    .maybeSingle()
+
+  if (error) throw new Error(error.message)
+  return data?.watched_at ?? null
+}
+
+/**
+ * Marks or unmarks a review. Returns the stored `watched_at`, or null once
+ * unmarked. Marking an already-watched review keeps its original date: the
+ * upsert touches no column on conflict.
+ */
+export async function setWatched(reviewId: string, watched: boolean): Promise<string | null> {
+  if (!watched) {
+    const { error } = await supabase.from('guide_watches').delete().eq('reference_review_id', reviewId)
+    if (error) throw new Error(error.message)
+    return null
+  }
+
+  const { data, error } = await supabase
+    .from('guide_watches')
+    .upsert({ reference_review_id: reviewId }, { onConflict: 'reference_review_id' })
+    .select('watched_at')
+    .single()
+
+  if (error) throw new Error(error.message)
+  return data.watched_at as string
+}
 
 /**
  * Chapter and drill counts per guide, for the library cards.

@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom'
+import { Check } from 'lucide-react'
 import { agentImageFor, mapImageFor } from '../lib/gameContent'
 import { reviewHeading, shortCreator } from '../lib/guideDisplay'
 import type { GuideCounts } from '../lib/referenceReviews'
@@ -26,12 +27,21 @@ function formatPlayedAt(played: string | null): string {
   return date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
 }
 
+/** Watched, or the next unwatched episode of its series. The library decides which. */
+export type ReviewBadge = 'watched' | 'up-next'
+
+interface ReviewCardProps {
+  review: ReferenceReview
+  counts?: GuideCounts
+  badge?: ReviewBadge | null
+}
+
 /**
  * A Pro Study row — pro VOD or vault guide — as a card that opens its review.
  * One component for the Pro Study library and the Map Hub shelves, so a VOD
  * looks the same wherever it is listed.
  */
-export default function ReviewCard({ review, counts }: { review: ReferenceReview; counts?: GuideCounts }) {
+export default function ReviewCard({ review, counts, badge }: ReviewCardProps) {
   // Only 5 of 70 seeded rows carry a date and none carry an event, so neither
   // gets a permanent slot — they sit over the splash when they exist, and the
   // card keeps one height either way.
@@ -109,11 +119,26 @@ export default function ReviewCard({ review, counts }: { review: ReferenceReview
             </div>
             <div className="text-[11px] text-text-secondary truncate">{subLine}</div>
           </div>
-          {counts && counts.activeDrills > 0 && (
-            <span className="ml-auto shrink-0 px-1.5 py-0.5 rounded bg-val-cyan/15 text-val-cyan text-[10px] font-medium">
-              {counts.activeDrills} active
-            </span>
-          )}
+          <div className="ml-auto shrink-0 flex items-center gap-1">
+            {counts && counts.activeDrills > 0 && (
+              <span className="px-1.5 py-0.5 rounded bg-val-cyan/15 text-val-cyan text-[10px] font-medium">
+                {counts.activeDrills} active
+              </span>
+            )}
+            {badge === 'up-next' && (
+              <span className="px-1.5 py-0.5 rounded bg-val-yellow/15 text-val-yellow text-[10px] font-medium">
+                Up next
+              </span>
+            )}
+            {badge === 'watched' && (
+              <span
+                title="Watched"
+                className="w-5 h-5 rounded-full bg-val-cyan/15 text-val-cyan flex items-center justify-center"
+              >
+                <Check className="w-3 h-3" aria-label="Watched" />
+              </span>
+            )}
+          </div>
         </div>
       </div>
     </Link>

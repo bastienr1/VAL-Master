@@ -1,13 +1,21 @@
 import { ChevronRight } from 'lucide-react'
 import { formatDuration, type ShelfBlock } from '../lib/libraryShelves'
 import type { GuideCounts } from '../lib/referenceReviews'
-import ReviewCard from './ReviewCard'
+import ReviewCard, { type ReviewBadge } from './ReviewCard'
 
 interface LibraryShelfProps {
   block: ShelfBlock
   open: boolean
   onToggle: () => void
   counts: Map<string, GuideCounts>
+  /** Review ids the user marked watched; drives the check and the "Up next" badge. */
+  watched: Set<string>
+}
+
+function badgeFor(block: ShelfBlock, reviewId: string, watched: Set<string>): ReviewBadge | null {
+  if (watched.has(reviewId)) return 'watched'
+  if (block.upNextId === reviewId) return 'up-next'
+  return null
 }
 
 /**
@@ -17,13 +25,15 @@ interface LibraryShelfProps {
  * Closed by default and remembered by the page: the two coaching series alone
  * are fifty cards, and the header already says what is inside. The same
  * `ReviewCard` as the flat grid, so a guide looks the same wherever it sits.
+ * A series header also says how far through it the user is.
  */
-export default function LibraryShelf({ block, open, onToggle, counts }: LibraryShelfProps) {
+export default function LibraryShelf({ block, open, onToggle, counts, watched }: LibraryShelfProps) {
   const { videos, durationSeconds, drills } = block.stats
   const stats = [
     `${videos} video${videos === 1 ? '' : 's'}`,
     formatDuration(durationSeconds),
     drills > 0 ? `${drills} drill${drills === 1 ? '' : 's'}` : '',
+    block.watched ? `${block.watched} of ${videos} watched` : '',
   ]
     .filter(Boolean)
     .join(' · ')
@@ -55,7 +65,12 @@ export default function LibraryShelf({ block, open, onToggle, counts }: LibraryS
               )}
               <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                 {section.reviews.map(review => (
-                  <ReviewCard key={review.id} review={review} counts={counts.get(review.id)} />
+                  <ReviewCard
+                    key={review.id}
+                    review={review}
+                    counts={counts.get(review.id)}
+                    badge={badgeFor(block, review.id, watched)}
+                  />
                 ))}
               </div>
             </div>
