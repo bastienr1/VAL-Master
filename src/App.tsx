@@ -12,6 +12,7 @@ import Settings from './pages/Settings'
 import PlaybookIndex from './pages/PlaybookIndex'
 import PlaybookReader from './pages/PlaybookReader'
 import ProStudyLibrary from './pages/ProStudyLibrary'
+import SavedDrills from './pages/SavedDrills'
 import ProStudyReview from './pages/ProStudyReview'
 import MapIndex from './pages/MapIndex'
 import MapHub from './pages/MapHub'
@@ -64,6 +65,8 @@ function App() {
           <Route path="/playbook" element={<PlaybookIndex />} />
           <Route path="/playbook/:slug" element={<PlaybookReader />} />
           <Route path="/study" element={<ProStudyLibrary />} />
+          {/* Static before the param route: /study/drills is a page, not a review id. */}
+          <Route path="/study/drills" element={<SavedDrills />} />
           <Route path="/study/:id" element={<ProStudyReview />} />
           {/* Preserved legacy routes — accessible via direct URL */}
           <Route path="/checkin" element={<CheckIn />} />

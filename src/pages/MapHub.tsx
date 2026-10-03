@@ -6,8 +6,12 @@ import GameImage from '../components/GameImage'
 import MapAgentPanel from '../components/MapAgentPanel'
 import PlaybookCard from '../components/PlaybookCard'
 import ReviewCard from '../components/ReviewCard'
+import SavedDrillCard, { SAVED_DRILLS_EMPTY } from '../components/SavedDrillCard'
 import { useArtSlotRows } from '../hooks/useArtSlot'
 import { usePortalMaps } from '../hooks/useMapContent'
+import { useResource } from '../hooks/useResource'
+import { removeSavedDrill, savedDrillsResource } from '../lib/savedDrills'
+import { drillsForMap } from '../lib/savedDrillScope'
 import { mapHeaderSlotKey, mapSlotKey } from '../lib/artSlots'
 import { agentImageFor, mapImageFor } from '../lib/gameContent'
 import { formatScore, summarize } from '../lib/homeStats'
@@ -79,6 +83,7 @@ export default function MapHub() {
   const [searchParams, setSearchParams] = useSearchParams()
   const { maps, grouped, guideCounts, loading, error } = usePortalMaps()
   const { active: artOverrides } = useArtSlotRows()
+  const { data: savedDrills } = useResource(savedDrillsResource)
 
   const map = maps.find(m => mapSlug(m.name) === mapSlug(slug)) ?? null
   const content = map ? contentForMap(grouped, map.name) : null
@@ -119,6 +124,8 @@ export default function MapHub() {
   const wanted = searchParams.get('agent')?.trim().toLowerCase()
   const agent = agents.find(name => name.toLowerCase() === wanted) ?? null
   const shown = filterContentByAgent(content, agent)
+  // Saves made with no agent are about the map and stay under any chip.
+  const savedHere = drillsForMap(savedDrills ?? [], map.name, agent)
 
   const selectAgent = (name: string | null) => setSearchParams(name ? { agent: name } : {}, { replace: true })
 
@@ -231,6 +238,24 @@ export default function MapHub() {
         >
           {shown.proVods.map(review => (
             <ReviewCard key={review.id} review={review} counts={guideCounts.get(review.id)} />
+          ))}
+        </ContentShelf>
+
+        {/* Drills the player bookmarked to this map from Pro Study guides, last
+            so the map's own material comes first. No live drill lookup here —
+            the card shows the copy taken at save time. The remove button is the
+            way to retire a drill once it is trained enough. */}
+        <ContentShelf
+          title="Saved drills"
+          emptyLine={SAVED_DRILLS_EMPTY}
+          action={
+            <Link to="/study/drills" className="text-xs font-body font-normal tracking-normal text-text-secondary hover:text-val-cyan transition-colors">
+              All saved drills
+            </Link>
+          }
+        >
+          {savedHere.map(row => (
+            <SavedDrillCard key={row.id} saved={row} onRemove={() => removeSavedDrill(row.id).catch(console.error)} />
           ))}
         </ContentShelf>
       </div>

@@ -7,6 +7,8 @@ interface ContentShelfProps {
   emptyLine: string
   /** One card per child. */
   children: React.ReactNode
+  /** Something small beside the title — a link to the full list, say. */
+  action?: React.ReactNode
 }
 
 /**
@@ -14,7 +16,7 @@ interface ContentShelfProps {
  * fits offers "View all", which lays the same cards out as a grid. An empty
  * shelf stays on the page and says how to fill it.
  */
-export default function ContentShelf({ title, emptyLine, children }: ContentShelfProps) {
+export default function ContentShelf({ title, emptyLine, children, action }: ContentShelfProps) {
   const cards = Children.toArray(children)
   const [overflowing, setOverflowing] = useState(false)
   const [expanded, setExpanded] = useState(false)
@@ -22,9 +24,12 @@ export default function ContentShelf({ title, emptyLine, children }: ContentShel
   return (
     <section className="space-y-3">
       <div className="flex items-baseline justify-between gap-4">
-        <h2 className="font-heading text-lg font-bold tracking-wide">
-          {title}
-          <span className="ml-2 font-stats text-xs font-normal text-text-muted">{cards.length}</span>
+        <h2 className="font-heading text-lg font-bold tracking-wide flex items-baseline gap-3">
+          <span>
+            {title}
+            <span className="ml-2 font-stats text-xs font-normal text-text-muted">{cards.length}</span>
+          </span>
+          {action}
         </h2>
         {cards.length > 0 && (overflowing || expanded) && (
           <button

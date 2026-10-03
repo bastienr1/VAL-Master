@@ -5,7 +5,7 @@ import ReferenceCapturePanel from '../components/ReferenceCapturePanel'
 import ReferenceNotesPanel from '../components/ReferenceNotesPanel'
 import ChapterRail from '../components/ChapterRail'
 import GuideEssence from '../components/GuideEssence'
-import GuideStudyPanel, { type StudyTab } from '../components/GuideStudyPanel'
+import GuideStudyPanel, { type SaveDrillResult, type StudyTab } from '../components/GuideStudyPanel'
 import MomentTagLane from '../components/MomentTagLane'
 import TagPicker from '../components/TagPicker'
 import { useSplitter, SplitterHandle } from '../components/ColumnSplitter'
@@ -13,9 +13,12 @@ import { MIN_OTHER_COLUMN, RAIL_MAX_PX, RAIL_MIN } from '../lib/constants'
 import GameImage from '../components/GameImage'
 import { agentImageFor, mapImageFor } from '../lib/gameContent'
 import { reviewHeading, shortCreator } from '../lib/guideDisplay'
-import { useGameContent } from '../hooks/useGameContent'
+import { useGameContent, useGameContentNames } from '../hooks/useGameContent'
+import { useResource } from '../hooks/useResource'
 import { useYouTubePlayer } from '../hooks/useYouTubePlayer'
 import { deleteNote, getNotes, getReviewWithGuide, getWatchedAt, setWatched } from '../lib/referenceReviews'
+import { removeSavedDrill, saveDrill, savedDrillsResource } from '../lib/savedDrills'
+import { defaultScope, scopeOptions as scopeOptionsFor } from '../lib/savedDrillScope'
 import { addMomentTag, listMomentTags, listReviewTags, removeMomentTag } from '../lib/momentTags'
 import { REFERENCE_LABEL_COLORS, hexWithAlpha } from '../lib/tagColors'
 import { formatTime } from '../lib/youtube'
@@ -27,6 +30,8 @@ import type {
   ReferenceSection,
   ReviewRef,
   ReviewTag,
+  SavedDrill,
+  SavedDrillScope,
 } from '../lib/types'
 
 /** "3 Oct" — the day is enough; the year would only matter a long time later. */
@@ -123,8 +128,19 @@ export default function ProStudyReview() {
   const [watchedAt, setWatchedAt] = useState<string | null>(null)
   const [watchBusy, setWatchBusy] = useState(false)
 
+  // Saved drills: the shared cache, plus this page's optimistic view of the
+  // rows it is writing. An override is a save in flight (or just made) by
+  // drill id, null meaning "removed"; the lot is dropped once the cache
+  // refetches, which every write triggers.
+  const savedState = useResource(savedDrillsResource)
+  const [savedOverrides, setSavedOverrides] = useState<Map<string, SavedDrill | null>>(new Map())
+  useEffect(() => {
+    setSavedOverrides(new Map())
+  }, [savedState.data])
+
   // Mounted so the header re-renders once the registry lands.
   useGameContent()
+  const { mapNames } = useGameContentNames()
 
   const {
     containerRef, ready, isPlaying, currentTime, duration, embedBlocked,
@@ -199,6 +215,107 @@ export default function ProStudyReview() {
     }
     setStudyTab('practice')
     setDrillFocus(prev => ({ position, nonce: (prev?.nonce ?? 0) + 1 }))
+  }, [])
+
+  // `?drill=<id or position>` opens the Practice tab with that row marked — the
+  // way a saved drill's card links back. A saved drill knows its drill's id but
+  // not its position, so both are accepted. Its own effect, not the `?t=` one
+  // below: that one waits for the player, and a guide with no video has none.
+  const [searchParams] = useSearchParams()
+  const drillLinkDone = useRef(false)
+  useEffect(() => {
+    if (drillLinkDone.current || drills.length === 0) return
+    const raw = searchParams.get('drill')
+    if (!raw) return
+    const target = drills.find(
+      drill => drill.status !== 'dropped' && (drill.id === raw || String(drill.position) === raw),
+    )
+    if (target) {
+      drillLinkDone.current = true
+      handleDrillFocus(target.position)
+    }
+  }, [drills, searchParams, handleDrillFocus])
+
+  // Saved drills as the panel sees them: the cache with this page's writes on top.
+  const savedByDrillId = useMemo(() => {
+    const byDrill = new Map<string, SavedDrill>()
+    for (const row of savedState.data ?? []) {
+      if (row.drill_id) byDrill.set(row.drill_id, row)
+    }
+    for (const [drillId, row] of savedOverrides) {
+      if (row) byDrill.set(drillId, row)
+      else byDrill.delete(drillId)
+    }
+    return byDrill
+  }, [savedState.data, savedOverrides])
+
+  // Every place the picker offers: the guide's own, then the whole map pool.
+  const scopeOptions = useMemo(
+    () => (review ? scopeOptionsFor(review, mapNames) : []),
+    [review, mapNames],
+  )
+
+  /**
+   * Save to the given place, or to the guide's default. Optimistic: the row
+   * reads as saved at once, with a placeholder until the real row comes back,
+   * and reverts if the write fails. `'pick'` tells the row to ask instead.
+   */
+  const handleSaveDrill = useCallback(
+    async (drill: DrillWithProgress, scope: SavedDrillScope | null): Promise<SaveDrillResult> => {
+      if (!review) return 'failed'
+      const target = scope ?? defaultScope(review)
+      if (!target) return 'pick'
+
+      const previous = savedByDrillId.get(drill.id) ?? null
+      const placeholder: SavedDrill = {
+        id: previous?.id ?? `pending:${drill.id}`,
+        drill_id: drill.id,
+        reference_review_id: review.id,
+        scope_type: target.type,
+        scope_value: target.value,
+        agent: target.type === 'map' ? target.agent : null,
+        title: drill.title,
+        venue: drill.venue,
+        cue: drill.cue,
+        success_signal: drill.success_signal,
+        source_start_seconds: drill.source_start_seconds,
+        source_end_seconds: drill.source_end_seconds,
+        source_title: review.title,
+        note: null,
+        created_at: previous?.created_at ?? new Date().toISOString(),
+      }
+      setSavedOverrides(current => new Map(current).set(drill.id, placeholder))
+      try {
+        const saved = await saveDrill(drill, review, target)
+        setSavedOverrides(current => new Map(current).set(drill.id, saved))
+        return 'saved'
+      } catch (err) {
+        console.error('Failed to save drill:', err)
+        setSavedOverrides(current => {
+          const next = new Map(current)
+          next.delete(drill.id)
+          return next
+        })
+        return 'failed'
+      }
+    },
+    [review, savedByDrillId],
+  )
+
+  const handleRemoveSaved = useCallback(async (saved: SavedDrill) => {
+    if (!saved.drill_id) return
+    const drillId = saved.drill_id
+    setSavedOverrides(current => new Map(current).set(drillId, null))
+    try {
+      await removeSavedDrill(saved.id)
+    } catch (err) {
+      console.error('Failed to remove saved drill:', err)
+      setSavedOverrides(current => {
+        const next = new Map(current)
+        next.delete(drillId)
+        return next
+      })
+    }
   }, [])
 
   const openCapture = useCallback(() => {
@@ -339,7 +456,6 @@ export default function ProStudyReview() {
 
   // `?t=90` seeks once the player is ready — the deep-link shape a tag explorer
   // would link to. Guarded by a ref so it fires once and never fights the user.
-  const [searchParams] = useSearchParams()
   const deepLinkDone = useRef(false)
   useEffect(() => {
     if (deepLinkDone.current || !ready) return
@@ -677,6 +793,10 @@ export default function ProStudyReview() {
               tab={studyTab}
               onTabChange={setStudyTab}
               drillFocus={drillFocus}
+              savedByDrillId={savedByDrillId}
+              scopeOptions={scopeOptions}
+              onSaveDrill={handleSaveDrill}
+              onRemoveSaved={handleRemoveSaved}
             />
           )}
 

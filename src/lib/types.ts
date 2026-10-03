@@ -339,6 +339,42 @@ export interface GuideWatch {
   watched_at: string
 }
 
+/** Where a saved drill is filed: a map, an agent, or a skill from the taxonomy. */
+export type SavedDrillScopeType = 'map' | 'agent' | 'concept'
+
+export interface SavedDrillScope {
+  type: SavedDrillScopeType
+  /** The map or agent name as the guide writes it, or the `skill:` value. */
+  value: string
+  /** Only on a map save: the guide's sole agent, so the Map Hub chip can narrow. */
+  agent: string | null
+}
+
+/**
+ * A drill the user saved from a guide's Practice tab. One row per drill; the
+ * text columns are a copy of the drill at save time (a drill's identity is its
+ * row position in the note, so the copy keeps the card honest if the note is
+ * reordered). Carries no status: `practice_drills.status` and `practice_logs`
+ * hold that. Both foreign keys go null if their row disappears.
+ */
+export interface SavedDrill {
+  id: string
+  drill_id: string | null
+  reference_review_id: string | null
+  scope_type: SavedDrillScopeType
+  scope_value: string
+  agent: string | null
+  title: string
+  venue: string | null
+  cue: string | null
+  success_signal: string | null
+  source_start_seconds: number | null
+  source_end_seconds: number | null
+  source_title: string | null
+  note: string | null
+  created_at: string
+}
+
 /**
  * One chapter of a study guide — a `###` heading carrying a `[MM:SS–MM:SS]`
  * range.
