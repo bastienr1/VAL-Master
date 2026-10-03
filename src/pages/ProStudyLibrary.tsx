@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
-import { GraduationCap } from 'lucide-react'
+import { Link } from 'react-router-dom'
+import { Bookmark, GraduationCap } from 'lucide-react'
+import { useResource } from '../hooks/useResource'
 import { getGuideCounts, listReviews, listWatched, type GuideCounts } from '../lib/referenceReviews'
+import { savedDrillsResource } from '../lib/savedDrills'
 import { agentImageFor } from '../lib/gameContent'
 import {
   GROUP_BY_LABELS,
@@ -133,6 +136,7 @@ export default function ProStudyLibrary() {
   // Mounted so the grid re-renders once the registry lands; resolution itself
   // is synchronous against the shared cache.
   useGameContent()
+  const { data: savedDrills } = useResource(savedDrillsResource)
 
   const [groupBy, setGroupBy] = useState<GroupBy>(() => readStored(GROUP_BY_KEY, 'series', isGroupBy))
   const [openBlocks, setOpenBlocks] = useState<Record<string, boolean>>(() =>
@@ -255,6 +259,14 @@ export default function ProStudyLibrary() {
             ? `${reviews.length} VOD${reviews.length === 1 ? '' : 's'}`
             : `${filtered.length} of ${reviews.length}`}
         </span>
+        <Link
+          to="/study/drills"
+          className="ml-auto flex items-center gap-1.5 text-xs text-text-secondary hover:text-val-cyan transition-colors"
+        >
+          <Bookmark className="w-3.5 h-3.5 text-val-yellow" />
+          Saved drills
+          <span className="font-stats text-text-muted">{savedDrills?.length ?? 0}</span>
+        </Link>
       </div>
 
       {error && (

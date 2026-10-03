@@ -6,8 +6,12 @@ import GameImage from '../components/GameImage'
 import MapAgentPanel from '../components/MapAgentPanel'
 import PlaybookCard from '../components/PlaybookCard'
 import ReviewCard from '../components/ReviewCard'
+import SavedDrillCard, { SAVED_DRILLS_EMPTY } from '../components/SavedDrillCard'
 import { useArtSlotRows } from '../hooks/useArtSlot'
 import { usePortalMaps } from '../hooks/useMapContent'
+import { useResource } from '../hooks/useResource'
+import { savedDrillsResource } from '../lib/savedDrills'
+import { drillsForMap } from '../lib/savedDrillScope'
 import { mapHeaderSlotKey, mapSlotKey } from '../lib/artSlots'
 import { agentImageFor, mapImageFor } from '../lib/gameContent'
 import { formatScore, summarize } from '../lib/homeStats'
@@ -79,6 +83,7 @@ export default function MapHub() {
   const [searchParams, setSearchParams] = useSearchParams()
   const { maps, grouped, guideCounts, loading, error } = usePortalMaps()
   const { active: artOverrides } = useArtSlotRows()
+  const { data: savedDrills } = useResource(savedDrillsResource)
 
   const map = maps.find(m => mapSlug(m.name) === mapSlug(slug)) ?? null
   const content = map ? contentForMap(grouped, map.name) : null
@@ -119,6 +124,8 @@ export default function MapHub() {
   const wanted = searchParams.get('agent')?.trim().toLowerCase()
   const agent = agents.find(name => name.toLowerCase() === wanted) ?? null
   const shown = filterContentByAgent(content, agent)
+  // Saves made with no agent are about the map and stay under any chip.
+  const savedHere = drillsForMap(savedDrills ?? [], map.name, agent)
 
   const selectAgent = (name: string | null) => setSearchParams(name ? { agent: name } : {}, { replace: true })
 
@@ -202,6 +209,22 @@ export default function MapHub() {
             ))}
           </div>
         )}
+
+        {/* Drills the player bookmarked to this map from Pro Study guides. No
+            live drill lookup here — the card shows the copy taken at save time. */}
+        <ContentShelf
+          title="Saved drills"
+          emptyLine={SAVED_DRILLS_EMPTY}
+          action={
+            <Link to="/study/drills" className="text-xs font-body font-normal tracking-normal text-text-secondary hover:text-val-cyan transition-colors">
+              All saved drills
+            </Link>
+          }
+        >
+          {savedHere.map(row => (
+            <SavedDrillCard key={row.id} saved={row} />
+          ))}
+        </ContentShelf>
 
         <ContentShelf title="My VODs" emptyLine={`Play ${map.name}, hit Load Latest, then add a VOD link to the match.`}>
           {shown.myVods.map(vod => (

@@ -1,11 +1,16 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { CheckSquare, Dumbbell, Lightbulb, ListChecks, Play, Square } from 'lucide-react'
 import NoteMarkdown from './NoteMarkdown'
+import SaveDrillButton from './SaveDrillButton'
 import { parseActionItems } from '../lib/guideDisplay'
 import { guideMarkdown } from '../lib/guideMarkdown'
 import { linkifyTimestamps } from '../lib/playbookMoments'
+import { sameScope, scopeLabel } from '../lib/savedDrillScope'
 import { formatTime } from '../lib/youtube'
-import type { DrillWithProgress } from '../lib/types'
+import type { DrillWithProgress, SavedDrill, SavedDrillScope } from '../lib/types'
+
+/** What the page did with a save request: saved it, or wants the row to ask where. */
+export type SaveDrillResult = 'saved' | 'pick' | 'failed'
 
 interface GuideStudyPanelProps {
   takeaways: string | null
@@ -22,9 +27,101 @@ interface GuideStudyPanelProps {
    * click, so clicking the same moment again scrolls back to its drill.
    */
   drillFocus: { position: number; nonce: number } | null
+  /**
+   * Saving. All four are optional together: without them the Practice tab is
+   * the read-only list it always was. `onSaveDrill` with a null scope asks the
+   * page for the guide's default; `'pick'` back means there is none and the
+   * row opens its menu instead.
+   */
+  savedByDrillId?: Map<string, SavedDrill>
+  scopeOptions?: SavedDrillScope[]
+  onSaveDrill?: (drill: DrillWithProgress, scope: SavedDrillScope | null) => Promise<SaveDrillResult>
+  onRemoveSaved?: (saved: SavedDrill) => Promise<void>
 }
 
 export type StudyTab = 'takeaways' | 'practice' | 'actions'
+
+const SCOPE_GROUPS: Array<{ type: SavedDrillScope['type']; heading: string }> = [
+  { type: 'map', heading: 'Map' },
+  { type: 'agent', heading: 'Agent' },
+  { type: 'concept', heading: 'Skill' },
+]
+
+/**
+ * The inline "save to" menu under a drill row: every place the guide allows,
+ * grouped, the current one marked. Lives in the row (no portal) so it scrolls
+ * with the list; Escape and a click outside close it.
+ */
+function ScopeMenu({
+  options,
+  current,
+  onPick,
+  onClose,
+}: {
+  options: SavedDrillScope[]
+  current: Pick<SavedDrillScope, 'type' | 'value'> | null
+  onPick: (scope: SavedDrillScope) => void
+  onClose: () => void
+}) {
+  const ref = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose()
+    }
+    const onPointer = (event: MouseEvent) => {
+      if (ref.current && !ref.current.contains(event.target as Node)) onClose()
+    }
+    document.addEventListener('keydown', onKey)
+    document.addEventListener('mousedown', onPointer)
+    return () => {
+      document.removeEventListener('keydown', onKey)
+      document.removeEventListener('mousedown', onPointer)
+    }
+  }, [onClose])
+
+  return (
+    <div
+      ref={ref}
+      role="menu"
+      className="absolute left-0 top-full mt-1 z-20 w-60 max-h-72 overflow-y-auto bg-bg-card border border-bg-elevated rounded-lg shadow-lg p-1.5 space-y-1.5"
+    >
+      {SCOPE_GROUPS.map(group => {
+        const items = options.filter(option => option.type === group.type)
+        if (items.length === 0) return null
+        return (
+          <div key={group.type}>
+            <div className="px-1.5 pb-0.5 text-[10px] uppercase tracking-wider text-text-muted">{group.heading}</div>
+            <div className="flex flex-wrap gap-1">
+              {items.map(option => {
+                const active = current !== null && sameScope(current, option)
+                return (
+                  <button
+                    key={`${option.type}:${option.value}`}
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={active}
+                    onClick={() => onPick(option)}
+                    className={`px-2 py-0.5 rounded-full text-[11px] font-medium border transition-colors ${
+                      active
+                        ? 'bg-val-cyan/10 text-val-cyan border-val-cyan/30'
+                        : 'bg-transparent text-text-secondary border-bg-elevated hover:border-text-muted'
+                    }`}
+                  >
+                    {scopeLabel(option)}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )
+      })}
+      {options.length === 0 && (
+        <p className="px-1.5 py-1 text-[11px] text-text-muted">Nothing to save to yet — the map pool is still loading.</p>
+      )}
+    </div>
+  )
+}
 
 const STATUS_STYLE: Record<string, string> = {
   active: 'bg-val-cyan/10 text-val-cyan border-val-cyan/20',
@@ -47,7 +144,9 @@ function sourceLabel(drill: DrillWithProgress): string {
  * none, which is also what a Notion pro VOD is.
  *
  * Everything here is read from the note. Drill status and logged sessions are
- * shown when they exist but are not edited here.
+ * shown when they exist but are not edited here. Saving a drill — bookmarking
+ * it to a map, an agent or a skill — is the one thing the user does from this
+ * panel, and it writes to `saved_drills`, never to the drill itself.
  *
  * A moment in the chapter rail that a drill was drawn from opens Practice and
  * marks that drill, in the same yellow as the dumbbell on the moment.
@@ -61,10 +160,46 @@ export default function GuideStudyPanel({
   tab,
   onTabChange,
   drillFocus,
+  savedByDrillId,
+  scopeOptions,
+  onSaveDrill,
+  onRemoveSaved,
 }: GuideStudyPanelProps) {
   // A dropped drill left the note; it stays in the table only for its logs.
   const liveDrills = drills.filter(drill => drill.status !== 'dropped')
   const actions = parseActionItems(actionItems)
+
+  const canSave = !!(savedByDrillId && scopeOptions && onSaveDrill && onRemoveSaved)
+  // Which row has its "save to" menu open, and which one has a write in flight.
+  const [menuFor, setMenuFor] = useState<string | null>(null)
+  const [busyId, setBusyId] = useState<string | null>(null)
+
+  const toggleSave = async (drill: DrillWithProgress) => {
+    if (!canSave || busyId) return
+    const saved = savedByDrillId!.get(drill.id) ?? null
+    setBusyId(drill.id)
+    try {
+      if (saved) {
+        await onRemoveSaved!(saved)
+        setMenuFor(null)
+      } else if ((await onSaveDrill!(drill, null)) === 'pick') {
+        setMenuFor(drill.id)
+      }
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  const pickScope = async (drill: DrillWithProgress, scope: SavedDrillScope) => {
+    if (!canSave || busyId) return
+    setMenuFor(null)
+    setBusyId(drill.id)
+    try {
+      await onSaveDrill!(drill, scope)
+    } finally {
+      setBusyId(null)
+    }
+  }
 
   const tabs: { id: StudyTab; label: string; count: number | null; icon: typeof Lightbulb }[] = []
   if (takeaways) tabs.push({ id: 'takeaways', label: 'Key takeaways', count: null, icon: Lightbulb })
@@ -131,6 +266,8 @@ export default function GuideStudyPanel({
               <ol className="divide-y divide-bg-elevated/60">
                 {liveDrills.map(drill => {
                   const focused = drillFocus?.position === drill.position
+                  const saved = canSave ? (savedByDrillId!.get(drill.id) ?? null) : null
+                  const menuOpen = canSave && menuFor === drill.id
                   return (
                     <li
                       key={drill.id}
@@ -190,24 +327,63 @@ export default function GuideStudyPanel({
                             )}
                           </dl>
                         )}
+
+                        {/* Where the save went, and the way to move it. The menu
+                            also opens on its own when the guide has no default. */}
+                        {canSave && (saved || menuOpen) && (
+                          <div className="relative mt-1.5 text-[11px] text-text-muted">
+                            {saved ? (
+                              <>
+                                Saved to{' '}
+                                <span className="text-text-secondary">
+                                  {scopeLabel({ type: saved.scope_type, value: saved.scope_value })}
+                                </span>
+                                {' · '}
+                              </>
+                            ) : (
+                              <>Save to… </>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => setMenuFor(menuOpen ? null : drill.id)}
+                              aria-expanded={menuOpen}
+                              className="text-val-cyan hover:underline"
+                            >
+                              {saved ? 'Change' : 'Pick a place'}
+                            </button>
+                            {menuOpen && (
+                              <ScopeMenu
+                                options={scopeOptions!}
+                                current={saved ? { type: saved.scope_type, value: saved.scope_value } : null}
+                                onPick={scope => pickScope(drill, scope)}
+                                onClose={() => setMenuFor(null)}
+                              />
+                            )}
+                          </div>
+                        )}
                       </div>
 
-                      {drill.source_start_seconds !== null &&
-                        (onSeek ? (
-                          <button
-                            type="button"
-                            onClick={() => onSeek(drill.source_start_seconds!)}
-                            title={`Jump to ${formatTime(drill.source_start_seconds)}`}
-                            className="shrink-0 flex items-center gap-1 px-2 py-1 rounded bg-val-cyan/10 border border-val-cyan/20 text-val-cyan font-stats text-[10px] whitespace-nowrap hover:bg-val-cyan/20 transition-colors"
-                          >
-                            <Play className="w-3 h-3" />
-                            {sourceLabel(drill)}
-                          </button>
-                        ) : (
-                          <span className="shrink-0 font-stats text-[10px] text-text-muted whitespace-nowrap mt-0.5">
-                            {sourceLabel(drill)}
-                          </span>
-                        ))}
+                      <div className="shrink-0 flex items-center gap-1.5">
+                        {canSave && (
+                          <SaveDrillButton saved={saved} busy={busyId === drill.id} onToggle={() => toggleSave(drill)} />
+                        )}
+                        {drill.source_start_seconds !== null &&
+                          (onSeek ? (
+                            <button
+                              type="button"
+                              onClick={() => onSeek(drill.source_start_seconds!)}
+                              title={`Jump to ${formatTime(drill.source_start_seconds)}`}
+                              className="shrink-0 flex items-center gap-1 px-2 py-1 rounded bg-val-cyan/10 border border-val-cyan/20 text-val-cyan font-stats text-[10px] whitespace-nowrap hover:bg-val-cyan/20 transition-colors"
+                            >
+                              <Play className="w-3 h-3" />
+                              {sourceLabel(drill)}
+                            </button>
+                          ) : (
+                            <span className="shrink-0 font-stats text-[10px] text-text-muted whitespace-nowrap mt-0.5">
+                              {sourceLabel(drill)}
+                            </span>
+                          ))}
+                      </div>
                     </li>
                   )
                 })}
