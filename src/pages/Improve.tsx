@@ -5,6 +5,7 @@ import SectionHeader from '../components/home/SectionHeader'
 import ImproveHero from '../components/improve/ImproveHero'
 import PlanSummary from '../components/improve/PlanSummary'
 import HubCard from '../components/improve/HubCard'
+import ScrollRow from '../components/ScrollRow'
 import { useResource } from '../hooks/useResource'
 import { useGameContent } from '../hooks/useGameContent'
 import { mapImageFor } from '../lib/gameContent'
@@ -23,17 +24,33 @@ const SIDE_LABELS: Record<NonNullable<Playbook['side']>, string> = {
   both: 'Both sides',
 }
 
-const ROW_GRID = 'grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4'
+// One card of a carousel row: four across on a wide screen, two on a tablet,
+// and on a phone one with the next peeking in, so the row reads as scrollable.
+// The widths take the row's 1rem gaps out, so whole cards fill it exactly.
+const CARD_SLOT = 'snap-start shrink-0 w-[85%] sm:w-[calc((100%-1rem)/2)] lg:w-[calc((100%-3rem)/4)]'
 const block = 'rounded-xl bg-bg-card animate-pulse'
 
 /** A row's cards before they load, at their final size. */
 function RowSkeleton() {
   return (
-    <div className={ROW_GRID} aria-hidden="true">
+    <div className="flex gap-4 overflow-hidden" aria-hidden="true">
       {Array.from({ length: HUB_ROW }, (_, i) => (
-        <div key={i} className={`${block} aspect-[2/1]`} />
+        <div key={i} className={`${block} ${CARD_SLOT} aspect-[2/1]`} />
       ))}
     </div>
+  )
+}
+
+/** A carousel of cards: scrolls by drag, wheel, the arrows at its ends, or ←/→ when focused. */
+function CardRow({ label, children }: { label: string; children: React.ReactNode[] }) {
+  return (
+    <ScrollRow label={label}>
+      {children.map((card, i) => (
+        <div key={i} className={CARD_SLOT}>
+          {card}
+        </div>
+      ))}
+    </ScrollRow>
   )
 }
 
@@ -111,7 +128,7 @@ export default function Improve() {
           {studyLoading ? (
             <RowSkeleton />
           ) : playbooks.length > 0 ? (
-            <div className={ROW_GRID}>
+            <CardRow label="Playbooks">
               {playbooks.map(playbook => (
                 <HubCard
                   key={playbook.id}
@@ -125,7 +142,7 @@ export default function Improve() {
                   mark="arrow"
                 />
               ))}
-            </div>
+            </CardRow>
           ) : (
             <EmptyLine>Import a playbook from the vault: Playbook → Import from vault.</EmptyLine>
           )}
@@ -139,7 +156,7 @@ export default function Improve() {
             {studyLoading ? (
               <RowSkeleton />
             ) : guides.length > 0 ? (
-              <div className={ROW_GRID}>
+              <CardRow label="Guides">
                 {guides.map(review => (
                   <HubCard
                     key={review.id}
@@ -150,7 +167,7 @@ export default function Improve() {
                     mark="play"
                   />
                 ))}
-              </div>
+              </CardRow>
             ) : (
               <EmptyLine>File a map guide in the vault, then run npm run import:guides.</EmptyLine>
             )}
@@ -161,7 +178,7 @@ export default function Improve() {
             {studyLoading ? (
               <RowSkeleton />
             ) : proVods.length > 0 ? (
-              <div className={ROW_GRID}>
+              <CardRow label="Pro VODs">
                 {proVods.map(review => (
                   <HubCard
                     key={review.id}
@@ -172,7 +189,7 @@ export default function Improve() {
                     mark="play"
                   />
                 ))}
-              </div>
+              </CardRow>
             ) : (
               <EmptyLine>No pro VODs yet. Add one in Notion, then re-seed.</EmptyLine>
             )}

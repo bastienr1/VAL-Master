@@ -5,17 +5,20 @@ import type { ReferenceReview } from './types.ts'
  * What the IMPROVE hub (`/improve`) puts on its rows. Pure: the page reads the
  * shared caches and hands the arrays in.
  *
- * Each row is a preview of the page behind it, so it shows the newest few and
- * a "View all". Guides and pro VODs are split the way the Map Hub splits them.
+ * Each row is a preview of the page behind it: a carousel of the newest few,
+ * with a link to the full page. Guides and pro VODs are split the way the Map Hub splits them.
  */
 
+/** Cards a row shows at once on a wide screen. */
 export const HUB_ROW = 4
+/** Cards a row holds in all: three screens of the carousel. */
+export const HUB_MAX = 12
 
-/** Newest first by updated_at, then name; at most HUB_ROW. */
+/** Newest first by updated_at, then name; at most HUB_MAX. */
 export function pickPlaybooks<T extends { updated_at?: string | null; name: string }>(all: T[]): T[] {
   return [...all]
     .sort((a, b) => (b.updated_at ?? '').localeCompare(a.updated_at ?? '') || a.name.localeCompare(b.name))
-    .slice(0, HUB_ROW)
+    .slice(0, HUB_MAX)
 }
 
 /**
@@ -32,14 +35,14 @@ function newestFirst(a: ReferenceReview, b: ReferenceReview): number {
   return a.player.localeCompare(b.player) || (a.title ?? '').localeCompare(b.title ?? '')
 }
 
-/** Video guides (isVideoGuide), newest first, at most HUB_ROW. */
+/** Video guides (isVideoGuide), newest first, at most HUB_MAX. */
 export function pickGuides(reviews: ReferenceReview[]): ReferenceReview[] {
-  return reviews.filter(isVideoGuide).sort(newestFirst).slice(0, HUB_ROW)
+  return reviews.filter(isVideoGuide).sort(newestFirst).slice(0, HUB_MAX)
 }
 
-/** Pro VODs (isProVod), newest first, at most HUB_ROW. */
+/** Pro VODs (isProVod), newest first, at most HUB_MAX. */
 export function pickProVods(reviews: ReferenceReview[]): ReferenceReview[] {
-  return reviews.filter(isProVod).sort(newestFirst).slice(0, HUB_ROW)
+  return reviews.filter(isProVod).sort(newestFirst).slice(0, HUB_MAX)
 }
 
 export type BlockIcon = 'crosshair' | 'skull' | 'bars' | 'rank' | 'play' | 'target'
