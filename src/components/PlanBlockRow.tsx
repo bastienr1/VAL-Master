@@ -140,16 +140,20 @@ export default function PlanBlockRow({
       setOpenDay(null)
       setPicking(false)
     }
-    const onMouseDown = (e: MouseEvent) => {
-      if (rowRef.current && !rowRef.current.contains(e.target as Node)) close()
+    // On click, not mousedown: closing a panel moves every row beneath it, and
+    // a row that moved between press and release never gets the click. The
+    // path is used because the clicked element may be gone by now (a button
+    // its own click replaced).
+    const onClick = (e: MouseEvent) => {
+      if (rowRef.current && !e.composedPath().includes(rowRef.current)) close()
     }
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') close()
     }
-    window.addEventListener('mousedown', onMouseDown)
+    window.addEventListener('click', onClick)
     window.addEventListener('keydown', onKeyDown)
     return () => {
-      window.removeEventListener('mousedown', onMouseDown)
+      window.removeEventListener('click', onClick)
       window.removeEventListener('keydown', onKeyDown)
     }
   }, [expanded])
@@ -249,7 +253,7 @@ export default function PlanBlockRow({
                 log
                   ? 'border-val-cyan bg-val-cyan/15 text-val-cyan'
                   : `text-text-muted enabled:hover:border-val-cyan/50 disabled:opacity-40 ${
-                      day === today ? 'border-val-cyan/40' : 'border-bg-elevated'
+                      day === today ? 'border-val-cyan/50' : 'border-text-muted/40'
                     }`
               } ${openDay === day ? 'ring-2 ring-val-cyan/40' : ''}`}
             >
