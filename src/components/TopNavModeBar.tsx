@@ -12,13 +12,13 @@ const inactiveClass = `${base} text-text-muted hover:text-text-secondary`
 export default function TopNavModeBar() {
   const { pathname } = useLocation()
   const reviewActive = pathname === '/' || pathname.startsWith('/matches') || pathname.startsWith('/review/')
-  const improveActive = ['/playbook', '/study', '/maps', '/plan'].some(prefix => pathname.startsWith(prefix))
+  const improveActive = ['/improve', '/plan', '/playbook', '/study', '/maps'].some(prefix => pathname.startsWith(prefix))
 
   const modes = [
     <NavLink key="review" to="/" className={reviewActive ? activeClass : inactiveClass}>
       REVIEW
     </NavLink>,
-    <NavLink key="improve" to="/playbook" className={improveActive ? activeClass : inactiveClass}>
+    <NavLink key="improve" to="/improve" className={improveActive ? activeClass : inactiveClass}>
       IMPROVE
     </NavLink>,
     <span key="ascend" className={`${base} text-text-muted/40 cursor-not-allowed`} title="Coming soon — mastery tracking" aria-disabled="true">

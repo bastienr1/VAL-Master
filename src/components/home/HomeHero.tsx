@@ -12,7 +12,7 @@ import type { StatSummary } from '../../lib/homeStats'
 
 // The art's own job is the right two thirds; this is what shows before any art
 // is added, and behind art that fails to load.
-const HERO_GRADIENT =
+export const HERO_GRADIENT =
   'linear-gradient(115deg, var(--color-bg-primary) 0%, var(--color-bg-secondary) 45%, color-mix(in srgb, var(--color-val-red) 30%, var(--color-bg-primary)) 100%)'
 
 interface HomeHeroProps {
