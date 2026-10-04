@@ -15,6 +15,7 @@ import ProStudyLibrary from './pages/ProStudyLibrary'
 import SavedDrills from './pages/SavedDrills'
 import ProStudyReview from './pages/ProStudyReview'
 import WeeklyPlan from './pages/WeeklyPlan'
+import Improve from './pages/Improve'
 import MapIndex from './pages/MapIndex'
 import MapHub from './pages/MapHub'
 import AppShell from './components/AppShell'
@@ -70,6 +71,7 @@ function App() {
           <Route path="/study/drills" element={<SavedDrills />} />
           <Route path="/study/:id" element={<ProStudyReview />} />
           <Route path="/plan" element={<WeeklyPlan />} />
+          <Route path="/improve" element={<Improve />} />
           {/* Preserved legacy routes — accessible via direct URL */}
           <Route path="/checkin" element={<CheckIn />} />
           <Route path="/tactical" element={<TacticalReads />} />

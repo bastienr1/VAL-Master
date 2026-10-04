@@ -65,6 +65,7 @@ export const SLOT_KEYS = {
   tileProVod: 'tile.provod',
   tileGoals: 'tile.goals',
   banner: 'cta.banner',
+  improveHero: 'improve.hero',
 } as const
 
 const TILE_COMPOSITION = 'Bottom-left kept clear for title + subline'
@@ -124,6 +125,15 @@ export const STATIC_SLOTS: SlotSpec[] = [
     composition: 'Centre-left calm for the headline',
     scrim: 'left',
     sample: { title: 'From review to improvement.', sub: 'Save patterns. Build habits. Play better.' },
+  },
+  {
+    key: SLOT_KEYS.improveHero,
+    label: 'Improve hero',
+    width: 2560,
+    height: 1100,
+    composition: 'Subject in the right third. Left 45% calm for the headline',
+    scrim: 'left',
+    sample: { title: 'Improve', sub: 'What to practice, and how the week is going.' },
   },
 ]
 

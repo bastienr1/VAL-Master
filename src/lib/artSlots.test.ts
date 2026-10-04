@@ -119,7 +119,7 @@ test('a slot with no override and no api image starts at the bundled file', () =
 test('every static slot has a distinct key and a bundled path', () => {
   const keys = STATIC_SLOTS.map(s => s.key)
   assert.equal(new Set(keys).size, keys.length)
-  assert.deepEqual(keys, ['hero.background', 'tile.playbook', 'tile.stats', 'tile.provod', 'tile.goals', 'cta.banner'])
+  assert.deepEqual(keys, ['hero.background', 'tile.playbook', 'tile.stats', 'tile.provod', 'tile.goals', 'cta.banner', 'improve.hero'])
   assert.equal(bundledArtUrl('hero.background'), '/art/hero.background.webp')
 })
 

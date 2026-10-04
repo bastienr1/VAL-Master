@@ -71,8 +71,10 @@ function AccountMenu() {
 function TopBar() {
   const { sync, syncing, player } = useLoadLatest()
 
+  // The header clips sideways: on a phone the mode links run past the edge,
+  // and without that the whole page scrolls sideways with them.
   return (
-    <header className="flex items-center justify-between gap-4 px-4 py-3 border-b border-bg-elevated">
+    <header className="flex items-center justify-between gap-4 px-4 py-3 border-b border-bg-elevated overflow-x-clip">
       <div className="flex items-center gap-6 min-w-0">
         <span className="font-heading text-lg font-bold tracking-wider whitespace-nowrap">
           VAL <span className="text-val-red">MASTER</span>
@@ -131,8 +133,8 @@ export default function AppShell({ children }: AppShellProps) {
     [],
   )
 
-  // Home is full-bleed — no rail, but it shares the top bar
-  if (location.pathname === '/') {
+  // Home and the IMPROVE hub are full-bleed — no rail, but they share the top bar
+  if (location.pathname === '/' || location.pathname === '/improve') {
     return (
       <MatchSearchPanelContext.Provider value={searchPanel}>
         <TopBar />
