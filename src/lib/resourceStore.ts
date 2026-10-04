@@ -23,6 +23,12 @@ export interface Resource<T> {
   getSnapshot: () => ResourceState<T>
   /** The data changed: refetch now if anything is mounted, else on next use. */
   invalidate: () => void
+  /**
+   * Replace the held data at once, for a write shown before the server
+   * answers. Drops any fetch in flight, whose result would predate the write.
+   * Does nothing before the first result.
+   */
+  mutate: (update: (data: T) => T) => void
   /** Forget everything, e.g. because a different user signed in. */
   reset: () => void
 }
@@ -87,6 +93,13 @@ export function createResource<T>(fetcher: () => Promise<T>, options: ResourceOp
     invalidate() {
       stale = true
       if (listeners.size > 0) load()
+    },
+    mutate(update) {
+      if (state.data === null) return
+      run++
+      inFlight = false
+      stale = true // the dropped fetch is made up on the next mount
+      set({ data: update(state.data), error: state.error, loading: false })
     },
     reset() {
       run++

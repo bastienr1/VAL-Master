@@ -40,7 +40,7 @@ function SectionCard({
   description,
   children,
 }: {
-  /** Anchor for links that open Settings at this section, e.g. `/settings#weekly-goal`. */
+  /** Anchor for links that open Settings at this section, e.g. `/settings#home-art`. */
   id?: string
   title: string
   description?: string
@@ -113,10 +113,6 @@ export default function Settings() {
   const [timezone, setTimezone] = useState('Asia/Singapore')
   const [tzStatus, setTzStatus] = useState<Status>({ kind: 'idle' })
 
-  // Weekly goal
-  const [weeklyGoal, setWeeklyGoal] = useState('')
-  const [goalStatus, setGoalStatus] = useState<Status>({ kind: 'idle' })
-
   // Account
   const [email, setEmail] = useState<string | null>(null)
   const [newPassword, setNewPassword] = useState('')
@@ -128,7 +124,6 @@ export default function Settings() {
     setRiotTag(profile.riot_tag)
     setRegion(profile.region || 'ap')
     setTimezone(profile.timezone || 'Asia/Singapore')
-    setWeeklyGoal(profile.weekly_goal || '')
   }, [loading, profile])
 
   useEffect(() => {
@@ -172,17 +167,6 @@ export default function Settings() {
     const res = await save({ timezone })
     if (res.error) setTzStatus({ kind: 'err', msg: res.error })
     else setTzStatus({ kind: 'ok', msg: 'Saved.' })
-  }
-
-  const handleSaveGoal = async () => {
-    setGoalStatus({ kind: 'saving' })
-    const res = await save({ weekly_goal: weeklyGoal })
-    if (res.error) {
-      setGoalStatus({ kind: 'err', msg: res.error })
-      return
-    }
-    localStorage.setItem('weeklyGoal', weeklyGoal)
-    setGoalStatus({ kind: 'ok', msg: 'Saved.' })
   }
 
   const handleChangePassword = async () => {
@@ -285,7 +269,7 @@ export default function Settings() {
         </div>
       </SectionCard>
 
-      <SectionCard title="Timezone" description="Used later for week and session boundaries.">
+      <SectionCard title="Timezone" description="Sets where a day and a Monday-to-Sunday week begin on the Weekly Plan.">
         <label className="block space-y-1.5">
           <span className="text-xs text-text-secondary uppercase tracking-wider font-medium">
             Timezone
@@ -312,36 +296,6 @@ export default function Settings() {
             Save Timezone
           </button>
           <StatusLine status={tzStatus} />
-        </div>
-      </SectionCard>
-
-      <SectionCard
-        id="weekly-goal"
-        title="Weekly Goal"
-        description="Shown on Home, Dashboard and Check-In."
-      >
-        <label className="block space-y-1.5">
-          <span className="text-xs text-text-secondary uppercase tracking-wider font-medium">
-            Goal
-          </span>
-          <input
-            type="text"
-            value={weeklyGoal}
-            onChange={(e) => setWeeklyGoal(e.target.value)}
-            placeholder="e.g. Reach Diamond 2"
-            className={inputClass}
-          />
-        </label>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={handleSaveGoal}
-            disabled={goalStatus.kind === 'saving'}
-            className={btnPrimary}
-          >
-            {goalStatus.kind === 'saving' && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-            Save Weekly Goal
-          </button>
-          <StatusLine status={goalStatus} />
         </div>
       </SectionCard>
 

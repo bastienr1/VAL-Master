@@ -8,19 +8,22 @@ const GOAL_FALLBACK = 'Build your next milestone.'
 interface FeatureTilesProps {
   /** The current weekly goal from the profile; blank shows the fallback line. */
   weeklyGoal: string
+  /**
+   * This week's progress on the Weekly Plan ('9 / 14 this week · Left today:
+   * …'), or null with no active block, when the goal text shows instead.
+   */
+  planLine: string | null
 }
 
 /** The four ways onward from Home. Each picture is its own art slot. */
-export default function FeatureTiles({ weeklyGoal }: FeatureTilesProps) {
+export default function FeatureTiles({ weeklyGoal, planLine }: FeatureTilesProps) {
   const goal = weeklyGoal.trim()
 
   const tiles = [
     { slot: SLOT_KEYS.tilePlaybook, title: 'Playbook', sub: 'Turn insights into habits.', to: '/playbook' },
     { slot: SLOT_KEYS.tileStats, title: 'Stats', sub: 'Track your growth.', to: '/analytics' },
     { slot: SLOT_KEYS.tileProVod, title: 'Pro VOD', sub: 'Learn from the best.', to: '/study' },
-    // The full Goals feature isn't built; the tile surfaces the weekly goal and
-    // opens the place it is edited.
-    { slot: SLOT_KEYS.tileGoals, title: 'Goals', sub: goal || GOAL_FALLBACK, to: '/settings#weekly-goal' },
+    { slot: SLOT_KEYS.tileGoals, title: 'Goals', sub: planLine ?? (goal || GOAL_FALLBACK), to: '/plan' },
   ]
 
   return (

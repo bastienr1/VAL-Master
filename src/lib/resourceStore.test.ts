@@ -144,3 +144,32 @@ test('reset drops the data and ignores a fetch that was in flight', async () => 
   resource.subscribe(() => {})
   assert.equal(calls.length, 2)
 })
+
+test('mutate replaces the data at once and drops a fetch in flight', async () => {
+  const { fetcher, calls } = manualFetcher<number[]>()
+  const resource = createResource(fetcher)
+
+  // Nothing to change before the first result.
+  resource.mutate(list => [...list, 9])
+  assert.equal(resource.getSnapshot().data, null)
+
+  let notified = 0
+  const off = resource.subscribe(() => notified++)
+  calls[0].resolve([1])
+  await settle()
+
+  resource.invalidate() // a refresh starts…
+  const before = notified
+  resource.mutate(list => [...list, 2]) // …and a write lands while it runs
+  assert.deepEqual(resource.getSnapshot(), { data: [1, 2], error: null, loading: false })
+  assert.equal(notified, before + 1)
+
+  calls[1].resolve([1]) // fetched before the write: must not undo it
+  await settle()
+  assert.deepEqual(resource.getSnapshot().data, [1, 2])
+
+  // The dropped refresh is made up on the next mount.
+  off()
+  resource.subscribe(() => {})
+  assert.equal(calls.length, 3)
+})

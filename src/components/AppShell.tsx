@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
-import { Home as HomeIcon, List, Map as MapIcon, BarChart3, BookOpen, GraduationCap, Tag, LogOut, RefreshCw, Settings as SettingsIcon } from 'lucide-react'
+import { Home as HomeIcon, List, Map as MapIcon, BarChart3, BookOpen, GraduationCap, CalendarCheck, Tag, LogOut, RefreshCw, Settings as SettingsIcon } from 'lucide-react'
 import { signOut, useSession } from '../lib/auth'
 import { useLoadLatest } from '../hooks/useLoadLatest'
 import { MatchSearchPanelContext } from '../hooks/useMatchSearchPanel'
@@ -174,6 +174,9 @@ export default function AppShell({ children }: AppShellProps) {
             </NavLink>
             <NavLink to="/study" className={railLinkClass} title="Pro Study">
               <GraduationCap className="w-4 h-4" />
+            </NavLink>
+            <NavLink to="/plan" className={railLinkClass} title="Weekly Plan">
+              <CalendarCheck className="w-4 h-4" />
             </NavLink>
             <NavLink to="/settings" className={railLinkClass} title="Settings">
               <SettingsIcon className="w-4 h-4" />
