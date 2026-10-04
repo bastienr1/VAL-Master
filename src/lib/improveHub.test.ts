@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { HUB_ROW, blockIcon, metaLine, pickGuides, pickPlaybooks, pickProVods, youtubeThumbnail } from './improveHub.ts'
+import { HUB_MAX, blockIcon, metaLine, pickGuides, pickPlaybooks, pickProVods, youtubeThumbnail } from './improveHub.ts'
 import { SEED_BLOCKS } from './weeklyPlan.ts'
 import type { ReferenceReview } from './types.ts'
 
@@ -27,7 +27,7 @@ const guide = (patch: Partial<ReferenceReview> = {}) =>
 
 // -------------------------------------------------------------------- playbooks
 
-test('pickPlaybooks runs newest update first, then by name, and stops at the row size', () => {
+test('pickPlaybooks runs newest update first, then by name', () => {
   const all = [
     { name: 'Old', updated_at: '2026-09-01T10:00:00Z' },
     { name: 'Bravo', updated_at: '2026-10-01T10:00:00Z' },
@@ -37,10 +37,9 @@ test('pickPlaybooks runs newest update first, then by name, and stops at the row
     { name: 'Middle', updated_at: '2026-09-15T10:00:00Z' },
   ]
   const picked = pickPlaybooks(all)
-  assert.equal(picked.length, HUB_ROW)
   assert.deepEqual(
     picked.map(p => p.name),
-    ['Newest', 'Alpha', 'Bravo', 'Middle'],
+    ['Newest', 'Alpha', 'Bravo', 'Middle', 'Old', 'Undated'],
   )
   // The input is left as it was.
   assert.equal(all[0].name, 'Old')
@@ -56,7 +55,7 @@ test('pickPlaybooks puts a playbook with no date last', () => {
 
 // ---------------------------------------------------------------- guides, VODs
 
-test('pickGuides holds vault guides only, newest first, capped', () => {
+test('pickGuides holds vault guides only, newest first', () => {
   const reviews = [
     review({ id: 'notion', played_at: '2026-10-04' }), // a pro VOD, however new
     guide({ id: 'g-sep', played_at: '2026-09-10' }),
@@ -68,11 +67,11 @@ test('pickGuides holds vault guides only, newest first, capped', () => {
   ]
   assert.deepEqual(
     pickGuides(reviews).map(r => r.id),
-    ['g-oct', 'g-pro-review', 'g-sep', 'g-aug'],
+    ['g-oct', 'g-pro-review', 'g-sep', 'g-aug', 'g-jul'],
   )
 })
 
-test('pickProVods holds Notion rows only, newest first, capped', () => {
+test('pickProVods holds Notion rows only, newest first', () => {
   const reviews = [
     guide({ id: 'vault', played_at: '2026-10-04' }), // a guide, however new
     review({ id: 'p-may', played_at: '2026-05-01' }),
@@ -83,7 +82,7 @@ test('pickProVods holds Notion rows only, newest first, capped', () => {
   ]
   assert.deepEqual(
     pickProVods(reviews).map(r => r.id),
-    ['p-sep', 'p-jul', 'p-jun', 'p-may'],
+    ['p-sep', 'p-jul', 'p-jun', 'p-may', 'p-apr'],
   )
 })
 
@@ -101,6 +100,16 @@ test('rows with no date sort last, by player', () => {
     pickGuides([guide({ id: 'undated' }), guide({ id: 'dated', played_at: '2026-01-01' })]).map(r => r.id),
     ['dated', 'undated'],
   )
+})
+
+test('every row stops at the carousel size', () => {
+  const days = Array.from({ length: HUB_MAX + 3 }, (_, i) => `2026-09-${String(i + 1).padStart(2, '0')}`)
+  assert.equal(pickPlaybooks(days.map(day => ({ name: day, updated_at: day }))).length, HUB_MAX)
+  assert.equal(pickGuides(days.map(day => guide({ played_at: day }))).length, HUB_MAX)
+  const vods = pickProVods(days.map(day => review({ played_at: day })))
+  assert.equal(vods.length, HUB_MAX)
+  // The newest are the ones kept.
+  assert.equal(vods[0].played_at, days[days.length - 1])
 })
 
 test('an empty library gives empty rows', () => {
