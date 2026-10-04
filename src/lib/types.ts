@@ -378,6 +378,55 @@ export interface SavedDrill {
 }
 
 /**
+ * One block of the weekly routine (Deathmatch, Ranked…) with how many days a
+ * week it is meant to happen. Removed blocks are archived, not deleted, so
+ * past weeks still show them.
+ */
+export interface RoutineBlock {
+  id: string
+  user_id: string
+  name: string
+  /** Sessions per week, 1–7. At most one counts per day. */
+  weekly_target: number
+  position: number
+  archived_at: string | null
+  created_at: string
+}
+
+/**
+ * What one block works on for one week. The text is a copy taken when a saved
+ * drill was picked; the drill columns go null if their row disappears and the
+ * text stays.
+ */
+export interface WeeklyGoal {
+  id: string
+  user_id: string
+  block_id: string
+  /** The Monday of the week, 'YYYY-MM-DD'. */
+  week_start: string
+  focus_text: string
+  saved_drill_id: string | null
+  drill_id: string | null
+  source_review_id: string | null
+  source_start_seconds: number | null
+  created_at: string
+}
+
+/** A ticked session: one per block per day, with an optional rating of how the focus held. */
+export interface BlockLog {
+  id: string
+  user_id: string
+  block_id: string
+  /** 'YYYY-MM-DD' in the user's time zone. */
+  logged_on: string
+  rating: number | null
+  note: string | null
+  /** The `practice_logs` row written when a drill-linked focus was first rated. */
+  practice_log_id: string | null
+  created_at: string
+}
+
+/**
  * One chapter of a study guide — a `###` heading carrying a `[MM:SS–MM:SS]`
  * range.
  *

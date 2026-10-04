@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Swords } from 'lucide-react'
 import HomeHero from '../components/home/HomeHero'
@@ -11,7 +11,10 @@ import ClosingBanner from '../components/home/ClosingBanner'
 import { useHomeStats } from '../hooks/useHomeStats'
 import { usePortalMaps } from '../hooks/useMapContent'
 import { useGameContent } from '../hooks/useGameContent'
+import { useResource } from '../hooks/useResource'
 import { profileToPlayer, useProfile } from '../lib/profile'
+import { goalsTileLine, localDate, weekProgress, weekStart } from '../lib/weeklyPlan'
+import { planResource } from '../lib/weeklyPlanStore'
 import type { StatSummary } from '../lib/homeStats'
 
 const block = 'rounded-xl bg-bg-card animate-pulse'
@@ -83,6 +86,8 @@ export default function Home() {
   const portal = usePortalMaps()
   const { registry } = useGameContent()
   const { profile, loading: profileLoading } = useProfile()
+  const plan = useResource(planResource).data
+  const [now] = useState(() => new Date())
 
   const hasMatches = stats.matches.length > 0
 
@@ -91,6 +96,13 @@ export default function Home() {
     for (const group of stats.maps) byMap.set(group.name.toLowerCase(), group)
     return byMap
   }, [stats.maps])
+
+  // The Goals tile: this week's routine, in the profile's time zone like `/plan`.
+  const planLine = useMemo(() => {
+    if (!plan) return null
+    const today = localDate(now, profile.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone)
+    return goalsTileLine(weekProgress(plan.blocks, plan.logs, weekStart(today)), today)
+  }, [plan, now, profile.timezone])
 
   const recordLabel = stats.scope.kind === 'act' ? stats.scope.act.code : 'All time'
   const error = stats.error ?? portal.error
@@ -141,7 +153,7 @@ export default function Home() {
           <NoMatchesCard hasRiotId={profileLoading || profileToPlayer(profile) !== null} />
         )}
 
-        <FeatureTiles weeklyGoal={profile.weekly_goal} />
+        <FeatureTiles weeklyGoal={profile.weekly_goal} planLine={planLine} />
       </div>
 
       <ClosingBanner />
