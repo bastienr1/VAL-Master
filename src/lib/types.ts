@@ -1,4 +1,7 @@
 import type { SkillGroup } from './skillTaxonomy'
+import type { PlayDoc } from './playDoc'
+
+export type { PlayDoc } from './playDoc'
 
 export interface MatchCheckin {
   id: string
@@ -182,6 +185,29 @@ export interface Playbook {
 }
 
 export type PlaybookWithCount = Playbook & { chapter_count: number }
+
+export type PlaySide = 'attack' | 'defense'
+
+/**
+ * A set play the user wrote and the app drew on the minimap (`/plays`). Not a
+ * Playbook: those are video guides imported from the vault. `play` is null
+ * until the play is composed or started by hand; `composed_with` is the model
+ * of the last compose, null for a hand-made play.
+ */
+export interface Play {
+  id: string
+  user_id: string
+  title: string
+  map: string
+  map_uuid: string | null
+  side: PlaySide
+  comp: string[]
+  brief: string
+  play: PlayDoc | null
+  composed_with: string | null
+  created_at: string
+  updated_at: string
+}
 
 export interface PlaybookChapter {
   id: string

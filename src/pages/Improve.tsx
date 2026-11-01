@@ -5,23 +5,30 @@ import SectionHeader from '../components/home/SectionHeader'
 import ImproveHero from '../components/improve/ImproveHero'
 import PlanSummary from '../components/improve/PlanSummary'
 import HubCard from '../components/improve/HubCard'
+import EmptyLine from '../components/EmptyLine'
 import ScrollRow from '../components/ScrollRow'
 import { useResource } from '../hooks/useResource'
 import { useGameContent } from '../hooks/useGameContent'
 import { mapImageFor } from '../lib/gameContent'
 import { reviewHeading, shortCreator } from '../lib/guideDisplay'
 import { studyContentResource } from '../lib/homeData'
-import { HUB_ROW, metaLine, pickGuides, pickPlaybooks, pickProVods, youtubeThumbnail } from '../lib/improveHub'
+import { HUB_ROW, metaLine, pickGuides, pickPlaybooks, pickPlays, pickProVods, youtubeThumbnail } from '../lib/improveHub'
+import { playsResource } from '../lib/plays'
 import { useProfile } from '../lib/profile'
 import { savedDrillsResource } from '../lib/savedDrills'
 import { localDate, weekProgress, weekStart } from '../lib/weeklyPlan'
 import { planResource } from '../lib/weeklyPlanStore'
-import type { Playbook } from '../lib/types'
+import type { Playbook, PlaySide } from '../lib/types'
 
 const SIDE_LABELS: Record<NonNullable<Playbook['side']>, string> = {
   attack: 'Attack',
   defense: 'Defense',
   both: 'Both sides',
+}
+
+const PLAY_SIDE_LABELS: Record<PlaySide, string> = {
+  attack: 'Attack',
+  defense: 'Defense',
 }
 
 // One card of a carousel row: four across on a wide screen, two on a tablet,
@@ -54,12 +61,6 @@ function CardRow({ label, children }: { label: string; children: React.ReactNode
   )
 }
 
-function EmptyLine({ children }: { children: React.ReactNode }) {
-  return (
-    <p className="border border-dashed border-bg-elevated rounded-xl px-4 py-5 text-sm text-text-muted">{children}</p>
-  )
-}
-
 function SubHeading({ children }: { children: React.ReactNode }) {
   return <h3 className="text-[11px] uppercase tracking-widest text-text-secondary">{children}</h3>
 }
@@ -73,6 +74,7 @@ export default function Improve() {
   const plan = useResource(planResource)
   const study = useResource(studyContentResource)
   const saved = useResource(savedDrillsResource)
+  const allPlays = useResource(playsResource)
   const { profile } = useProfile()
   // Map art resolves through the registry; this re-renders the cards once it has loaded.
   useGameContent()
@@ -85,13 +87,16 @@ export default function Improve() {
     [plan.data, week],
   )
 
+  const plays = useMemo(() => pickPlays(allPlays.data ?? []), [allPlays.data])
   const playbooks = useMemo(() => pickPlaybooks(study.data?.playbooks ?? []), [study.data])
   const guides = useMemo(() => pickGuides(study.data?.reviews ?? []), [study.data])
   const proVods = useMemo(() => pickProVods(study.data?.reviews ?? []), [study.data])
 
   const planLoading = plan.loading && !plan.data
   const studyLoading = study.loading && !study.data
-  const error = plan.error ?? study.error ?? saved.error
+  const playsLoading = allPlays.loading && !allPlays.data
+  const error = plan.error ?? study.error ?? saved.error ?? allPlays.error
+  const playCount = allPlays.data?.length ?? 0
   const playbookCount = study.data?.playbooks.length ?? 0
 
   return (
@@ -117,6 +122,31 @@ export default function Improve() {
               goals={plan.data?.goals ?? []}
               headline={profile.weekly_goal}
             />
+          )}
+        </section>
+
+        <section className="space-y-5">
+          <SectionHeader
+            title="Plays"
+            link={{ to: '/plays', label: playsLoading ? 'View all' : `View all ${playCount}` }}
+          />
+          {playsLoading ? (
+            <RowSkeleton />
+          ) : plays.length > 0 ? (
+            <CardRow label="Plays">
+              {plays.map(play => (
+                <HubCard
+                  key={play.id}
+                  to={`/plays/${play.id}`}
+                  image={mapImageFor({ map_id: play.map_uuid, map: play.map })}
+                  title={play.title}
+                  meta={metaLine([play.map, PLAY_SIDE_LABELS[play.side], play.play?.summary])}
+                  mark="arrow"
+                />
+              ))}
+            </CardRow>
+          ) : (
+            <EmptyLine>No plays yet. Write one at Plays → New play.</EmptyLine>
           )}
         </section>
 

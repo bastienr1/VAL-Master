@@ -12,7 +12,7 @@ const inactiveClass = `${base} text-text-muted hover:text-text-secondary`
 export default function TopNavModeBar() {
   const { pathname } = useLocation()
   const reviewActive = pathname === '/' || pathname.startsWith('/matches') || pathname.startsWith('/review/')
-  const improveActive = ['/improve', '/plan', '/playbook', '/study', '/maps'].some(prefix => pathname.startsWith(prefix))
+  const improveActive = ['/improve', '/plan', '/playbook', '/plays', '/study', '/maps'].some(prefix => pathname.startsWith(prefix))
 
   const modes = [
     <NavLink key="review" to="/" className={reviewActive ? activeClass : inactiveClass}>
