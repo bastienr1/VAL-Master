@@ -14,6 +14,10 @@
  */
 
 import { supabase } from './supabase'
+import type { MapCallout } from './playDoc'
+
+// Lives with the play document so that file stays testable without Vite.
+export type { MapCallout } from './playDoc'
 
 const HENRIK_API_KEY = import.meta.env.VITE_HENRIK_API_KEY
 
@@ -29,6 +33,8 @@ export interface GameMap {
     xScalarToAdd: number
     yScalarToAdd: number
   } | null
+  /** Named places on the map, in world cm. Empty from the Henrik fallback. */
+  callouts: MapCallout[]
 }
 
 export interface GameAgent {
@@ -109,7 +115,25 @@ function mapFromValorantApi(raw: any): GameMap {
           yScalarToAdd: raw.yScalarToAdd,
         }
       : null,
+    callouts: calloutsFromValorantApi(raw?.callouts),
   }
+}
+
+/** Shapes a map's `callouts[]`, skipping any entry without a usable location. */
+function calloutsFromValorantApi(raw: unknown): MapCallout[] {
+  if (!Array.isArray(raw)) return []
+  const callouts: MapCallout[] = []
+  for (const c of raw) {
+    const x = c?.location?.x
+    const y = c?.location?.y
+    if (typeof x !== 'number' || typeof y !== 'number' || !Number.isFinite(x) || !Number.isFinite(y)) continue
+    const region = typeof c.regionName === 'string' ? c.regionName.trim() : ''
+    const superRegion = typeof c.superRegionName === 'string' ? c.superRegionName.trim() : ''
+    const name = `${superRegion} ${region}`.replace(/\s+/g, ' ').trim()
+    if (!name) continue
+    callouts.push({ region, superRegion, name, x, y })
+  }
+  return callouts
 }
 
 /** Shapes a valorant-api.com /v1/agents entry. */
@@ -211,6 +235,7 @@ async function fromHenrik(): Promise<GameContentRegistry> {
         listViewIconTall: mapListIconUrl(m.id),
         displayIcon: null,
         transform: null,
+        callouts: [],
       })),
   )
   indexAgents(

@@ -1,8 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { HUB_MAX, blockIcon, metaLine, pickGuides, pickPlaybooks, pickProVods, youtubeThumbnail } from './improveHub.ts'
+import { HUB_MAX, blockIcon, metaLine, pickGuides, pickPlaybooks, pickPlays, pickProVods, youtubeThumbnail } from './improveHub.ts'
 import { SEED_BLOCKS } from './weeklyPlan.ts'
-import type { ReferenceReview } from './types.ts'
+import type { Play, ReferenceReview } from './types.ts'
 
 // --------------------------------------------------------------------- fixtures
 
@@ -51,6 +51,31 @@ test('pickPlaybooks puts a playbook with no date last', () => {
     picked.map(p => p.name),
     ['Dated', 'Undated'],
   )
+})
+
+// ------------------------------------------------------------------------ plays
+
+function play(id: string, updated_at: string): Play {
+  return { id, title: id, map: 'Ascent', side: 'attack', comp: [], updated_at } as unknown as Play
+}
+
+test('pickPlays runs newest edit first and holds at most HUB_MAX', () => {
+  const all = [
+    play('old', '2026-09-01T10:00:00Z'),
+    play('newest', '2026-10-03T10:00:00Z'),
+    play('middle', '2026-09-15T10:00:00Z'),
+  ]
+  assert.deepEqual(
+    pickPlays(all).map(p => p.id),
+    ['newest', 'middle', 'old'],
+  )
+  // The input is left as it was.
+  assert.equal(all[0].id, 'old')
+
+  const many = Array.from({ length: HUB_MAX + 3 }, (_, i) => play(`p${i}`, `2026-10-${String(i + 1).padStart(2, '0')}T00:00:00Z`))
+  const picked = pickPlays(many)
+  assert.equal(picked.length, HUB_MAX)
+  assert.equal(picked[0].id, `p${HUB_MAX + 2}`)
 })
 
 // ---------------------------------------------------------------- guides, VODs

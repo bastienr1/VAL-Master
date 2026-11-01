@@ -71,7 +71,12 @@ export default function PlaybookIndex() {
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="font-heading text-3xl font-bold">Playbook</h1>
-          <p className="text-text-secondary text-sm">Structured knowledge indexed to your VODs</p>
+          <div className="flex items-baseline gap-3">
+            <p className="text-text-secondary text-sm">Structured knowledge indexed to your VODs</p>
+            <Link to="/plays" className="text-sm text-text-secondary hover:text-val-cyan transition-colors">
+              Set plays →
+            </Link>
+          </div>
         </div>
         <PlaybookImportButton onImportComplete={reload} />
       </div>

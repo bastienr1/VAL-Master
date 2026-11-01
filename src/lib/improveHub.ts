@@ -1,5 +1,5 @@
 import { isProVod, isVideoGuide } from './mapContent.ts'
-import type { ReferenceReview } from './types.ts'
+import type { Play, ReferenceReview } from './types.ts'
 
 /**
  * What the IMPROVE hub (`/improve`) puts on its rows. Pure: the page reads the
@@ -19,6 +19,11 @@ export function pickPlaybooks<T extends { updated_at?: string | null; name: stri
   return [...all]
     .sort((a, b) => (b.updated_at ?? '').localeCompare(a.updated_at ?? '') || a.name.localeCompare(b.name))
     .slice(0, HUB_MAX)
+}
+
+/** Newest edit first, at most HUB_MAX. `listPlays` already orders them; this keeps the hub from relying on it. */
+export function pickPlays(all: Play[]): Play[] {
+  return [...all].sort((a, b) => b.updated_at.localeCompare(a.updated_at)).slice(0, HUB_MAX)
 }
 
 /**
