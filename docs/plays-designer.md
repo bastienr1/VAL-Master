@@ -355,14 +355,17 @@ the map, the comp, and what each agent does. Claude draws it on the minimap."
 Gates for every task: `npm run build`, `npm test`, `npm run lint` clean of new
 warnings. No new dependencies.
 
-## 10. Switching it on (by hand)
+## 10. Status (2026-11-01)
 
-1. Run `supabase/migrations/20261101_plays.sql` in the Supabase SQL editor.
-   Until then Save answers "Could not find the table 'public.plays'".
-2. The Edge Function `compose-play` is deployed (version 2, JWT on). Add the
-   secret `ANTHROPIC_API_KEY` under Edge Functions → Secrets. Until then Compose
-   answers "The composer is not set up" and offers Start blank.
-3. Sign in and open `/plays/new`. Verified without sign-in through a throwaway
-   harness: the map, compose error path, Start blank, comp picker, drag, phase
-   stepper, add utility, Save error path, phone layout. Not yet seen: a real
-   compose round-trip, loading a saved play, the Improve hub row with data.
+Switched on and verified end to end in the signed-in app: the `plays`
+migration is applied, `compose-play` (version 2, JWT on) has its
+`ANTHROPIC_API_KEY`, and a real brief ("Ascent attack, A split default…")
+came back from `claude-opus-5-5` as three phases with notes, smokes, a recon
+dart, a flash, a trap, paths and five assumptions, in about 40 seconds. Saving
+created the row, reloading `/plays/:id` drew it again, and the card shows on
+`/plays` and on the Improve hub.
+
+Known gaps: no leave-page warning for unsaved edits (BrowserRouter has no
+`useBlocker`); the spike marker can hide under an agent standing on the plant
+spot; `apply_migration` and secret creation must be done from the Supabase
+dashboard, since the Claude Code permission classifier blocks both.
