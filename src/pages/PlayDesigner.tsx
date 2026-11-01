@@ -395,6 +395,7 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
                   onSelect={setSelected}
                   onMove={doc ? onMove : undefined}
                   showCallouts={showCallouts}
+                  side={side}
                   onUnresolved={setUnresolved}
                 />
                 {!doc && (

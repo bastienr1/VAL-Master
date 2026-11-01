@@ -27,7 +27,6 @@ import type { PlayDoc } from '../lib/playDoc'
 import {
   UTILITY_STYLE,
   VIEW_SIZE,
-  placeCallouts,
   sceneForPhase,
   viewToImage,
   type PhaseScene,
@@ -53,6 +52,8 @@ export interface PlayMinimapProps {
   /** Called at the end of a drag with the new image-unit position. Absent = read-only. */
   onMove?(sel: PlaySelection, pos: { u: number; v: number }): void
   showCallouts: boolean
+  /** The team the play is for: the map is turned so its spawn is at the bottom. */
+  side: 'attack' | 'defense'
   /** Callout names that could not be placed in this phase; called when the list changes. */
   onUnresolved?(names: string[]): void
 }
@@ -147,6 +148,7 @@ export default function PlayMinimap({
   onSelect,
   onMove,
   showCallouts,
+  side,
   onUnresolved,
 }: PlayMinimapProps) {
   const uid = useId().replace(/[^a-zA-Z0-9_-]/g, '')
@@ -165,8 +167,7 @@ export default function PlayMinimap({
   const [hover, setHover] = useState<string | null>(null)
   const [drag, setDrag] = useState<DragOffset | null>(null)
 
-  const scene = useMemo(() => sceneForPhase(doc, phaseIndex, map), [doc, phaseIndex, map])
-  const callouts = useMemo(() => placeCallouts(map, scene.view), [map, scene.view])
+  const scene = useMemo(() => sceneForPhase(doc, phaseIndex, map, side), [doc, phaseIndex, map, side])
 
   // Agent name → icon and colour, once the registry is in. Until then every
   // agent shows its lettered disc.
@@ -264,7 +265,7 @@ export default function PlayMinimap({
       const y = clamp(press.baseY + (e.clientY - press.startY) * press.scale, 0, VIEW_SIZE)
       // Stays displaced until the page hands back a doc with the new position.
       setDrag({ key: press.key, dx: x - press.originX, dy: y - press.originY, scene })
-      onMove(press.sel, viewToImage(view, x, y))
+      onMove(press.sel, viewToImage(view, x, y, scene.turns))
     },
     onPointerCancel: () => {
       pressRef.current = null
@@ -604,21 +605,25 @@ export default function PlayMinimap({
         <g clipPath={`url(#${boxClip})`}>
           <rect width={VIEW_SIZE} height={VIEW_SIZE} fill={BACKDROP} />
           {map.displayIcon && (
-            <image
-              href={map.displayIcon}
-              x={(-view.u / view.size) * VIEW_SIZE}
-              y={(-view.v / view.size) * VIEW_SIZE}
-              width={imageSize}
-              height={imageSize}
-              preserveAspectRatio="none"
-              opacity={0.9}
-              pointerEvents="none"
-            />
+            // The picture turns about the centre; markers and labels are placed
+            // already turned by the scene, so they stay upright.
+            <g transform={`rotate(${scene.turns * 90} ${VIEW_SIZE / 2} ${VIEW_SIZE / 2})`}>
+              <image
+                href={map.displayIcon}
+                x={(-view.u / view.size) * VIEW_SIZE}
+                y={(-view.v / view.size) * VIEW_SIZE}
+                width={imageSize}
+                height={imageSize}
+                preserveAspectRatio="none"
+                opacity={0.9}
+                pointerEvents="none"
+              />
+            </g>
           )}
 
           {showCallouts && (
             <g pointerEvents="none" fontFamily={FONT} fontSize={CALLOUT_LABEL} fill="#8A99B0" textAnchor="middle" {...HALO}>
-              {callouts.map((c, i) => (
+              {scene.callouts.map((c, i) => (
                 <text key={`${c.name}:${i}`} x={c.x} y={c.y} dominantBaseline="central">
                   {c.name}
                 </text>

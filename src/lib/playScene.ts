@@ -23,7 +23,12 @@ import {
   type PlayPos,
   type UtilityKind,
 } from './playDoc.ts'
-import { worldToImage, type MapTransform, type Viewport } from './replayScene.ts'
+import { turnPoint, worldToImage, type MapTransform, type QuarterTurns, type Viewport } from './replayScene.ts'
+
+export type { QuarterTurns }
+
+/** Which team the play is for: it starts at the bottom of the map. */
+export type PlaySceneSide = 'attack' | 'defense'
 
 /** Side of the square viewBox the minimap draws in. */
 export const VIEW_SIZE = 1000
@@ -81,16 +86,20 @@ const FALLBACK_SCALE = 7e-5
 
 const clamp01 = (n: number) => Math.max(0, Math.min(1, n))
 
-/** Image units (0..1) → viewBox units. */
-export function imageToView(view: Viewport, u: number, v: number): Point {
-  return [((u - view.u) / view.size) * VIEW_SIZE, ((v - view.v) / view.size) * VIEW_SIZE]
+/**
+ * Image units (0..1) → viewBox units, with the square turned `turns` clockwise
+ * quarter turns about its centre.
+ */
+export function imageToView(view: Viewport, u: number, v: number, turns: QuarterTurns = 0): Point {
+  return turnPoint(((u - view.u) / view.size) * VIEW_SIZE, ((v - view.v) / view.size) * VIEW_SIZE, VIEW_SIZE, turns)
 }
 
-/** ViewBox units → image units, clamped to the image. */
-export function viewToImage(view: Viewport, x: number, y: number): { u: number; v: number } {
+/** ViewBox units → image units, clamped to the image: the inverse of `imageToView` with the same turn. */
+export function viewToImage(view: Viewport, x: number, y: number, turns: QuarterTurns = 0): { u: number; v: number } {
+  const [px, py] = turnPoint(x, y, VIEW_SIZE, ((4 - turns) % 4) as QuarterTurns)
   return {
-    u: clamp01((x / VIEW_SIZE) * view.size + view.u),
-    v: clamp01((y / VIEW_SIZE) * view.size + view.v),
+    u: clamp01((px / VIEW_SIZE) * view.size + view.u),
+    v: clamp01((py / VIEW_SIZE) * view.size + view.v),
   }
 }
 
@@ -148,6 +157,10 @@ export interface PlacedMarker {
 
 export interface PhaseScene {
   view: Viewport
+  /** Clockwise quarter turns of the map, so the play's side starts at the bottom (`sceneTurns`). */
+  turns: QuarterTurns
+  /** Every callout of the map, turned like everything else, for the label layer. */
+  callouts: PlacedCallout[]
   /** The phase drawn (the index clamped to the doc), null for a doc without phases. */
   phase: PlayPhase | null
   actors: PlacedActor[]
@@ -207,14 +220,47 @@ function spreadCrowds(actors: PlacedActor[], comp: string[]) {
 }
 
 /** Every callout of the map in viewBox units, for the label layer. */
-export function placeCallouts(map: SceneMap, view: Viewport = sceneViewport(map)): PlacedCallout[] {
+export function placeCallouts(
+  map: SceneMap,
+  view: Viewport = sceneViewport(map),
+  turns: QuarterTurns = 0,
+): PlacedCallout[] {
   const { transform } = map
   if (!transform) return []
   return map.callouts.map(c => {
     const [u, v] = worldToImage(transform, c.x, c.y)
-    const [x, y] = imageToView(view, u, v)
+    const [x, y] = imageToView(view, u, v, turns)
     return { name: c.name, x, y }
   })
+}
+
+/**
+ * How to turn the map so the play's own spawn is at the bottom and the
+ * enemy's at the top: the published images of about half the maps (Ascent,
+ * Haven, Split, Icebox, Abyss, Corrode) have the spawns side by side, and a
+ * defense play reads upside down from an attack one. The turn among 0..3 that
+ * puts the own spawn furthest below the enemy's; 0 when the map has no
+ * transform or either spawn callout is missing.
+ */
+export function sceneTurns(map: SceneMap, side: PlaySceneSide): QuarterTurns {
+  const { transform } = map
+  if (!transform) return 0
+  const attacker = findCallout('Attacker Side Spawn', map.callouts)
+  const defender = findCallout('Defender Side Spawn', map.callouts)
+  if (!attacker || !defender) return 0
+  const view = sceneViewport(map)
+  const at = (c: MapCallout) => imageToView(view, ...worldToImage(transform, c.x, c.y))
+  const [own, enemy] = side === 'attack' ? [at(attacker), at(defender)] : [at(defender), at(attacker)]
+  let best: QuarterTurns = 0
+  let bestDrop = -Infinity
+  for (const turns of [0, 1, 2, 3] as const) {
+    const drop = turnPoint(own[0], own[1], VIEW_SIZE, turns)[1] - turnPoint(enemy[0], enemy[1], VIEW_SIZE, turns)[1]
+    if (drop > bestDrop) {
+      best = turns
+      bestDrop = drop
+    }
+  }
+  return best
 }
 
 /**
@@ -223,9 +269,19 @@ export function placeCallouts(map: SceneMap, view: Viewport = sceneViewport(map)
  * `unresolved`; so is a `toward` that does not resolve, although the point
  * then still stands on its first callout.
  */
-export function sceneForPhase(doc: PlayDoc, phaseIndex: number, map: SceneMap): PhaseScene {
+export function sceneForPhase(doc: PlayDoc, phaseIndex: number, map: SceneMap, side: PlaySceneSide): PhaseScene {
   const view = sceneViewport(map)
-  const scene: PhaseScene = { view, phase: null, actors: [], utility: [], markers: [], unresolved: [] }
+  const turns = sceneTurns(map, side)
+  const scene: PhaseScene = {
+    view,
+    turns,
+    callouts: placeCallouts(map, view, turns),
+    phase: null,
+    actors: [],
+    utility: [],
+    markers: [],
+    unresolved: [],
+  }
   if (doc.phases.length === 0) return scene
   const phase = doc.phases[Math.max(0, Math.min(doc.phases.length - 1, Math.trunc(phaseIndex) || 0))]
   scene.phase = phase
@@ -252,7 +308,7 @@ export function sceneForPhase(doc: PlayDoc, phaseIndex: number, map: SceneMap): 
       return null
     }
     if (!hasImagePoint && pos.toward && !findCallout(pos.toward, map.callouts)) miss(pos.toward)
-    return imageToView(view, image[0], image[1])
+    return imageToView(view, image[0], image[1], turns)
   }
 
   phase.actors.forEach((actor, index) => {

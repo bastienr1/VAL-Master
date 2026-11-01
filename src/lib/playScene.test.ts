@@ -13,6 +13,7 @@ import {
   imageToView,
   placeCallouts,
   sceneForPhase,
+  sceneTurns,
   sceneViewport,
   viewToImage,
   type SceneMap,
@@ -118,7 +119,7 @@ test('actors are placed by callout, dragged points win, and paths run at → via
       { agent: 'Omen', at: { callout: 'B Main', u: 0.5, v: 0.25 }, note: 'smokes', spike: true },
     ],
   }))
-  const scene = sceneForPhase(doc, 0, MAP)
+  const scene = sceneForPhase(doc, 0, MAP, 'attack')
   assert.equal(scene.actors.length, 2)
   const [jett, omen] = scene.actors
   const [ax, ay] = viewPointOf('A Main')
@@ -147,7 +148,7 @@ test('unknown callouts are left out and reported once each', () => {
     utility: [{ agent: 'Omen', kind: 'smoke', label: '', at: { callout: 'A Site', toward: 'Pizza' } }],
     markers: [{ kind: 'enemy', at: { callout: 'Nowhere' } }],
   }))
-  const scene = sceneForPhase(doc, 0, MAP)
+  const scene = sceneForPhase(doc, 0, MAP, 'attack')
   assert.deepEqual(scene.actors.map(a => a.agent), ['Omen'])
   // The only placed point of Omen's route is `at`: no path.
   assert.equal(scene.actors[0].path, null)
@@ -169,7 +170,7 @@ test('utility radii take the kind default, the given radius, and a floor', () =>
       { agent: 'Jett', kind: 'wall', label: '', at: { callout: 'A Main' }, from: { callout: 'Gone' } },
     ],
   }))
-  const scene = sceneForPhase(doc, 0, MAP)
+  const scene = sceneForPhase(doc, 0, MAP, 'attack')
   const view = scene.view
   close(scene.utility[0].r, cmToView(UTILITY_RADIUS_CM.smoke, ASCENT, view))
   close(scene.utility[1].r, cmToView(600, ASCENT, view))
@@ -189,7 +190,7 @@ test('a spike marker on a site callout carries the site letter', () => {
       { kind: 'enemy', at: { callout: 'A Site' }, label: 'Op' },
     ],
   }))
-  const scene = sceneForPhase(doc, 0, MAP)
+  const scene = sceneForPhase(doc, 0, MAP, 'attack')
   assert.deepEqual(scene.markers.map(m => m.site), ['B', null, null, null])
   assert.equal(scene.markers[3].label, 'Op')
   assert.equal(scene.markers[0].label, '')
@@ -200,10 +201,10 @@ test('the phase index is clamped and an empty doc gives an empty scene', () => {
     phase({ actors: [{ agent: 'Jett', at: { callout: 'A Main' }, note: 'one' }] }),
     phase({ actors: [{ agent: 'Jett', at: { callout: 'B Main' }, note: 'two' }] }),
   )
-  assert.equal(sceneForPhase(doc, 9, MAP).actors[0].note, 'two')
-  assert.equal(sceneForPhase(doc, -3, MAP).actors[0].note, 'one')
-  assert.equal(sceneForPhase(doc, Number.NaN, MAP).actors[0].note, 'one')
-  const empty = sceneForPhase({ ...doc, phases: [] }, 0, MAP)
+  assert.equal(sceneForPhase(doc, 9, MAP, 'attack').actors[0].note, 'two')
+  assert.equal(sceneForPhase(doc, -3, MAP, 'attack').actors[0].note, 'one')
+  assert.equal(sceneForPhase(doc, Number.NaN, MAP, 'attack').actors[0].note, 'one')
+  const empty = sceneForPhase({ ...doc, phases: [] }, 0, MAP, 'attack')
   assert.deepEqual([empty.actors, empty.utility, empty.markers, empty.unresolved], [[], [], [], []])
 })
 
@@ -214,7 +215,7 @@ test('without a transform only dragged points are placed', () => {
       { agent: 'Omen', at: { u: 0.5, v: 0.5 }, note: '' },
     ],
   }))
-  const scene = sceneForPhase(doc, 0, { transform: null, callouts: CALLOUTS })
+  const scene = sceneForPhase(doc, 0, { transform: null, callouts: CALLOUTS }, 'attack')
   assert.deepEqual(scene.actors.map(a => [a.agent, a.x, a.y]), [['Omen', 500, 500]])
   assert.deepEqual(scene.unresolved, ['A Main'])
 })
@@ -227,7 +228,7 @@ test('actors on the same spot are spread on a circle about it, in comp order fro
     })),
     comp,
   }
-  const scene = sceneForPhase(doc, 0, MAP)
+  const scene = sceneForPhase(doc, 0, MAP, 'attack')
   const [sx, sy] = viewPointOf('Attacker Side Spawn')
   const points = scene.actors.map(a => `${a.x.toFixed(3)},${a.y.toFixed(3)}`)
   assert.equal(new Set(points).size, 5)
@@ -255,12 +256,88 @@ test('actors well apart are not moved', () => {
       { agent: 'Omen', at: { u: 0.6, v: 0.5 }, note: '' },
     ],
   }))
-  const scene = sceneForPhase(apart, 0, { transform: null, callouts: [] })
+  const scene = sceneForPhase(apart, 0, { transform: null, callouts: [] }, 'attack')
   assert.deepEqual(scene.view, view)
   assert.deepEqual(scene.actors.map(a => [a.x, a.y]), [[500, 500], [600, 500]])
   // Two on one spot: 2 x 26 apart, one above and one below.
-  const pair = sceneForPhase(doc, 0, { transform: null, callouts: [] }).actors
+  const pair = sceneForPhase(doc, 0, { transform: null, callouts: [] }, 'attack').actors
   close(pair[0].x, 500)
   close(pair[0].y, 474)
   close(pair[1].y, 526)
+})
+
+// A plain transform: u = y / 10000 + 0.5, v = x / 10000 + 0.5, so fixtures can
+// be written straight in image units.
+const PLAIN = { xMultiplier: 1e-4, yMultiplier: 1e-4, xScalarToAdd: 0.5, yScalarToAdd: 0.5 }
+const at = (superRegion: string, region: string, u: number, v: number) =>
+  callout(superRegion, region, (v - 0.5) * 1e4, (u - 0.5) * 1e4)
+const SITES = [at('A', 'Site', 0.5, 0.2), at('B', 'Site', 0.5, 0.8)]
+
+// Ascent-like: the spawns side by side, attackers at the right.
+const SIDE_BY_SIDE: SceneMap = {
+  transform: PLAIN,
+  callouts: [...SITES, at('Attacker Side', 'Spawn', 0.8, 0.5), at('Defender Side', 'Spawn', 0.2, 0.5)],
+}
+
+test('sceneTurns brings the side the play is for to the bottom', () => {
+  const view = sceneViewport(SIDE_BY_SIDE)
+  const spawnAt = (name: string, side: 'attack' | 'defense') => {
+    const c = SIDE_BY_SIDE.callouts.find(x => x.name === name)!
+    const [u, v] = worldToImage(PLAIN, c.x, c.y)
+    return imageToView(view, u, v, sceneTurns(SIDE_BY_SIDE, side))
+  }
+  // A clockwise quarter turn takes the right-hand attacker spawn to the bottom.
+  assert.equal(sceneTurns(SIDE_BY_SIDE, 'attack'), 1)
+  assert.equal(sceneTurns(SIDE_BY_SIDE, 'defense'), 3)
+  assert.ok(spawnAt('Attacker Side Spawn', 'attack')[1] > spawnAt('Defender Side Spawn', 'attack')[1])
+  assert.ok(spawnAt('Defender Side Spawn', 'defense')[1] > spawnAt('Attacker Side Spawn', 'defense')[1])
+
+  const upright: SceneMap = {
+    transform: PLAIN,
+    callouts: [...SITES, at('Attacker Side', 'Spawn', 0.5, 0.9), at('Defender Side', 'Spawn', 0.5, 0.1)],
+  }
+  assert.equal(sceneTurns(upright, 'attack'), 0)
+  assert.equal(sceneTurns(upright, 'defense'), 2)
+
+  assert.equal(sceneTurns({ transform: PLAIN, callouts: SITES }, 'defense'), 0)
+  assert.equal(sceneTurns({ transform: null, callouts: SIDE_BY_SIDE.callouts }, 'defense'), 0)
+})
+
+test('sceneForPhase turns every point it returns', () => {
+  const doc: PlayDoc = {
+    ...docOf(phase({
+      actors: [{ agent: 'Jett', at: { callout: 'A Site' }, moveTo: { callout: 'B Site' }, note: '' }],
+      utility: [{ agent: 'Jett', kind: 'smoke', label: '', at: { callout: 'B Site' }, from: { callout: 'A Site' } }],
+      markers: [{ kind: 'spike', at: { callout: 'B Site' } }],
+    })),
+  }
+  const flat = sceneForPhase(doc, 0, { transform: PLAIN, callouts: SITES }, 'attack')
+  const turned = sceneForPhase(doc, 0, SIDE_BY_SIDE, 'attack')
+  assert.equal(flat.turns, 0)
+  assert.equal(turned.turns, 1)
+  const view = turned.view
+  const expect = (u: number, v: number) => imageToView(view, u, v, 1)
+  const [ax, ay] = expect(0.5, 0.2)
+  const [bx, by] = expect(0.5, 0.8)
+  close(turned.actors[0].x, ax)
+  close(turned.actors[0].y, ay)
+  close(turned.actors[0].path![1][0], bx)
+  close(turned.utility[0].x, bx)
+  close(turned.utility[0].from![1], ay)
+  close(turned.markers[0].y, by)
+  const label = turned.callouts.find(c => c.name === 'A Site')!
+  close(label.x, ax)
+  close(label.y, ay)
+})
+
+test('viewToImage inverts imageToView under every turn', () => {
+  const view = { u: 0.1, v: 0.2, size: 0.7 }
+  for (const turns of [0, 1, 2, 3] as const) {
+    const [x, y] = imageToView(view, 0.3, 0.65, turns)
+    const back = viewToImage(view, x, y, turns)
+    close(back.u, 0.3)
+    close(back.v, 0.65)
+  }
+  // A quarter turn really moves the point.
+  assert.notDeepEqual(imageToView(view, 0.3, 0.65, 1), imageToView(view, 0.3, 0.65, 0))
 })

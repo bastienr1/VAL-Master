@@ -238,8 +238,11 @@ Layers, bottom to top:
 
 1. Backdrop `#0A0E17`, then the map `displayIcon` image cropped to
    `calloutViewport` (via `<image>` with a `clipPath`, or `preserveAspectRatio`
-   + viewBox offset), `opacity 0.9`. No rotation: the published orientation is
-   what players know from the in-game map and Valoplant.
+   + viewBox offset), `opacity 0.9`. The picture is turned in quarter turns
+   (`sceneTurns`) so the play's own side spawns at the bottom and the enemy at
+   the top, as the replay minimap does; markers and labels stay upright.
+   Ascent, Split, Abyss, Corrode, Haven and Icebox need a quarter turn, the
+   other maps a half turn or none.
 2. Callout labels, `#64748B`, 22px in viewBox units, `font-family: Inter`, only
    when `showCallouts` is on (toggle above the map, default on while composing a
    new play, off when viewing).
