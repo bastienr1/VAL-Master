@@ -7,6 +7,7 @@ import AgentStrip, { type AgentRole } from '../components/play/AgentStrip'
 import BriefDrawer, { type ComposeFailure } from '../components/play/BriefDrawer'
 import EditorRail from '../components/play/EditorRail'
 import EditorToolbar from '../components/play/EditorToolbar'
+import PlaybookPanel from '../components/play/PlaybookPanel'
 import { useGameContent, useGameContentNames } from '../hooks/useGameContent'
 import { abilitiesForComp } from '../lib/composeAbilities'
 import { composePlay, ComposerNotConfiguredError } from '../lib/composePlay'
@@ -85,6 +86,29 @@ const isEditable = (target: EventTarget | null) =>
   target instanceof HTMLTextAreaElement ||
   target instanceof HTMLSelectElement ||
   (target instanceof HTMLElement && target.isContentEditable)
+
+/** The Playbook panel runs its own player: Space and the arrows there are its keys, not the editor's. */
+const inPlaybookPanel = (target: EventTarget | null) =>
+  target instanceof Element && target.closest('[data-playbook-panel]') !== null
+
+const PLAYBOOK_OPEN_KEY = 'plays.playbookOpen'
+
+function readPlaybookOpen(): boolean {
+  try {
+    return window.localStorage.getItem(PLAYBOOK_OPEN_KEY) === 'true'
+  } catch {
+    // Private mode or blocked storage: the panel starts closed.
+    return false
+  }
+}
+
+function persistPlaybookOpen(open: boolean) {
+  try {
+    window.localStorage.setItem(PLAYBOOK_OPEN_KEY, String(open))
+  } catch {
+    /* ignore — a panel's open state is not worth an error */
+  }
+}
 
 const snapshotOf = (s: { title: string; map: string; side: PlaySide; brief: string; doc: PlayDoc }) =>
   JSON.stringify({ ...s, comp: s.doc.comp })
@@ -174,6 +198,7 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
   /** The agent whose ability popover is open. */
   const [popoverAgent, setPopoverAgent] = useState<string | null>(null)
   const [drawerOpen, setDrawerOpen] = useState(!loadId)
+  const [playbookOpen, setPlaybookOpen] = useState(readPlaybookOpen)
   const [showCallouts, setShowCallouts] = useState(!loadId)
   const [playing, setPlaying] = useState(false)
   const [speedMs, setSpeedMs] = useState(DEFAULT_SPEED_MS)
@@ -573,7 +598,7 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
   useEffect(() => {
     if (load !== 'ready') return
     const onKeyDown = (e: KeyboardEvent) => {
-      if (isEditable(e.target)) return
+      if (isEditable(e.target) || inPlaybookPanel(e.target)) return
       const key = e.key.toLowerCase()
       if (e.ctrlKey || e.metaKey) {
         if (e.altKey) return
@@ -686,6 +711,11 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
         onRedo={redo}
         showCallouts={showCallouts}
         onToggleCallouts={() => setShowCallouts(s => !s)}
+        playbookOpen={playbookOpen}
+        onTogglePlaybook={() => {
+          persistPlaybookOpen(!playbookOpen)
+          setPlaybookOpen(!playbookOpen)
+        }}
         drawerOpen={drawerOpen}
         onToggleDrawer={() => setDrawerOpen(o => !o)}
         briefHint={composedWith === null}
@@ -700,7 +730,7 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
         <div className="shrink-0 border-b border-val-red/25 bg-val-red/10 text-val-red text-sm px-3 py-1.5">{error}</div>
       )}
 
-      <div className="flex-1 min-h-0 flex flex-col overflow-y-auto lg:overflow-hidden lg:grid lg:grid-cols-[112px_minmax(0,1fr)_auto] lg:grid-rows-[minmax(0,1fr)_64px]">
+      <div className="flex-1 min-h-0 flex flex-col overflow-y-auto lg:overflow-hidden lg:grid lg:grid-cols-[112px_auto_minmax(0,1fr)_auto] lg:grid-rows-[minmax(0,1fr)_64px]">
         <aside className="shrink-0 min-h-0 bg-bg-secondary border-b border-bg-elevated lg:border-b-0 lg:border-r lg:row-start-1 lg:col-start-1">
           <EditorRail
             mapNames={mapNames}
@@ -725,9 +755,19 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
           />
         </aside>
 
+        {/* Rail, playbook, canvas, drawer (§2.6). Under lg a block between the rail and the canvas. */}
+        <aside
+          className={`shrink-0 min-h-0 bg-bg-card border-bg-elevated lg:row-start-1 lg:col-start-2 lg:overflow-y-auto lg:overflow-x-hidden ${
+            playbookOpen ? 'block border-b lg:border-b-0 lg:border-r lg:w-[400px]' : 'hidden'
+          }`}
+        >
+          {/* Keyed by map: a new map starts the panel's hooks fresh instead of showing the last map's rows. */}
+          {playbookOpen && map && <PlaybookPanel key={map} map={map} />}
+        </aside>
+
         <div
           ref={canvasBox}
-          className="relative shrink-0 h-[70vh] lg:h-auto min-h-0 min-w-0 p-3 flex items-center justify-center overflow-hidden lg:row-start-1 lg:col-start-2"
+          className="relative shrink-0 h-[70vh] lg:h-auto min-h-0 min-w-0 p-3 flex items-center justify-center overflow-hidden lg:row-start-1 lg:col-start-3"
         >
           {!registry && registryStatus === 'loading' ? (
             <div style={{ width: boxSize, height: boxSize }} className="rounded-xl bg-bg-card animate-pulse" aria-hidden="true" />
@@ -785,7 +825,7 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
         </div>
 
         <aside
-          className={`min-h-0 bg-bg-card border-bg-elevated lg:row-start-1 lg:col-start-3 lg:overflow-y-auto lg:overflow-x-hidden ${
+          className={`min-h-0 bg-bg-card border-bg-elevated lg:row-start-1 lg:col-start-4 lg:overflow-y-auto lg:overflow-x-hidden ${
             drawerOpen ? 'block border-t lg:border-t-0 lg:border-l lg:w-[360px]' : 'hidden lg:block lg:w-0'
           }`}
         >
@@ -818,7 +858,7 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
           )}
         </aside>
 
-        <div className="sticky bottom-0 z-20 shrink-0 lg:static lg:row-start-2 lg:col-start-1 lg:col-span-3">
+        <div className="sticky bottom-0 z-20 shrink-0 lg:static lg:row-start-2 lg:col-start-1 lg:col-span-4">
           <AgentStrip
             agents={registryAgents}
             role={role}

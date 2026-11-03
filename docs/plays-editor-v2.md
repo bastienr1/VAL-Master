@@ -175,6 +175,42 @@ Post-plant; defense: Setup, Hold, Retake), else `Step N`.
 
 Save writes `play` as v2. Loading a v1 row runs `migratePlayDoc` (section 3).
 
+### 2.6 Playbook panel (`src/components/play/PlaybookPanel.tsx`)
+
+A second side panel, on the left between the rail and the canvas, so a play
+can be drawn while watching the vault guide for that map. Toggled by a
+"Playbook" button in the toolbar next to Brief; closed by default, the choice
+remembered in `localStorage` (`plays.playbookOpen`). 400 px on `lg`
+(`bg-bg-card border-r border-bg-elevated`, scrollable); under `lg` a
+full-width block above the canvas. The grid becomes
+`lg:grid-cols-[112px_auto_minmax(0,1fr)_auto]` (rail, playbook, canvas, drawer),
+the strip row spanning all four.
+
+Top to bottom:
+
+1. Header "Playbook" and a `<select>` of the signed-in user's playbooks for the
+   current map (`usePlaybooks({ map })`), labelled by `name` with the side in
+   brackets when set; the pick is remembered per map in `localStorage`
+   (`plays.playbook.<map>`), default the newest. With none: "No playbook for
+   {map} yet. Import one from the vault on the Playbook page." with a link to
+   `/playbook`.
+2. The video: a 16:9 box mounting `useYouTubePlayer(extractYouTubeId(video_url))`;
+   when `embedBlocked`, a "Watch on YouTube ↗" row instead; when the playbook
+   has no `video_url`, a muted line.
+3. A transport row: play/pause, −5 s, +5 s, `formatTime(currentTime)` /
+   `formatTime(duration)`, and "Open in Playbook ↗" to
+   `/playbook/<slug>?chapter=<active chapter number>`.
+4. The chapters: `PlaybookChapterList` with `usePlaybookChapters(playbook.id)`,
+   `activeChapterId` = the chapter whose `[start_seconds, end_seconds)` holds
+   `currentTime` (the innermost when nested), `onChapterSelect` → seek to its
+   start, `onMomentSelect` → seek to the moment, `activeSeconds = currentTime`,
+   `totalSeconds = video_duration_seconds`.
+
+Keyboard: the page's shortcuts (Space, arrows, letters) must not fire while the
+focus is inside the panel (`data-playbook-panel` on its root; the key handler
+ignores targets inside it), so Space on the player's buttons does not also
+toggle the step playback.
+
 ## 3. Document v2 (`src/lib/playDoc.ts`)
 
 ```ts
@@ -301,5 +337,10 @@ agents, abilities (Sova dart, Omen smokes, KAY/O flash, Killjoy alarmbot),
 paths and assumptions, drawn on the canvas with the drawer notes filled;
 saved, reloaded by id, and the earlier v1 play opened through the migration
 with its three steps intact; both plays show on the index.
+
+The Playbook panel (2.6) was checked the same day on the Ascent play: the two
+imported Ascent guides in the select, the YouTube player mounted, 27 chapter
+and moment rows with timestamps, a chapter click seeking the video, the canvas
+keeping its size, no console errors.
 
 Not yet verified: the phone layout and touch input.
