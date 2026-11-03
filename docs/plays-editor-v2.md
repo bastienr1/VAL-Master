@@ -295,5 +295,11 @@ and the step walk in a harness. Ability colours are lifted toward white
 (`liftColor` in the canvas) so dark agents' utility reads on navy.
 `compose-play` version 5 is deployed with the v2 schema.
 
-Not yet verified: a real compose round-trip on v2, loading a saved v1 play
-through the migration in the app, the phone layout, touch input.
+Verified in the signed-in app (2026-11-04): a real v2 compose of an Ascent A
+split came back from `claude-opus-5-5` as Setup / Execute / Post-plant with
+agents, abilities (Sova dart, Omen smokes, KAY/O flash, Killjoy alarmbot),
+paths and assumptions, drawn on the canvas with the drawer notes filled;
+saved, reloaded by id, and the earlier v1 play opened through the migration
+with its three steps intact; both plays show on the index.
+
+Not yet verified: the phone layout and touch input.
