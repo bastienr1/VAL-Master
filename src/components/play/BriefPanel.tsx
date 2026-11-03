@@ -1,5 +1,8 @@
+import { useState } from 'react'
 import { Loader2, Sparkles } from 'lucide-react'
+import type { PlayTemplate } from '../../lib/playTemplates'
 import type { PlaySide } from '../../lib/types'
+import TemplateStrip from './TemplateStrip'
 
 export interface ComposeFailure {
   message: string
@@ -23,6 +26,10 @@ interface BriefPanelProps {
   hasDoc: boolean
   error: ComposeFailure | null
   onStartBlank(): void
+  templates: PlayTemplate[]
+  /** The map's sites, for the templates played around one. */
+  sites: string[]
+  onApplyTemplate(template: PlayTemplate, site: string | null): void
 }
 
 const SIDES: { value: PlaySide; label: string }[] = [
@@ -35,11 +42,21 @@ const PLACEHOLDER =
 
 const field = 'bg-bg-primary border border-bg-elevated rounded-lg text-sm focus:border-val-cyan outline-none'
 
-/** The brief card: map, side, the user's words, and the Compose button. */
+/**
+ * The brief card: map, side, the user's words, and the Compose button. Before
+ * any play exists the templates sit above the brief; after, they hide behind
+ * a "Templates" link and ask before replacing the phases.
+ */
 export default function BriefPanel(props: BriefPanelProps) {
   const { mapNames, map, side, brief, composing, error, hasDoc } = props
+  const [showTemplates, setShowTemplates] = useState(false)
   // A saved play on a map the registry no longer lists keeps its own name in the picker.
   const options = map && !mapNames.includes(map) ? [map, ...mapNames] : mapNames
+
+  const applyTemplate = (template: PlayTemplate, site: string | null) => {
+    setShowTemplates(false)
+    props.onApplyTemplate(template, site)
+  }
 
   return (
     <section className="bg-bg-card border border-bg-elevated rounded-xl p-4 space-y-3">
@@ -74,6 +91,9 @@ export default function BriefPanel(props: BriefPanelProps) {
           ))}
         </div>
       </div>
+      {!hasDoc && (
+        <TemplateStrip templates={props.templates} sites={props.sites} onApply={applyTemplate} confirmReplace={false} />
+      )}
       <textarea
         rows={7}
         value={brief}
@@ -115,6 +135,21 @@ export default function BriefPanel(props: BriefPanelProps) {
         >
           Start blank
         </button>
+      )}
+      {hasDoc && (
+        <>
+          <button
+            type="button"
+            onClick={() => setShowTemplates(s => !s)}
+            aria-expanded={showTemplates}
+            className="text-xs text-text-secondary hover:text-val-cyan underline transition-colors"
+          >
+            Templates
+          </button>
+          {showTemplates && (
+            <TemplateStrip templates={props.templates} sites={props.sites} onApply={applyTemplate} confirmReplace />
+          )}
+        </>
       )}
     </section>
   )

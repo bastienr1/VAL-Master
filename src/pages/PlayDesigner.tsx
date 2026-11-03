@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState, type KeyboardEvent } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { ArrowLeft } from 'lucide-react'
 import PlayMinimap, { type PlaySelection } from '../components/PlayMinimap'
 import BriefPanel, { type ComposeFailure } from '../components/play/BriefPanel'
@@ -10,6 +10,14 @@ import PlayHeader from '../components/play/PlayHeader'
 import { useGameContent, useGameContentNames } from '../hooks/useGameContent'
 import { composePlay, ComposerNotConfiguredError } from '../lib/composePlay'
 import { emptyPlayDoc, parsePlayDoc, PlayDocError, type PlayDoc, type PlayPhase, type PlayUtility } from '../lib/playDoc'
+import {
+  PLAY_TEMPLATES,
+  mapSites,
+  templateById,
+  templateDoc,
+  templateScaffold,
+  type PlayTemplate,
+} from '../lib/playTemplates'
 import { createPlay, deletePlay, getPlay, updatePlay, type PlayInput } from '../lib/plays'
 import type { PlaySide } from '../lib/types'
 
@@ -74,6 +82,10 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
   const navigate = useNavigate()
   const { registry, status: registryStatus } = useGameContent()
   const { mapNames } = useGameContentNames()
+  // `/plays/new?template=retake&site=B`, read once: applied when the map is known, then cleared.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const [deepLink] = useState(() => ({ template: searchParams.get('template'), site: searchParams.get('site') }))
+  const deepLinked = useRef(false)
 
   const [load, setLoad] = useState<LoadState>(loadId ? 'loading' : 'ready')
   const [savedId, setSavedId] = useState<string | null>(loadId ?? null)
@@ -103,6 +115,11 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
   const comp = useMemo(() => doc?.comp ?? [], [doc])
   const gameMap = map ? registry?.maps.byName.get(map.trim().toLowerCase()) : undefined
   const mapDrawable = Boolean(gameMap?.transform && gameMap.callouts.length > 0)
+  const sites = useMemo(() => mapSites(gameMap?.callouts ?? []), [gameMap])
+  const registryAgentNames = useMemo(
+    () => (registry ? [...registry.agents.byId.values()].map(a => a.name) : []),
+    [registry],
+  )
 
   const phaseCount = doc?.phases.length ?? 0
   const phaseAt = Math.min(phaseIndex, Math.max(0, phaseCount - 1))
@@ -253,6 +270,31 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
     setComposedWith(null)
     setComposeError(null)
   }
+
+  /**
+   * The template's phases, with the comp kept when there is one and taken from
+   * the brief otherwise. An empty brief gets the template's scaffold to fill in.
+   */
+  const applyTemplate = (template: PlayTemplate, site: string | null) => {
+    setSide(template.side)
+    const agents = doc?.comp.length ? doc.comp : agentsInBrief(brief, registryAgentNames)
+    startDoc(templateDoc(template, agents, site))
+    setComposedWith(null)
+    setComposeError(null)
+    setShowCallouts(true)
+    if (brief.trim() === '') setBrief(templateScaffold(template, map, site))
+  }
+
+  useEffect(() => {
+    if (deepLinked.current || loadId !== undefined || !gameMap || doc) return
+    const template = templateById(deepLink.template ?? '')
+    if (!template) return
+    deepLinked.current = true
+    const wanted = deepLink.site?.trim().toUpperCase()
+    applyTemplate(template, wanted && sites.includes(wanted) ? wanted : (sites[0] ?? null))
+    // So a reload does not apply it over the user's work.
+    setSearchParams({}, { replace: true })
+  })
 
   const compose = async () => {
     if (!gameMap || gameMap.callouts.length === 0 || !brief.trim() || composing) return
@@ -436,6 +478,9 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
             hasDoc={doc !== null}
             error={composeError}
             onStartBlank={startBlank}
+            templates={PLAY_TEMPLATES}
+            sites={sites}
+            onApplyTemplate={applyTemplate}
           />
           <PhasePanel
             key={phase?.id ?? 'none'}

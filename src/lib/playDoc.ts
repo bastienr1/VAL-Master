@@ -404,7 +404,9 @@ export function calloutViewport(callouts: MapCallout[], transform: MapTransform,
  * side's spawn (`side` defaults to attack, the spec's signature has no side).
  * Attack gets Setup, Execute and Post-plant; defense gets Setup, Hold and
  * Retake, the beats a defensive set is talked through in. The comp is cleaned
- * as `parsePlayDoc` would.
+ * as `parsePlayDoc` would. This is the Attack or Defense template of
+ * `playTemplates.ts`, captions included, written out here because that file
+ * imports this one; a test keeps the two equal.
  */
 export function emptyPlayDoc(comp: string[], side: 'attack' | 'defense' = 'attack'): PlayDoc {
   const agents: string[] = []
@@ -415,10 +417,10 @@ export function emptyPlayDoc(comp: string[], side: 'attack' | 'defense' = 'attac
     agents.push(name)
   }
   const spawn = side === 'attack' ? 'Attacker Side Spawn' : 'Defender Side Spawn'
-  const phase = (id: string, name: string): PlayPhase => ({
+  const phase = (id: string, name: string, caption: string): PlayPhase => ({
     id,
     name,
-    caption: '',
+    caption,
     actors: agents.map(agent => ({ agent, at: { callout: spawn }, note: '' })),
     utility: [],
     markers: [],
@@ -429,8 +431,16 @@ export function emptyPlayDoc(comp: string[], side: 'attack' | 'defense' = 'attac
     comp: agents,
     phases:
       side === 'attack'
-        ? [phase('setup', 'Setup'), phase('execute', 'Execute'), phase('post-plant', 'Post-plant')]
-        : [phase('setup', 'Setup'), phase('hold', 'Hold'), phase('retake', 'Retake')],
+        ? [
+            phase('setup', 'Setup', 'Group up and take map control. Everyone in position before the execute call.'),
+            phase('execute', 'Execute', 'Utility first, then the entry. Who goes first, and where the plant is.'),
+            phase('post-plant', 'Post-plant', 'Spread out, hold the crossfires, play for time.'),
+          ]
+        : [
+            phase('setup', 'Setup', 'Default positions and the opening utility. Who anchors, who plays for info.'),
+            phase('hold', 'Hold', 'Reads and rotations once the attack shows. Who holds, who falls back, who rotates.'),
+            phase('retake', 'Retake', 'If the site falls: the regroup point, the retake utility, who goes first.'),
+          ],
     assumptions: [],
   }
 }
