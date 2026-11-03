@@ -6,8 +6,6 @@ interface TemplateStripProps {
   /** The map's sites, A / B / C, for the templates played around one. */
   sites: string[]
   onApply(template: PlayTemplate, site: string | null): void
-  /** A play exists: ask before its phases are replaced. */
-  confirmReplace: boolean
 }
 
 const SIDE_CHIP: Record<PlayTemplate['side'], { label: string; className: string }> = {
@@ -20,43 +18,24 @@ const smallButton =
 
 /**
  * "Start from a template": one card per template. A template played around a
- * site opens its site chips first; with a play already there, the last click
- * asks before replacing its phases.
+ * site opens its site chips first. Shown only while the play has nothing
+ * drawn, so applying one never replaces work.
  */
-export default function TemplateStrip({ templates, sites, onApply, confirmReplace }: TemplateStripProps) {
+export default function TemplateStrip({ templates, sites, onApply }: TemplateStripProps) {
   /** The site template whose chips are open. */
   const [siteFor, setSiteFor] = useState<PlayTemplate['id'] | null>(null)
-  /** The choice waiting for "Yes" when a play would be replaced. */
-  const [pending, setPending] = useState<{ template: PlayTemplate; site: string | null } | null>(null)
-
-  const choose = (template: PlayTemplate, site: string | null) => {
-    if (confirmReplace) {
-      setPending({ template, site })
-      return
-    }
-    setSiteFor(null)
-    onApply(template, site)
-  }
 
   const pick = (template: PlayTemplate) => {
-    setPending(null)
     if (template.needsSite) setSiteFor(open => (open === template.id ? null : template.id))
     else {
       setSiteFor(null)
-      choose(template, null)
+      onApply(template, null)
     }
-  }
-
-  const confirm = () => {
-    if (!pending) return
-    setPending(null)
-    setSiteFor(null)
-    onApply(pending.template, pending.site)
   }
 
   return (
     <div className="space-y-2">
-      <div className="text-[11px] uppercase tracking-widest text-text-secondary">Start from a template</div>
+      <div className="text-[10px] uppercase tracking-widest text-text-secondary">Start from a template</div>
       <div className="grid grid-cols-2 gap-2">
         {templates.map(t => {
           const side = SIDE_CHIP[t.side]
@@ -74,7 +53,7 @@ export default function TemplateStrip({ templates, sites, onApply, confirmReplac
                     {side.label}
                   </span>
                 </div>
-                <div className="text-[11px] text-text-muted">{t.phases.map(p => p.name).join(' · ')}</div>
+                <div className="text-[11px] text-text-muted">{t.steps.map(s => s.name).join(' · ')}</div>
                 <div className="text-xs text-text-secondary">{t.description}</div>
               </button>
               {t.needsSite && siteFor === t.id && (
@@ -83,26 +62,19 @@ export default function TemplateStrip({ templates, sites, onApply, confirmReplac
                     <span className="text-xs text-text-muted">This map lists no sites</span>
                   ) : (
                     sites.map(site => (
-                      <button key={site} type="button" onClick={() => choose(t, site)} className={smallButton}>
+                      <button
+                        key={site}
+                        type="button"
+                        onClick={() => {
+                          setSiteFor(null)
+                          onApply(t, site)
+                        }}
+                        className={smallButton}
+                      >
                         {site}
                       </button>
                     ))
                   )}
-                </div>
-              )}
-              {pending?.template.id === t.id && (
-                <div className="flex flex-wrap items-center gap-1.5 text-xs text-text-secondary">
-                  <span>Replace the current phases with {t.name}?</span>
-                  <button type="button" onClick={confirm} className={smallButton}>
-                    Yes
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setPending(null)}
-                    className="px-2.5 py-1 rounded-md text-xs font-medium text-text-secondary hover:text-text-primary transition-colors"
-                  >
-                    No
-                  </button>
                 </div>
               )}
             </div>

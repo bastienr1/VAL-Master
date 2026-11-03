@@ -48,6 +48,14 @@ export interface GameAgent {
    * valorant-api.com carries them; null from the Henrik fallback.
    */
   gradient: string[] | null
+  /** Grenade / Ability1 / Ability2 / Ultimate in the API's order. Empty from the Henrik fallback. */
+  abilities: AgentAbility[]
+}
+
+export interface AgentAbility {
+  slot: 'Grenade' | 'Ability1' | 'Ability2' | 'Ultimate'
+  name: string
+  icon: string | null
 }
 
 export interface GameContentRegistry {
@@ -136,6 +144,23 @@ function calloutsFromValorantApi(raw: unknown): MapCallout[] {
   return callouts
 }
 
+const ABILITY_SLOTS = new Set<string>(['Grenade', 'Ability1', 'Ability2', 'Ultimate'])
+
+/** Shapes an agent's `abilities[]`, dropping the passive and any unknown slot. */
+function abilitiesFromValorantApi(raw: unknown): AgentAbility[] {
+  if (!Array.isArray(raw)) return []
+  const abilities: AgentAbility[] = []
+  for (const a of raw) {
+    if (typeof a?.slot !== 'string' || !ABILITY_SLOTS.has(a.slot)) continue
+    abilities.push({
+      slot: a.slot as AgentAbility['slot'],
+      name: typeof a.displayName === 'string' ? a.displayName : '',
+      icon: typeof a.displayIcon === 'string' ? a.displayIcon : null,
+    })
+  }
+  return abilities
+}
+
 /** Shapes a valorant-api.com /v1/agents entry. */
 function agentFromValorantApi(raw: any): GameAgent {
   return {
@@ -145,6 +170,7 @@ function agentFromValorantApi(raw: any): GameAgent {
     displayIcon: raw.displayIcon ?? agentIconUrl(raw.uuid),
     fullPortrait: raw.fullPortrait ?? null,
     gradient: Array.isArray(raw.backgroundGradientColors) ? raw.backgroundGradientColors : null,
+    abilities: abilitiesFromValorantApi(raw?.abilities),
   }
 }
 
@@ -249,6 +275,7 @@ async function fromHenrik(): Promise<GameContentRegistry> {
         displayIcon: agentIconUrl(a.id),
         fullPortrait: null,
         gradient: null,
+        abilities: [],
       })),
   )
   return registry
@@ -397,6 +424,12 @@ export function agentGradientCss(agent: Pick<GameAgent, 'gradient'> | null | und
   if (stops.length === 0) return null
   if (stops.length === 1) return `#${stops[0]}`
   return `linear-gradient(180deg, ${stops.map(hex => `#${hex}`).join(', ')})`
+}
+
+/** The agent's signature colour (first backdrop stop) as #rrggbb, or the app accent. */
+export function agentColor(agent: Pick<GameAgent, 'gradient'> | null | undefined): string {
+  const first = (agent?.gradient ?? []).find(hex => HEX_RGBA.test(hex))
+  return first ? `#${first.slice(0, 6)}` : '#53CADC'
 }
 
 // ──────────────────────────────────────────────────────────────────────────

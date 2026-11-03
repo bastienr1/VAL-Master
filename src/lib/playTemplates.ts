@@ -1,9 +1,9 @@
 /**
  * Play templates — the four starting points of a set play.
  *
- * A template is the right phases with a caption each that says what to write
+ * A template is the right steps with a caption each that says what to write
  * for it, everyone standing where that kind of play starts, and a brief
- * scaffold with one line per phase. Attack and Defense start from spawn and
+ * scaffold with one line per step. Attack and Defense start from spawn and
  * mirror `emptyPlayDoc`; Post-plant and Retake are played around a site, so
  * their positions, markers and captions carry `{site}`, filled with the site
  * letter ("{site} Site" becomes "A Site"). The scaffold also carries `{map}`.
@@ -13,7 +13,7 @@
  * imported by `playDoc.ts`, which this file builds on.
  */
 
-import { parsePlayDoc, type MapCallout, type PlayDoc } from './playDoc.ts'
+import { newId, parsePlayDoc, type MapCallout, type PlayDoc } from './playDoc.ts'
 
 export type PlayTemplateId = 'attack' | 'defense' | 'post-plant' | 'retake'
 
@@ -28,22 +28,22 @@ export interface PlayTemplate {
   description: string
   /** Played around one site: the designer asks which before applying. */
   needsSite: boolean
-  phases: {
+  steps: {
     id: string
     name: string
-    /** What to write for this phase. May carry `{site}`. */
+    /** What to write for this step. May carry `{site}`. */
     caption: string
     /** The callout every agent stands on. May carry `{site}`. */
     spot: string
-    /** Where every agent heads during the phase, drawn as an arrow. May carry `{site}`. */
+    /** Where every agent heads during the step, drawn as an arrow. May carry `{site}`. */
     moveTo?: string
-    markers?: { kind: 'spike' | 'enemy'; at: string; label?: string }[]
+    markers?: { type: 'spike' | 'enemy'; at: string; label?: string }[]
   }[]
-  /** The brief, one line per phase to fill in. Carries `{map}` and may carry `{site}`. */
+  /** The brief, one line per step to fill in. Carries `{map}` and may carry `{site}`. */
   scaffold: string
 }
 
-const SPIKE_ON_SITE = { kind: 'spike', at: '{site} Site' } as const
+const SPIKE_ON_SITE = { type: 'spike', at: '{site} Site' } as const
 
 export const PLAY_TEMPLATES: PlayTemplate[] = [
   {
@@ -52,7 +52,7 @@ export const PLAY_TEMPLATES: PlayTemplate[] = [
     side: 'attack',
     description: 'A full execute: setup, hit, post-plant.',
     needsSite: false,
-    phases: [
+    steps: [
       {
         id: 'setup',
         name: 'Setup',
@@ -80,7 +80,7 @@ export const PLAY_TEMPLATES: PlayTemplate[] = [
     side: 'defense',
     description: 'Default setup, the hold, and what if the site falls.',
     needsSite: false,
-    phases: [
+    steps: [
       {
         id: 'setup',
         name: 'Setup',
@@ -108,7 +108,7 @@ export const PLAY_TEMPLATES: PlayTemplate[] = [
     side: 'attack',
     description: 'Spike down: where everyone stands and how the defuse is denied.',
     needsSite: true,
-    phases: [
+    steps: [
       {
         id: 'plant',
         name: 'Plant',
@@ -139,13 +139,13 @@ export const PLAY_TEMPLATES: PlayTemplate[] = [
     side: 'defense',
     description: 'Site lost: regroup, clear it, cover the defuse.',
     needsSite: true,
-    phases: [
+    steps: [
       {
         id: 'regroup',
         name: 'Regroup',
         caption: 'Site lost on {site}. Where everyone meets and what we know.',
         spot: 'Defender Side Spawn',
-        markers: [SPIKE_ON_SITE, { kind: 'enemy', at: '{site} Site', label: 'Post-plant' }],
+        markers: [SPIKE_ON_SITE, { type: 'enemy', at: '{site} Site', label: 'Post-plant' }],
       },
       {
         id: 'retake',
@@ -192,10 +192,12 @@ const siteLetter = (site: string | null | undefined) => site?.trim().toUpperCase
 const fillSite = (s: string, site: string) => s.split('{site}').join(site)
 
 /**
- * A play built from a template: every agent of the comp in every phase,
- * standing on the phase's spot (and heading for its `moveTo`), with the
- * template's markers. The comp is cleaned the way `parsePlayDoc` cleans it,
- * and the result comes back through it, so it is an ordinary play.
+ * A play built from a template: every agent of the comp in every step as an
+ * ally agent element, standing on the step's spot (and heading for its
+ * `moveTo`), with the template's markers. Each agent keeps one element id
+ * across the steps, so stepping animates it. The comp is cleaned the way
+ * `parsePlayDoc` cleans it, and the result comes back through it, so it is an
+ * ordinary play.
  */
 export function templateDoc(template: PlayTemplate, comp: string[], site?: string | null): PlayDoc {
   const letter = siteLetter(site)
@@ -206,32 +208,38 @@ export function templateDoc(template: PlayTemplate, comp: string[], site?: strin
     if (agents.length === 5) break
     agents.push(name)
   }
+  const agentIds = agents.map(() => newId())
   return parsePlayDoc({
-    version: 1,
+    version: 2,
     summary: '',
     comp: agents,
-    phases: template.phases.map(p => ({
-      id: p.id,
-      name: p.name,
-      caption: fillSite(p.caption, letter),
-      actors: agents.map(agent => ({
-        agent,
-        at: { callout: fillSite(p.spot, letter) },
-        ...(p.moveTo ? { moveTo: { callout: fillSite(p.moveTo, letter) } } : {}),
-        note: '',
-      })),
-      utility: [],
-      markers: (p.markers ?? []).map(m => ({
-        kind: m.kind,
-        at: { callout: fillSite(m.at, letter) },
-        ...(m.label ? { label: m.label } : {}),
-      })),
+    steps: template.steps.map(s => ({
+      id: s.id,
+      name: s.name,
+      caption: fillSite(s.caption, letter),
+      elements: [
+        ...agents.map((agent, i) => ({
+          kind: 'agent',
+          id: agentIds[i],
+          agent,
+          team: 'ally',
+          at: { callout: fillSite(s.spot, letter) },
+          ...(s.moveTo ? { moveTo: { callout: fillSite(s.moveTo, letter) } } : {}),
+        })),
+        ...(s.markers ?? []).map(m => ({
+          kind: 'marker',
+          id: newId(),
+          type: m.type,
+          at: { callout: fillSite(m.at, letter) },
+          ...(m.label ? { label: m.label } : {}),
+        })),
+      ],
     })),
     assumptions: [],
   })
 }
 
-/** The brief a template starts with: the map, the side, and one line per phase to fill in. */
+/** The brief a template starts with: the map, the side, and one line per step to fill in. */
 export function templateScaffold(template: PlayTemplate, map: string, site?: string | null): string {
   return fillSite(template.scaffold, siteLetter(site)).split('{map}').join(map.trim())
 }

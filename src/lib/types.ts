@@ -192,7 +192,9 @@ export type PlaySide = 'attack' | 'defense'
  * A set play the user wrote and the app drew on the minimap (`/plays`). Not a
  * Playbook: those are video guides imported from the vault. `play` is null
  * until the play is composed or started by hand; `composed_with` is the model
- * of the last compose, null for a hand-made play.
+ * of the last compose, null for a hand-made play. `play` is typed as the v2
+ * document, but a row saved before v2 holds a v1 one: read it through
+ * `parsePlayDoc`, which migrates it.
  */
 export interface Play {
   id: string

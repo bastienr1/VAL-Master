@@ -1,6 +1,7 @@
 /**
- * Client for the `compose-play` Edge Function (docs/plays-designer.md §5):
- * sends a brief, gets a play document back, checked by `parsePlayDoc`.
+ * Client for the `compose-play` Edge Function (docs/plays-editor-v2.md §5):
+ * sends a brief, gets a v2 play document back, checked by `parsePlayDoc`
+ * (which also assigns the element ids the function's output leaves out).
  *
  * Every failure is thrown as an Error whose message is one sentence the page
  * can show as is. `ComposerNotConfiguredError` means the function answered
@@ -9,7 +10,8 @@
 
 import { FunctionsFetchError, FunctionsHttpError, FunctionsRelayError } from '@supabase/supabase-js'
 import { supabase } from './supabase'
-import { parsePlayDoc, PlayDocError, type PlayDoc } from './playDoc'
+import { parsePlayDoc, PlayDocError, type AbilitySlot, type PlayDoc, type UtilityKind } from './playDoc'
+import { mergeKeptElements, unifyAgentIds } from './composeMerge'
 import type { PlaySide } from './types'
 
 export interface ComposePlayInput {
@@ -17,9 +19,14 @@ export interface ComposePlayInput {
   side: PlaySide
   brief: string
   comp?: string[]
+  /**
+   * The comp's abilities (`abilitiesForComp` in composeAbilities.ts): the only
+   * ones the composer may use, by slot and shape. At most 20.
+   */
+  abilities?: { agent: string; slot: AbilitySlot; name: string; shape: UtilityKind }[]
   /** Callout names for the map (`GameMap.callouts[].name`): the only places the composer may use. */
   callouts: string[]
-  /** The current play when recomposing, so dragged positions and phase ids are kept. */
+  /** The current play when recomposing, so dragged positions and step ids are kept. */
   previous?: PlayDoc | null
 }
 
@@ -77,8 +84,10 @@ async function toComposeError(error: unknown): Promise<Error> {
 }
 
 /**
- * Composes a play from a brief. Resolves with the parsed play and the model
- * that wrote it; rejects with `ComposerNotConfiguredError` or `ComposeError`.
+ * Composes a play from a brief. Resolves with the parsed play (one id per ally
+ * agent across steps; when recomposing, the previous play's pens, arrows, text
+ * and enemy agents kept on steps whose id matches) and the model that wrote
+ * it; rejects with `ComposerNotConfiguredError` or `ComposeError`.
  */
 export async function composePlay(input: ComposePlayInput): Promise<{ play: PlayDoc; model: string }> {
   const { data, error } = await supabase.functions.invoke<{ play?: unknown; model?: unknown }>('compose-play', {
@@ -97,5 +106,9 @@ export async function composePlay(input: ComposePlayInput): Promise<{ play: Play
     if (e instanceof PlayDocError) throw new ComposeError(e.message)
     throw e
   }
+  // One id per ally agent so the canvas animates them, then the player's own
+  // drawing (pens, arrows, text, enemies) back on the steps the composer kept.
+  play = unifyAgentIds(play)
+  if (input.previous) play = mergeKeptElements(play, input.previous)
   return { play, model: typeof data.model === 'string' ? data.model : '' }
 }
