@@ -159,7 +159,11 @@ const TEXT_BOX_H = 34
 const UTILITY_LABEL = 20
 const CALLOUT_LABEL = 22
 const NOTE_MAX = 42
-const LABEL_MIN_WIDTH_PX = 360
+/** Below this rendered width (px) ability, marker and agent labels hide. */
+const LABEL_MIN_WIDTH_PX = 280
+/** Below this rendered width (px) callout and small labels are set 15% smaller, so they stay rather than crowd. */
+const COMPACT_LABEL_WIDTH_PX = 420
+const COMPACT_LABEL_SCALE = 0.85
 const EASE = 'transform 450ms cubic-bezier(.2,.8,.2,1)'
 
 // ── Gestures ────────────────────────────────────────────────────────────────
@@ -379,6 +383,11 @@ export default function PlayCanvas({
   const agentOf = (name: string): GameAgent | null => registry?.agents.byName.get(name.trim().toLowerCase()) ?? null
 
   const showLabels = width >= LABEL_MIN_WIDTH_PX
+  // Width is 0 until the first measure: full size then, so callouts do not flash small.
+  const labelScale = width > 0 && width < COMPACT_LABEL_WIDTH_PX ? COMPACT_LABEL_SCALE : 1
+  // 22 → 19 and 20 → 17 viewBox units on a compact canvas.
+  const calloutLabel = Math.round(CALLOUT_LABEL * labelScale)
+  const utilityLabel = Math.round(UTILITY_LABEL * labelScale)
   const drawing = pending !== null || DRAW_TOOLS.has(tool)
   const selecting = tool === 'select' && pending === null
   const dragging = live !== null
@@ -693,7 +702,7 @@ export default function PlayCanvas({
         y={y}
         textAnchor="middle"
         fontFamily={FONT}
-        fontSize={UTILITY_LABEL}
+        fontSize={utilityLabel}
         fill="#CBD5E1"
         pointerEvents="none"
         {...HALO}
@@ -913,7 +922,7 @@ export default function PlayCanvas({
     let labelY: number
     if (marker.type === 'spike') {
       name = 'Spike'
-      labelY = SPIKE_R + 8 + UTILITY_LABEL
+      labelY = SPIKE_R + 8 + utilityLabel
       shape = (
         <>
           <circle r={HIT_R} fill="transparent" />
@@ -936,7 +945,7 @@ export default function PlayCanvas({
       )
     } else if (marker.type === 'enemy') {
       name = 'Enemy'
-      labelY = ENEMY_R + 8 + UTILITY_LABEL
+      labelY = ENEMY_R + 8 + utilityLabel
       shape = (
         <>
           <circle r={HIT_R} fill="transparent" />
@@ -956,7 +965,7 @@ export default function PlayCanvas({
       )
     } else {
       name = 'Pin'
-      labelY = 8 + UTILITY_LABEL
+      labelY = 8 + utilityLabel
       shape = (
         <>
           <circle cy={-PIN_HEAD + 4} r={HIT_R} fill="transparent" />
@@ -1205,7 +1214,7 @@ export default function PlayCanvas({
       const [dx, dy] = offsetOf(ability.id)
       labels.push(
         <g key={`label:${ability.id}`} style={placement(ability.x + dx, ability.y + dy)}>
-          {smallLabel(abilityName(ability, agentOf(ability.agent)), abilityExtent(ability) + 10 + UTILITY_LABEL)}
+          {smallLabel(abilityName(ability, agentOf(ability.agent)), abilityExtent(ability) + 10 + utilityLabel)}
         </g>,
       )
     }
@@ -1376,7 +1385,7 @@ export default function PlayCanvas({
           <g
             pointerEvents="none"
             fontFamily={FONT}
-            fontSize={CALLOUT_LABEL}
+            fontSize={calloutLabel}
             fill={CALLOUT_COLOR}
             textAnchor="middle"
             {...HALO}

@@ -40,6 +40,16 @@ interface UseSplitterOptions {
    * calls for it. Without it, only `maxWidth` applies.
    */
   minOtherSide?: number
+  /**
+   * The pixels the panel and the flexible column share, measured by the caller.
+   *
+   * By default that room is derived from the panel's parent, counting every
+   * child without `flex-grow` as a fixed rail. A CSS grid breaks that: no grid
+   * item grows, so the flexible column (and any full-width row) would be paid
+   * for as a rail. A grid page passes this instead. Return `Infinity` to leave
+   * only `maxWidth` in force (for a layout where the panel is not a column).
+   */
+  available?: (panel: HTMLElement) => number
   /** Announced by the handle to screen readers. */
   label?: string
 }
@@ -77,6 +87,7 @@ export function useSplitter({
   onResize,
   side = 'right',
   minOtherSide,
+  available,
   label = 'Resize panel',
 }: UseSplitterOptions) {
   /** The element being sized — written to directly while dragging. */
@@ -87,6 +98,12 @@ export function useSplitter({
     const panel = panelRef.current
     const parent = panel?.parentElement
     if (!minOtherSide || !panel || !parent) return maxWidth
+
+    if (available) {
+      const room = available(panel)
+      if (!Number.isFinite(room)) return maxWidth
+      return Math.min(maxWidth, Math.max(minWidth, room - minOtherSide))
+    }
 
     // What the container has left once every *other* fixed element is paid for
     // — sibling rails and the divider handles themselves — minus the floor the
@@ -113,7 +130,7 @@ export function useSplitter({
       maxWidth,
       Math.max(minWidth, parent.clientWidth - otherFixed - gaps - minOtherSide),
     )
-  }, [maxWidth, minOtherSide, minWidth])
+  }, [maxWidth, minOtherSide, minWidth, available])
 
   const clamp = useCallback(
     (w: number) => Math.round(Math.max(minWidth, Math.min(effectiveMax(), w))),

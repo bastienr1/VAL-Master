@@ -343,4 +343,10 @@ imported Ascent guides in the select, the YouTube player mounted, 27 chapter
 and moment rows with timestamps, a chapter click seeking the video, the canvas
 keeping its size, no console errors.
 
+Both side panels resize by a drag handle (the VOD workstation's splitter;
+widths remembered per device, the canvas kept at 420 px or wider, each panel
+re-clamped when the other opens), and the callout labels are on by default on
+saved plays too, remembered per device, scaling down instead of hiding on a
+narrow canvas. Checked in the signed-in app at 1400 px.
+
 Not yet verified: the phone layout and touch input.

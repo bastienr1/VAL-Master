@@ -1,14 +1,16 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { ArrowLeft } from 'lucide-react'
 import PlayCanvas, { type Tool } from '../components/PlayCanvas'
 import AbilityPopover from '../components/play/AbilityPopover'
 import AgentStrip, { type AgentRole } from '../components/play/AgentStrip'
+import { SplitterHandle, useSplitter } from '../components/ColumnSplitter'
 import BriefDrawer, { type ComposeFailure } from '../components/play/BriefDrawer'
 import EditorRail from '../components/play/EditorRail'
 import EditorToolbar from '../components/play/EditorToolbar'
 import PlaybookPanel from '../components/play/PlaybookPanel'
 import { useGameContent, useGameContentNames } from '../hooks/useGameContent'
+import { useMediaQuery } from '../hooks/useMediaQuery'
 import { abilitiesForComp } from '../lib/composeAbilities'
 import { composePlay, ComposerNotConfiguredError } from '../lib/composePlay'
 import type { GameAgent } from '../lib/gameContent'
@@ -32,6 +34,24 @@ import { sceneTurns, sceneViewport, viewToImage } from '../lib/playScene'
 import { PLAY_TEMPLATES, mapSites, templateById, templateDoc, templateScaffold, type PlayTemplate } from '../lib/playTemplates'
 import { createPlay, deletePlay, getPlay, updatePlay, type PlayInput } from '../lib/plays'
 import type { PlaySide } from '../lib/types'
+
+/** A boolean kept per device; the fallback when storage is blocked or empty. */
+function readFlag(key: string, fallback: boolean): boolean {
+  try {
+    const raw = localStorage.getItem(key)
+    return raw === null ? fallback : raw === 'true'
+  } catch {
+    return fallback
+  }
+}
+
+function writeFlag(key: string, value: boolean) {
+  try {
+    localStorage.setItem(key, String(value))
+  } catch {
+    /* a flag is not worth an error */
+  }
+}
 
 const UNTITLED = 'Untitled play'
 const DEFAULT_SPEED_MS = 1800
@@ -100,6 +120,17 @@ function readPlaybookOpen(): boolean {
     // Private mode or blocked storage: the panel starts closed.
     return false
   }
+}
+
+/** Tailwind's `lg`: the editor is a grid with side columns from here up, stacked below. */
+const LG_QUERY = '(min-width: 64rem)'
+/** The canvas column never gets narrower than this while a side panel is dragged. */
+const CANVAS_MIN_PX = 420
+
+/** The rendered width of the editor grid's column marked `data-plays-column={name}`; 0 when hidden. */
+function columnWidth(grid: HTMLElement, name: 'rail' | 'playbook' | 'drawer'): number {
+  const el = grid.querySelector(`:scope > [data-plays-column="${name}"]`)
+  return el ? el.getBoundingClientRect().width : 0
 }
 
 function persistPlaybookOpen(open: boolean) {
@@ -199,7 +230,14 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
   const [popoverAgent, setPopoverAgent] = useState<string | null>(null)
   const [drawerOpen, setDrawerOpen] = useState(!loadId)
   const [playbookOpen, setPlaybookOpen] = useState(readPlaybookOpen)
-  const [showCallouts, setShowCallouts] = useState(!loadId)
+  // On by default, saved plays included: the callout names are how a play is read. Remembered per device.
+  const [showCallouts, setShowCalloutsState] = useState(() => readFlag('plays.showCallouts', true))
+  const setShowCallouts = (next: boolean | ((prev: boolean) => boolean)) =>
+    setShowCalloutsState(prev => {
+      const value = typeof next === 'function' ? next(prev) : next
+      writeFlag('plays.showCallouts', value)
+      return value
+    })
   const [playing, setPlaying] = useState(false)
   const [speedMs, setSpeedMs] = useState(DEFAULT_SPEED_MS)
   /** False while an arrow key is held down: the steps flick by without the walk animation. */
@@ -215,6 +253,44 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
 
   const canvasBox = useRef<HTMLDivElement>(null)
   const [boxSize, setBoxSize] = useState(0)
+
+  // Resizable side panels (lg and up). Each panel's room is the grid less the rail and the
+  // other panel when it is open: the grid has no flex-grow for the hook to read, and its
+  // agent strip spans every column. A closed panel or a stacked layout is not re-clamped.
+  const isLg = useMediaQuery(LG_QUERY)
+  const editorGrid = useRef<HTMLDivElement>(null)
+  const playbookRoom = useCallback(() => {
+    const grid = editorGrid.current
+    if (!grid || !isLg || !playbookOpen) return Number.POSITIVE_INFINITY
+    return grid.clientWidth - columnWidth(grid, 'rail') - (drawerOpen ? columnWidth(grid, 'drawer') : 0)
+  }, [isLg, playbookOpen, drawerOpen])
+  const drawerRoom = useCallback(() => {
+    const grid = editorGrid.current
+    if (!grid || !isLg || !drawerOpen) return Number.POSITIVE_INFINITY
+    return grid.clientWidth - columnWidth(grid, 'rail') - (playbookOpen ? columnWidth(grid, 'playbook') : 0)
+  }, [isLg, playbookOpen, drawerOpen])
+  const playbookSplit = useSplitter({
+    initialWidth: 400,
+    minWidth: 280,
+    maxWidth: 900,
+    storageKey: 'plays.playbookWidth',
+    side: 'left',
+    minOtherSide: CANVAS_MIN_PX,
+    available: playbookRoom,
+    label: 'Resize the playbook panel',
+  })
+  const drawerSplit = useSplitter({
+    initialWidth: 360,
+    minWidth: 280,
+    maxWidth: 720,
+    storageKey: 'plays.drawerWidth',
+    side: 'right',
+    minOtherSide: CANVAS_MIN_PX,
+    available: drawerRoom,
+    label: 'Resize the brief',
+  })
+  const playbookSized = isLg && playbookOpen
+  const drawerSized = isLg && drawerOpen
 
   const doc = history.present
   const map = mapPick || (loadId ? '' : (mapNames[0] ?? ''))
@@ -730,8 +806,11 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
         <div className="shrink-0 border-b border-val-red/25 bg-val-red/10 text-val-red text-sm px-3 py-1.5">{error}</div>
       )}
 
-      <div className="flex-1 min-h-0 flex flex-col overflow-y-auto lg:overflow-hidden lg:grid lg:grid-cols-[112px_auto_minmax(0,1fr)_auto] lg:grid-rows-[minmax(0,1fr)_64px]">
-        <aside className="shrink-0 min-h-0 bg-bg-secondary border-b border-bg-elevated lg:border-b-0 lg:border-r lg:row-start-1 lg:col-start-1">
+      <div
+        ref={editorGrid}
+        className="flex-1 min-h-0 flex flex-col overflow-y-auto lg:overflow-hidden lg:grid lg:grid-cols-[112px_auto_minmax(0,1fr)_auto] lg:grid-rows-[minmax(0,1fr)_64px]"
+      >
+        <aside data-plays-column="rail" className="shrink-0 min-h-0 bg-bg-secondary border-b border-bg-elevated lg:border-b-0 lg:border-r lg:row-start-1 lg:col-start-1">
           <EditorRail
             mapNames={mapNames}
             map={map}
@@ -756,9 +835,13 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
         </aside>
 
         {/* Rail, playbook, canvas, drawer (§2.6). Under lg a block between the rail and the canvas. */}
+        {/* On lg its width is the splitter's (written during a drag, committed on release); the column is auto. */}
         <aside
+          ref={playbookSplit.panelProps.ref}
+          style={playbookSized ? playbookSplit.panelProps.style : undefined}
+          data-plays-column="playbook"
           className={`shrink-0 min-h-0 bg-bg-card border-bg-elevated lg:row-start-1 lg:col-start-2 lg:overflow-y-auto lg:overflow-x-hidden ${
-            playbookOpen ? 'block border-b lg:border-b-0 lg:border-r lg:w-[400px]' : 'hidden'
+            playbookOpen ? 'block border-b lg:border-b-0 lg:border-r' : 'hidden'
           }`}
         >
           {/* Keyed by map: a new map starts the panel's hooks fresh instead of showing the last map's rows. */}
@@ -824,9 +907,26 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
           )}
         </div>
 
+        {/* The splitters share their panel's grid cell, laid over its inner edge: they neither
+            scroll with the panel's content nor take a column of their own. Painted after the
+            canvas so the half of the grip over the canvas column stays on top. */}
+        {playbookSized && (
+          <div className="relative z-10 flex row-start-1 col-start-2 justify-self-end translate-x-1/2">
+            <SplitterHandle {...playbookSplit.dragHandlers} />
+          </div>
+        )}
+        {drawerSized && (
+          <div className="relative z-10 flex row-start-1 col-start-4 justify-self-start -translate-x-1/2">
+            <SplitterHandle {...drawerSplit.dragHandlers} />
+          </div>
+        )}
+
         <aside
+          ref={drawerSplit.panelProps.ref}
+          style={drawerSized ? drawerSplit.panelProps.style : undefined}
+          data-plays-column="drawer"
           className={`min-h-0 bg-bg-card border-bg-elevated lg:row-start-1 lg:col-start-4 lg:overflow-y-auto lg:overflow-x-hidden ${
-            drawerOpen ? 'block border-t lg:border-t-0 lg:border-l lg:w-[360px]' : 'hidden lg:block lg:w-0'
+            drawerOpen ? 'block border-t lg:border-t-0 lg:border-l' : 'hidden lg:block lg:w-0'
           }`}
         >
           {drawerOpen && (

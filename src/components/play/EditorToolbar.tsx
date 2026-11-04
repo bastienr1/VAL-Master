@@ -71,7 +71,7 @@ export default function EditorToolbar(props: EditorToolbarProps) {
         onChange={e => props.onTitle(e.target.value)}
         onFocus={e => e.target.select()}
         aria-label="Play title"
-        className="font-heading text-lg font-bold bg-transparent border-b border-transparent focus:border-val-cyan outline-none min-w-0 flex-1 max-w-md"
+        className="font-heading text-lg font-bold bg-transparent border-b border-transparent focus:border-val-cyan outline-none min-w-0 flex-1 max-w-md truncate"
       />
       <div className="hidden sm:flex items-center gap-1.5 shrink-0">
         {map && <span className={`${chip} text-text-secondary bg-bg-elevated`}>{map}</span>}

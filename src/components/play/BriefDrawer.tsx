@@ -68,7 +68,7 @@ export default function BriefDrawer(props: BriefDrawerProps) {
     a.label || props.abilityName(a.agent, a.slot) || UTILITY_STYLE[a.shape].label
 
   return (
-    <div className="w-full lg:w-[360px]">
+    <div className="w-full">
       {props.showTemplates && (
         <section className={sectionClass}>
           <TemplateStrip templates={props.templates} sites={props.sites} onApply={props.onApplyTemplate} />

@@ -89,7 +89,7 @@ export default function PlaybookPanel({ map }: PlaybookPanelProps) {
   }
 
   return (
-    <div data-playbook-panel className="w-full lg:w-[400px]">
+    <div data-playbook-panel className="w-full">
       <section className={sectionClass}>
         <div className={label}>Playbook</div>
         {loading ? (
