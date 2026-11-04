@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { ArrowLeft } from 'lucide-react'
-import PlayCanvas, { type Tool } from '../components/PlayCanvas'
+import PlayCanvas, { type PlayCanvasHandle, type Tool } from '../components/PlayCanvas'
 import AbilityPopover from '../components/play/AbilityPopover'
 import AgentStrip, { type AgentRole } from '../components/play/AgentStrip'
 import { SplitterHandle, useSplitter } from '../components/ColumnSplitter'
@@ -65,6 +65,9 @@ const MAX_COMP = 5
 const ROLE_KEYS: AgentRole[] = ['Duelist', 'Initiator', 'Controller', 'Sentinel']
 
 const TOOL_KEYS: Record<string, Tool> = { v: 'select', p: 'pen', a: 'arrow', t: 'text', e: 'eraser' }
+
+/** Space let go within this toggles playback; held longer, it was the canvas' pan key. */
+const SPACE_TAP_MS = 300
 
 /** What a new step at this index is called, per side, before falling back to "Step N". */
 const STEP_NAMES: Record<PlaySide, string[]> = {
@@ -252,6 +255,10 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
   const [composeError, setComposeError] = useState<ComposeFailure | null>(null)
 
   const canvasBox = useRef<HTMLDivElement>(null)
+  /** The canvas keeps its own zoom: the page's `+` / `-` / `0` keys and the strip's placement ask it. */
+  const canvas = useRef<PlayCanvasHandle>(null)
+  /** When Space went down (event time), until its keyup decides whether it was a tap. */
+  const spaceDownAt = useRef<number | null>(null)
   const [boxSize, setBoxSize] = useState(0)
 
   // Resizable side panels (lg and up). Each panel's room is the grid less the rail and the
@@ -500,7 +507,9 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
       setHint('Comp is full')
       return
     }
-    const centre = viewToImage(sceneViewport(gameMap), 500, 500, sceneTurns(gameMap, side))
+    // The middle of what the canvas shows, zoomed or not; the map's centre before it is mounted.
+    const centre =
+      canvas.current?.visibleCentre() ?? viewToImage(sceneViewport(gameMap), 500, 500, sceneTurns(gameMap, side))
     const el: AgentElement = {
       kind: 'agent',
       id: newId(),
@@ -703,7 +712,14 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
       } else if (e.key === ' ') {
         // Also keeps a focused button from being clicked by the same key.
         e.preventDefault()
-        if (stepCount > 1) setPlaying(p => !p)
+        // Playback waits for the keyup: Space held is the canvas' pan key.
+        if (!e.repeat) spaceDownAt.current = e.timeStamp
+      } else if (e.key === '+' || e.key === '=') {
+        canvas.current?.zoomIn()
+      } else if (e.key === '-') {
+        canvas.current?.zoomOut()
+      } else if (e.key === '0') {
+        canvas.current?.resetZoom()
       } else if (!e.shiftKey && TOOL_KEYS[key]) {
         chooseTool(TOOL_KEYS[key])
       } else if (key.length === 1 && key >= '1' && key <= '4') {
@@ -712,7 +728,15 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
       }
     }
     const onKeyUp = (e: KeyboardEvent) => {
-      if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') setAnimate(true)
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+        setAnimate(true)
+      } else if (e.key === ' ') {
+        const downAt = spaceDownAt.current
+        spaceDownAt.current = null
+        if (downAt === null || isEditable(e.target) || inPlaybookPanel(e.target)) return
+        e.preventDefault()
+        if (e.timeStamp - downAt < SPACE_TAP_MS && stepCount > 1) setPlaying(p => !p)
+      }
     }
     window.addEventListener('keydown', onKeyDown)
     window.addEventListener('keyup', onKeyUp)
@@ -857,10 +881,11 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
           ) : gameMap && mapDrawable && step ? (
             <div
               style={{ width: boxSize, height: boxSize }}
-              className={`transition-opacity ${composing ? 'opacity-60 pointer-events-none' : ''}`}
+              className={`relative transition-opacity ${composing ? 'opacity-60 pointer-events-none' : ''}`}
             >
               {boxSize > 0 && (
                 <PlayCanvas
+                  ref={canvas}
                   map={gameMap}
                   side={side}
                   step={step}
@@ -876,18 +901,18 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
                   onUnresolved={setUnresolved}
                 />
               )}
+              {/* On the map square, its right end clear of the canvas' zoom overlay. */}
+              {unresolved.length > 0 && (
+                <div className="absolute top-2 left-2 right-36 pointer-events-none">
+                  <span className="inline-block max-w-full truncate rounded-md bg-bg-primary/85 px-2 py-1 text-[11px] text-val-yellow">
+                    Not on this map: {unresolved.join(', ')}
+                  </span>
+                </div>
+              )}
             </div>
           ) : (
             <div className="max-w-sm rounded-xl border border-bg-elevated bg-bg-card p-6 text-center text-sm text-text-muted">
               This map’s minimap data is not available right now.
-            </div>
-          )}
-
-          {mapDrawable && unresolved.length > 0 && (
-            <div className="absolute top-3 left-3 right-3 pointer-events-none">
-              <span className="inline-block max-w-full truncate rounded-md bg-bg-primary/85 px-2 py-1 text-[11px] text-val-yellow">
-                Not on this map: {unresolved.join(', ')}
-              </span>
             </div>
           )}
 

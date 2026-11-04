@@ -17,11 +17,19 @@
  * being drawn, an inline text draft). Agents are keyed by element id and
  * placed with a CSS `translate`, so stepping through the play animates them
  * walking.
+ *
+ * Zoom and pan (§2.2) are view state, never saved and reset with the map: the
+ * viewBox shows a square `1000 / zoom` wide, its corner held inside the map,
+ * and every pointer goes through the svg's screen matrix, so a press lands on
+ * what is drawn under it at any zoom. Sizes stay in viewBox units: markers,
+ * labels and the inline text field grow with the map.
  */
 
 import {
+  forwardRef,
   useEffect,
   useId,
+  useImperativeHandle,
   useMemo,
   useRef,
   useState,
@@ -31,6 +39,7 @@ import {
   type PointerEvent,
   type ReactNode,
 } from 'react'
+import { Maximize2 } from 'lucide-react'
 import { useGameContent } from '../hooks/useGameContent'
 import { agentColor, type GameAgent, type GameMap } from '../lib/gameContent'
 import { abilityShape } from '../lib/agentAbilities'
@@ -81,6 +90,15 @@ export interface PlayCanvasProps {
   /** Pen/arrow/text/marker/ability placements call this with the new element appended. */
   onPendingDone(): void
   onUnresolved?(names: string[]): void
+}
+
+/** What the page can ask of the canvas: its `+` / `-` / `0` keys zoom about the centre. */
+export interface PlayCanvasHandle {
+  zoomIn(): void
+  zoomOut(): void
+  resetZoom(): void
+  /** The image-unit point at the centre of what is shown: where the strip places a new agent. */
+  visibleCentre(): { u: number; v: number }
 }
 
 // ── Looks ───────────────────────────────────────────────────────────────────
@@ -175,10 +193,21 @@ const PEN_SAMPLE_PX = 6
 /** An arrow shorter than this (client px) is a slip, not an arrow. */
 const ARROW_MIN_PX = 8
 
+const MIN_ZOOM = 1
+const MAX_ZOOM = 6
+/** What one press of a zoom button or key multiplies the zoom by. */
+const ZOOM_STEP = 1.25
+/** The wheel zooms by `exp(-deltaY * WHEEL_RATE)`. */
+const WHEEL_RATE = 0.0015
+/** A wheel that counts lines (Firefox) moves about this many pixels a line. */
+const WHEEL_LINE_PX = 16
+
 const DRAW_TOOLS: ReadonlySet<Tool> = new Set<Tool>(['pen', 'arrow', 'text', 'spike', 'enemy', 'pin'])
 
 /** Which part of an element a press grabbed: arrows have two ends besides the body. */
 type Part = 'body' | 'from' | 'to'
+
+type ClickPress = { mode: 'click'; pointerId: number; at: Point; id: string | null }
 
 type Press =
   | {
@@ -196,7 +225,18 @@ type Press =
     }
   | { mode: 'pen'; pointerId: number; lastClient: Point; points: Point[] }
   | { mode: 'arrow'; pointerId: number; client: Point; from: Point; to: Point }
-  | { mode: 'click'; pointerId: number; at: Point; id: string | null }
+  | ClickPress
+  | {
+      mode: 'pan'
+      pointerId: number
+      /** Client px of the press, for the drag threshold. */
+      client: Point
+      /** The viewBox point pressed: the pan keeps it under the pointer. */
+      grab: Point
+      dragging: boolean
+      /** What the press does if it never moves: the select tool's click on the empty map. */
+      click: ClickPress | null
+    }
 
 /** An element displaced by the drag in progress, in viewBox units. */
 interface Live {
@@ -230,6 +270,47 @@ const inSquare = ([x, y]: Point) => x >= 0 && x <= VIEW_SIZE && y >= 0 && y <= V
 const clampPoint = ([x, y]: Point): Point => [clamp(x, 0, VIEW_SIZE), clamp(y, 0, VIEW_SIZE)]
 
 const round5 = (n: number) => Math.round(n * 1e5) / 1e5
+
+/** What the canvas shows of the map: the zoom and the view's top-left corner, in viewBox units. */
+interface Camera {
+  zoom: number
+  x: number
+  y: number
+}
+
+const HOME: Camera = { zoom: 1, x: 0, y: 0 }
+
+/** The zoom held to its range and the view held inside the map. */
+function clampCamera({ zoom, x, y }: Camera): Camera {
+  const z = clamp(zoom, MIN_ZOOM, MAX_ZOOM)
+  const room = VIEW_SIZE - VIEW_SIZE / z
+  return { zoom: z, x: clamp(x, 0, room), y: clamp(y, 0, room) }
+}
+
+/**
+ * The camera at another zoom with the viewBox point `p` drawn where `at` is
+ * drawn now: by default `p` itself, so it stays put under the pointer.
+ */
+function zoomAbout(camera: Camera, p: Point, zoom: number, at: Point = p): Camera {
+  const z = clamp(zoom, MIN_ZOOM, MAX_ZOOM)
+  const k = camera.zoom / z
+  return clampCamera({ zoom: z, x: p[0] - (at[0] - camera.x) * k, y: p[1] - (at[1] - camera.y) * k })
+}
+
+/** The camera moved so the viewBox point `grab` comes back under the pointer, which is over `at`. */
+const panned = (camera: Camera, grab: Point, at: Point): Camera => zoomAbout(camera, grab, camera.zoom, at)
+
+const centreOf = ({ zoom, x, y }: Camera): Point => [x + VIEW_SIZE / zoom / 2, y + VIEW_SIZE / zoom / 2]
+
+const viewBoxOf = ({ zoom, x, y }: Camera) =>
+  [x, y, VIEW_SIZE / zoom, VIEW_SIZE / zoom].map(n => Math.round(n * 1e3) / 1e3).join(' ')
+
+/** A space typed in a field is not Space held to pan. */
+const isEditable = (target: EventTarget | null) =>
+  target instanceof HTMLInputElement ||
+  target instanceof HTMLTextAreaElement ||
+  target instanceof HTMLSelectElement ||
+  (target instanceof HTMLElement && target.isContentEditable)
 
 const pointsAttr = (points: Point[], dx = 0, dy = 0) =>
   points.map(([x, y]) => `${(x + dx).toFixed(1)},${(y + dy).toFixed(1)}`).join(' ')
@@ -283,21 +364,24 @@ function abilityName(item: PlacedAbility, agent: GameAgent | null): string {
 
 // ── Component ───────────────────────────────────────────────────────────────
 
-export default function PlayCanvas({
-  map,
-  side,
-  step,
-  previous,
-  tool,
-  pending,
-  selectedId,
-  showCallouts,
-  animate,
-  onSelect,
-  onChange,
-  onPendingDone,
-  onUnresolved,
-}: PlayCanvasProps) {
+const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCanvas(
+  {
+    map,
+    side,
+    step,
+    previous,
+    tool,
+    pending,
+    selectedId,
+    showCallouts,
+    animate,
+    onSelect,
+    onChange,
+    onPendingDone,
+    onUnresolved,
+  },
+  ref,
+) {
   const uid = useId().replace(/[^a-zA-Z0-9_-]/g, '')
   const boxClip = `${uid}-box`
   const tileClip = `${uid}-tile`
@@ -307,6 +391,7 @@ export default function PlayCanvas({
   const { registry } = useGameContent()
   const reducedMotion = useSyncExternalStore(subscribeReducedMotion, readReducedMotion, () => false)
 
+  const rootRef = useRef<HTMLDivElement>(null)
   const svgRef = useRef<SVGSVGElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const pressRef = useRef<Press | null>(null)
@@ -319,6 +404,26 @@ export default function PlayCanvas({
   const [draft, setDraft] = useState<Draft | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [textDraft, setTextDraft] = useState<{ id: string; value: string } | null>(null)
+
+  const [camera, setCamera] = useState<Camera>(HOME)
+  /** The camera as last shown: gestures and the wheel read and move it between renders. */
+  const cameraRef = useRef<Camera>(HOME)
+  const [cameraMap, setCameraMap] = useState(map.uuid)
+  const [panning, setPanning] = useState(false)
+  const [spaceHeld, setSpaceHeld] = useState(false)
+  /** Touch points on the map by pointer id, in client px: two make a pinch. */
+  const touchesRef = useRef(new Map<number, Point>())
+  /** The pinch in progress: the fingers' first spread, the viewBox point between them, the zoom then. */
+  const pinchRef = useRef<{ spread: number; grab: Point; zoom: number } | null>(null)
+
+  // Zoom is view state: a new map starts whole.
+  if (cameraMap !== map.uuid) {
+    setCameraMap(map.uuid)
+    setCamera(HOME)
+  }
+  useEffect(() => {
+    cameraRef.current = HOME
+  }, [map.uuid])
 
   const scene = useMemo(() => sceneForStep(step, map, side), [step, map, side])
   const previousScene = useMemo(() => (previous ? sceneForStep(previous, map, side) : null), [previous, map, side])
@@ -357,6 +462,26 @@ export default function PlayCanvas({
     return () => observer.disconnect()
   }, [])
 
+  // Space held turns a drag on the map into a pan, under any tool.
+  useEffect(() => {
+    const down = (e: globalThis.KeyboardEvent) => {
+      if (e.key === ' ' && !isEditable(e.target)) setSpaceHeld(true)
+    }
+    const up = (e: globalThis.KeyboardEvent) => {
+      if (e.key === ' ') setSpaceHeld(false)
+    }
+    // A key released in another window never comes back as a keyup.
+    const release = () => setSpaceHeld(false)
+    window.addEventListener('keydown', down)
+    window.addEventListener('keyup', up)
+    window.addEventListener('blur', release)
+    return () => {
+      window.removeEventListener('keydown', down)
+      window.removeEventListener('keyup', up)
+      window.removeEventListener('blur', release)
+    }
+  }, [])
+
   // Report unplaceable callouts when the set changes, not on every render.
   const unresolvedKey = scene.unresolved.join('\n')
   const onUnresolvedRef = useRef(onUnresolved)
@@ -375,23 +500,28 @@ export default function PlayCanvas({
     if (!editingId || editingId !== selectedId) return
     const input = inputRef.current
     if (input && document.activeElement !== input) {
-      input.focus()
+      // Zoomed in, the field can reach past the map: focus must not scroll the box around it.
+      input.focus({ preventScroll: true })
       input.select()
     }
   }, [editingId, selectedId])
 
   const agentOf = (name: string): GameAgent | null => registry?.agents.byName.get(name.trim().toLowerCase()) ?? null
 
-  const showLabels = width >= LABEL_MIN_WIDTH_PX
+  // Zoomed in, the map is drawn wider than its box: labels go by the drawn width.
+  const drawnWidth = width * camera.zoom
+  const showLabels = drawnWidth >= LABEL_MIN_WIDTH_PX
   // Width is 0 until the first measure: full size then, so callouts do not flash small.
-  const labelScale = width > 0 && width < COMPACT_LABEL_WIDTH_PX ? COMPACT_LABEL_SCALE : 1
+  const labelScale = width > 0 && drawnWidth < COMPACT_LABEL_WIDTH_PX ? COMPACT_LABEL_SCALE : 1
   // 22 → 19 and 20 → 17 viewBox units on a compact canvas.
   const calloutLabel = Math.round(CALLOUT_LABEL * labelScale)
   const utilityLabel = Math.round(UTILITY_LABEL * labelScale)
   const drawing = pending !== null || DRAW_TOOLS.has(tool)
   const selecting = tool === 'select' && pending === null
   const dragging = live !== null
-  const elementCursor = selecting ? (dragging ? 'grabbing' : 'grab') : undefined
+  /** A pan in progress holds the map and Space held offers to: either outranks the tool's cursor. */
+  const panCursor = panning ? 'grabbing' : spaceHeld ? 'grab' : undefined
+  const elementCursor = panCursor ?? (selecting ? (dragging ? 'grabbing' : 'grab') : undefined)
 
   /** The drag offset of this element (or of this end of an arrow), when it is the one being dragged. */
   const offsetOf = (id: string, part: Part = 'body'): Point =>
@@ -417,6 +547,59 @@ export default function PlayCanvas({
     const p = new DOMPoint(clientX, clientY).matrixTransform(ctm.inverse())
     return [p.x, p.y]
   }
+
+  // ── Camera ──────────────────────────────────────────────────────────────
+
+  /**
+   * Shows the map through `next`. The attribute is set at once, so the next
+   * pointer event already converts through it; `commit` false leaves React
+   * state for the end of a pan or a pinch, sparing a render per move.
+   */
+  const applyCamera = (next: Camera, commit = true) => {
+    cameraRef.current = next
+    svgRef.current?.setAttribute('viewBox', viewBoxOf(next))
+    if (commit) setCamera(next)
+  }
+
+  const zoomCentre = (factor: number) => {
+    const current = cameraRef.current
+    applyCamera(zoomAbout(current, centreOf(current), current.zoom * factor))
+  }
+
+  useImperativeHandle(ref, () => ({
+    zoomIn: () => zoomCentre(ZOOM_STEP),
+    zoomOut: () => zoomCentre(1 / ZOOM_STEP),
+    resetZoom: () => applyCamera(HOME),
+    visibleCentre: () => {
+      const [x, y] = centreOf(cameraRef.current)
+      const { u, v } = viewToImage(scene.view, x, y, scene.turns)
+      return { u, v }
+    },
+  }))
+
+  /** The wheel zooms about the pointer, and the page under the map does not scroll. */
+  const onWheel = (e: WheelEvent) => {
+    e.preventDefault()
+    const at = toView(e.clientX, e.clientY)
+    if (!at) return
+    const unit =
+      e.deltaMode === WheelEvent.DOM_DELTA_LINE ? WHEEL_LINE_PX : e.deltaMode === WheelEvent.DOM_DELTA_PAGE ? VIEW_SIZE : 1
+    const current = cameraRef.current
+    const next = zoomAbout(current, at, current.zoom * Math.exp(-e.deltaY * unit * WHEEL_RATE))
+    if (next.zoom !== current.zoom) applyCamera(next)
+  }
+  const onWheelRef = useRef(onWheel)
+  useEffect(() => {
+    onWheelRef.current = onWheel
+  })
+  // React listens to the wheel passively, where `preventDefault` does nothing: this listener is not passive.
+  useEffect(() => {
+    const el = rootRef.current
+    if (!el) return
+    const listener = (e: WheelEvent) => onWheelRef.current(e)
+    el.addEventListener('wheel', listener, { passive: false })
+    return () => el.removeEventListener('wheel', listener)
+  }, [])
 
   const anchorsOf = (id: string, part: Part): Point[] => {
     const points = anchors.get(id) ?? []
@@ -484,7 +667,7 @@ export default function PlayCanvas({
   }
 
   /** A press that ended where it started, for every tool that acts on a click. */
-  const click = (press: Extract<Press, { mode: 'click' }>) => {
+  const click = (press: ClickPress) => {
     if (pending) {
       if (!inSquare(press.at)) return
       const { shape, radius } = abilityShape(pending.agent, pending.slot)
@@ -542,7 +725,9 @@ export default function PlayCanvas({
   // ── Pointer ─────────────────────────────────────────────────────────────
 
   const onPointerDown = (e: PointerEvent<SVGSVGElement>) => {
-    if (e.button !== 0 || pressRef.current) return
+    if (e.pointerType === 'touch' && touchDown(e)) return
+    const middle = e.button === 1
+    if ((e.button !== 0 && !middle) || pressRef.current) return
     const target = e.target as Element
     // The inline text input places its own caret.
     if (target.closest('foreignObject')) return
@@ -559,12 +744,20 @@ export default function PlayCanvas({
     const { pointerId } = e
 
     let press: Press
-    if (pending) {
+    if (middle || spaceHeld) {
+      // A middle-button drag, or a drag with Space held, pans under any tool.
+      press = { mode: 'pan', pointerId, client, grab: at, dragging: true, click: null }
+      setPanning(true)
+    } else if (pending) {
       press = { mode: 'click', pointerId, at, id }
     } else if (tool === 'select') {
+      const empty: ClickPress = { mode: 'click', pointerId, at, id: null }
       press = id
         ? { mode: 'move', pointerId, id, part, client, start: at, dragging: false, wasSelected: id === selectedId }
-        : { mode: 'click', pointerId, at, id: null }
+        : cameraRef.current.zoom > MIN_ZOOM
+          ? // Zoomed in, the empty map pans; a press that does not move still clears the selection.
+            { mode: 'pan', pointerId, client, grab: at, dragging: false, click: empty }
+          : empty
     } else if (tool === 'pen' || tool === 'arrow') {
       if (!inSquare(at)) return
       if (tool === 'pen') {
@@ -584,11 +777,21 @@ export default function PlayCanvas({
   }
 
   const onPointerMove = (e: PointerEvent<SVGSVGElement>) => {
+    if (touchMove(e)) return
     const press = pressRef.current
     if (!press || press.pointerId !== e.pointerId || press.mode === 'click') return
     const at = toView(e.clientX, e.clientY)
     if (!at) return
     switch (press.mode) {
+      case 'pan': {
+        if (!press.dragging) {
+          if (Math.hypot(e.clientX - press.client[0], e.clientY - press.client[1]) <= DRAG_THRESHOLD_PX) return
+          press.dragging = true
+          setPanning(true)
+        }
+        applyCamera(panned(cameraRef.current, press.grab, at), false)
+        return
+      }
       case 'move': {
         if (!press.dragging && Math.hypot(e.clientX - press.client[0], e.clientY - press.client[1]) <= DRAG_THRESHOLD_PX) {
           return
@@ -614,6 +817,7 @@ export default function PlayCanvas({
   }
 
   const onPointerUp = (e: PointerEvent<SVGSVGElement>) => {
+    if (touchUp(e.pointerId)) return
     const press = pressRef.current
     if (!press || press.pointerId !== e.pointerId) return
     pressRef.current = null
@@ -664,16 +868,28 @@ export default function PlayCanvas({
         onChange(withElement(step, { kind: 'arrow', id: newId(), from: toPos(press.from), to: toPos(to), color: WHITE }))
         return
       }
+      case 'pan':
+        setPanning(false)
+        applyCamera(cameraRef.current)
+        if (!press.dragging && press.click) click(press.click)
+        return
       case 'click':
         click(press)
         return
     }
   }
 
-  const onPointerCancel = () => {
+  /** Drops the gesture in progress; a pan keeps the view it reached. */
+  const cancelPress = () => {
     pressRef.current = null
     setLive(null)
     setDraft(null)
+    setPanning(false)
+    applyCamera(cameraRef.current)
+  }
+
+  const onPointerCancel = (e: PointerEvent<SVGSVGElement>) => {
+    if (!touchUp(e.pointerId)) cancelPress()
   }
 
   /** What every element on the map answers to: hover, keyboard selection, the hit target. */
@@ -692,6 +908,50 @@ export default function PlayCanvas({
       }
     },
   })
+
+  // ── Pinch ───────────────────────────────────────────────────────────────
+
+  /** A finger on the map: a second one turns whatever the first began into a pinch. True when the pinch takes it. */
+  const touchDown = (e: PointerEvent<SVGSVGElement>): boolean => {
+    const touches = touchesRef.current
+    touches.set(e.pointerId, [e.clientX, e.clientY])
+    if (pinchRef.current) return true
+    if (touches.size < 2) return false
+    const [a, b] = [...touches.values()]
+    const grab = toView((a[0] + b[0]) / 2, (a[1] + b[1]) / 2)
+    if (!grab) return false
+    cancelPress()
+    pinchRef.current = { spread: Math.max(1, Math.hypot(a[0] - b[0], a[1] - b[1])), grab, zoom: cameraRef.current.zoom }
+    e.currentTarget.setPointerCapture(e.pointerId)
+    return true
+  }
+
+  /** Two fingers zoom by their spread and pan by their midpoint. True when the pinch takes the move. */
+  const touchMove = (e: PointerEvent<SVGSVGElement>): boolean => {
+    const touches = touchesRef.current
+    if (!touches.has(e.pointerId)) return false
+    touches.set(e.pointerId, [e.clientX, e.clientY])
+    const pinch = pinchRef.current
+    if (!pinch) return false
+    const [a, b] = [...touches.values()]
+    const at = toView((a[0] + b[0]) / 2, (a[1] + b[1]) / 2)
+    if (at) {
+      const zoom = (pinch.zoom * Math.hypot(a[0] - b[0], a[1] - b[1])) / pinch.spread
+      applyCamera(zoomAbout(cameraRef.current, pinch.grab, zoom, at), false)
+    }
+    return true
+  }
+
+  /** A finger lifted: below two the pinch ends and its view is kept. True when it was pinching. */
+  const touchUp = (pointerId: number): boolean => {
+    const touches = touchesRef.current
+    if (!touches.delete(pointerId) || !pinchRef.current) return false
+    if (touches.size < 2) {
+      pinchRef.current = null
+      applyCamera(cameraRef.current)
+    }
+    return true
+  }
 
   // ── Layers ──────────────────────────────────────────────────────────────
 
@@ -1315,103 +1575,155 @@ export default function PlayCanvas({
     scene.abilities.length === 1 ? 'y' : 'ies'
   }`
 
+  const zoomButton =
+    'w-7 h-7 flex items-center justify-center text-text-secondary hover:text-val-cyan disabled:opacity-30 disabled:pointer-events-none transition-colors'
+
   return (
-    <svg
-      ref={svgRef}
-      viewBox={`0 0 ${VIEW_SIZE} ${VIEW_SIZE}`}
-      className="block h-full w-full select-none"
-      role="group"
-      aria-label={`${map.name}, ${step.name || 'step'}: ${counts}`}
-      style={{ touchAction: 'none', userSelect: 'none', cursor: drawing ? 'crosshair' : dragging ? 'grabbing' : 'default' }}
-      onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
-      onPointerCancel={onPointerCancel}
-    >
-      <defs>
-        <clipPath id={boxClip}>
-          <rect width={VIEW_SIZE} height={VIEW_SIZE} rx={14} />
-        </clipPath>
-        {/* User space of the referencing image: every tile is drawn about its own origin. */}
-        <clipPath id={tileClip}>
-          <rect x={-HALF} y={-HALF} width={TILE} height={TILE} rx={TILE_RX} />
-        </clipPath>
-        <filter id={tint} colorInterpolationFilters="sRGB">
-          <feColorMatrix type="matrix" values={LUMINANCE_MATRIX} />
-          <feComponentTransfer>
-            <feFuncR type="gamma" exponent={FLOOR_GAMMA} />
-            <feFuncG type="gamma" exponent={FLOOR_GAMMA} />
-            <feFuncB type="gamma" exponent={FLOOR_GAMMA} />
-          </feComponentTransfer>
-          <feColorMatrix type="matrix" values={TEAL_MATRIX} />
-        </filter>
-        {headColors.map(color => (
-          <marker
-            key={color}
-            id={arrowHead(color)}
-            viewBox="0 0 10 10"
-            refX={7}
-            refY={5}
-            markerWidth={3.5}
-            markerHeight={3.5}
-            markerUnits="strokeWidth"
-            orient="auto-start-reverse"
-          >
-            <path d="M0,0L10,5L0,10Z" fill={color} />
-          </marker>
-        ))}
-      </defs>
+    <div ref={rootRef} className="relative h-full w-full">
+      <svg
+        ref={svgRef}
+        viewBox={viewBoxOf(camera)}
+        className="block h-full w-full select-none"
+        role="group"
+        aria-label={`${map.name}, ${step.name || 'step'}: ${counts}`}
+        style={{
+          touchAction: 'none',
+          userSelect: 'none',
+          // Zoomed in, the select tool's empty map pans, and says so.
+        cursor:
+          panCursor ??
+          (drawing ? 'crosshair' : dragging ? 'grabbing' : selecting && camera.zoom > MIN_ZOOM ? 'grab' : 'default'),
+        }}
+        // A middle press would otherwise start the browser's autoscroll.
+        onMouseDown={e => {
+          if (e.button === 1) e.preventDefault()
+        }}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerCancel}
+      >
+        <defs>
+          <clipPath id={boxClip}>
+            <rect width={VIEW_SIZE} height={VIEW_SIZE} rx={14} />
+          </clipPath>
+          {/* User space of the referencing image: every tile is drawn about its own origin. */}
+          <clipPath id={tileClip}>
+            <rect x={-HALF} y={-HALF} width={TILE} height={TILE} rx={TILE_RX} />
+          </clipPath>
+          <filter id={tint} colorInterpolationFilters="sRGB">
+            <feColorMatrix type="matrix" values={LUMINANCE_MATRIX} />
+            <feComponentTransfer>
+              <feFuncR type="gamma" exponent={FLOOR_GAMMA} />
+              <feFuncG type="gamma" exponent={FLOOR_GAMMA} />
+              <feFuncB type="gamma" exponent={FLOOR_GAMMA} />
+            </feComponentTransfer>
+            <feColorMatrix type="matrix" values={TEAL_MATRIX} />
+          </filter>
+          {headColors.map(color => (
+            <marker
+              key={color}
+              id={arrowHead(color)}
+              viewBox="0 0 10 10"
+              refX={7}
+              refY={5}
+              markerWidth={3.5}
+              markerHeight={3.5}
+              markerUnits="strokeWidth"
+              orient="auto-start-reverse"
+            >
+              <path d="M0,0L10,5L0,10Z" fill={color} />
+            </marker>
+          ))}
+        </defs>
 
-      <g clipPath={`url(#${boxClip})`}>
-        <rect width={VIEW_SIZE} height={VIEW_SIZE} fill={BACKDROP} />
-        {map.displayIcon && (
-          // The picture turns about the centre; everything else is placed
-          // already turned by the scene, so it stays upright.
-          <g transform={`rotate(${scene.turns * 90} ${VIEW_SIZE / 2} ${VIEW_SIZE / 2})`} pointerEvents="none">
-            <image
-              href={map.displayIcon}
-              x={(-view.u / view.size) * VIEW_SIZE}
-              y={(-view.v / view.size) * VIEW_SIZE}
-              width={imageSize}
-              height={imageSize}
-              preserveAspectRatio="none"
-              filter={`url(#${tint})`}
-              opacity={MAP_OPACITY}
-            />
-          </g>
+        <g clipPath={`url(#${boxClip})`}>
+          <rect width={VIEW_SIZE} height={VIEW_SIZE} fill={BACKDROP} />
+          {map.displayIcon && (
+            // The picture turns about the centre; everything else is placed
+            // already turned by the scene, so it stays upright.
+            <g transform={`rotate(${scene.turns * 90} ${VIEW_SIZE / 2} ${VIEW_SIZE / 2})`} pointerEvents="none">
+              <image
+                href={map.displayIcon}
+                x={(-view.u / view.size) * VIEW_SIZE}
+                y={(-view.v / view.size) * VIEW_SIZE}
+                width={imageSize}
+                height={imageSize}
+                preserveAspectRatio="none"
+                filter={`url(#${tint})`}
+                opacity={MAP_OPACITY}
+              />
+            </g>
+          )}
+
+          {showCallouts && (
+            <g
+              pointerEvents="none"
+              fontFamily={FONT}
+              fontSize={calloutLabel}
+              fill={CALLOUT_COLOR}
+              textAnchor="middle"
+              {...HALO}
+            >
+              {scene.callouts.map((c, i) => (
+                <text key={`${c.name}:${i}`} x={c.x} y={c.y} dominantBaseline="central">
+                  {c.name}
+                </text>
+              ))}
+            </g>
+          )}
+
+          <g>{pens}</g>
+          <g>{scene.abilities.map(renderAbility)}</g>
+          <g>{arrows}</g>
+          <g>{paths}</g>
+          <g>{scene.markers.filter(m => m.type === 'spike').map(renderMarker)}</g>
+          <g>{scene.markers.filter(m => m.type !== 'spike').map(renderMarker)}</g>
+          <g>{texts}</g>
+          <g pointerEvents="none">{ghostTiles}</g>
+          <g>{agentTiles}</g>
+          <g>{selection()}</g>
+          <g pointerEvents="none">{labels}</g>
+          <g pointerEvents="none">{draftLayer}</g>
+          {editor}
+        </g>
+      </svg>
+
+      {/* Outside the svg: its presses never reach the map. */}
+      <div
+        role="group"
+        aria-label="Zoom"
+        className="pointer-events-auto absolute top-2 right-2 flex items-center rounded-md border border-bg-elevated bg-bg-primary/85"
+      >
+        <button
+          type="button"
+          onClick={() => zoomCentre(1 / ZOOM_STEP)}
+          disabled={camera.zoom <= MIN_ZOOM}
+          aria-label="Zoom out"
+          title="Zoom out (-)"
+          className={`${zoomButton} text-base leading-none`}
+        >
+          −
+        </button>
+        <span className="font-stats text-[11px] text-text-secondary tabular-nums px-0.5">{Math.round(camera.zoom * 100)}%</span>
+        <button
+          type="button"
+          onClick={() => zoomCentre(ZOOM_STEP)}
+          disabled={camera.zoom >= MAX_ZOOM}
+          aria-label="Zoom in"
+          title="Zoom in (+)"
+          className={`${zoomButton} text-base leading-none`}
+        >
+          +
+        </button>
+        {camera.zoom > MIN_ZOOM && (
+          <button type="button" onClick={() => applyCamera(HOME)} aria-label="Reset zoom" title="Reset zoom (0)" className={zoomButton}>
+            <Maximize2 className="w-3.5 h-3.5" />
+          </button>
         )}
-
-        {showCallouts && (
-          <g
-            pointerEvents="none"
-            fontFamily={FONT}
-            fontSize={calloutLabel}
-            fill={CALLOUT_COLOR}
-            textAnchor="middle"
-            {...HALO}
-          >
-            {scene.callouts.map((c, i) => (
-              <text key={`${c.name}:${i}`} x={c.x} y={c.y} dominantBaseline="central">
-                {c.name}
-              </text>
-            ))}
-          </g>
-        )}
-
-        <g>{pens}</g>
-        <g>{scene.abilities.map(renderAbility)}</g>
-        <g>{arrows}</g>
-        <g>{paths}</g>
-        <g>{scene.markers.filter(m => m.type === 'spike').map(renderMarker)}</g>
-        <g>{scene.markers.filter(m => m.type !== 'spike').map(renderMarker)}</g>
-        <g>{texts}</g>
-        <g pointerEvents="none">{ghostTiles}</g>
-        <g>{agentTiles}</g>
-        <g>{selection()}</g>
-        <g pointerEvents="none">{labels}</g>
-        <g pointerEvents="none">{draftLayer}</g>
-        {editor}
-      </g>
-    </svg>
+      </div>
+    </div>
   )
-}
+})
+
+export default PlayCanvas

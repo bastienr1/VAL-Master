@@ -128,6 +128,18 @@ positions at 0.25 opacity when `previous` is given and the position differs.
 Every element gets a stable id (`crypto.randomUUID()` or a short random
 string); copying a step keeps ids so the animation and the ghost line up.
 
+#### Zoom and pan
+
+The canvas zooms from 1× to 6×. The wheel over the map zooms about the
+pointer (the page must not scroll); `+` / `-` / `0` keys and a small overlay
+at the canvas' top-right (−, the percentage, +, and a reset button that
+appears when zoomed) do the same about the centre. When zoomed, dragging the
+empty map with the Select tool pans, as does a middle-button drag or a drag
+with Space held under any tool; the view is clamped to the map. Zoom is view
+state only (never saved; reset when the map changes). Marker and label sizes
+are in viewBox units, so they grow with the zoom; the label-hiding rule uses
+the rendered width times the zoom.
+
 ### 2.3 Agent strip (`src/components/play/AgentStrip.tsx`)
 
 A row of 40 px portrait tiles (`displayIcon`, gradient backdrop, `rx 4`) for
@@ -349,4 +361,9 @@ re-clamped when the other opens), and the callout labels are on by default on
 saved plays too, remembered per device, scaling down instead of hiding on a
 narrow canvas. Checked in the signed-in app at 1400 px.
 
-Not yet verified: the phone layout and touch input.
+Zoom and pan (2.2) checked in the signed-in app: a wheel over the map zoomed
+to 182% about the pointer without scrolling the page, a drag panned the view,
+the 0 key reset it; Space held to pan no longer toggles playback.
+
+Not yet verified: the phone layout, touch input and pinch zoom on a real
+touch screen.
