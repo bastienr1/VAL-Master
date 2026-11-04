@@ -5,7 +5,9 @@
  * minimap image that `calloutViewport` picks. This module turns a step's
  * callout-written positions into viewBox points once, so the component only
  * draws, and so the placing rules (what resolves, what is reported as
- * unplaceable, how radii scale) are unit-tested rather than eyeballed.
+ * unplaceable, how radii scale) are unit-tested rather than eyeballed. The
+ * camera math at the end picks which part of that plane the canvas shows when
+ * it fills a column of any shape and is zoomed in.
  *
  * Pure, no React. Must not import `gameContent.ts` (it needs Vite's
  * `import.meta.env` and cannot be type-checked with the tests): the map is
@@ -453,4 +455,70 @@ export function ghostAgents(
     const b = now.get(agent.id)
     return a != null && b != null && Math.hypot(a[0] - b[0], a[1] - b[1]) > SAME_PLACE
   })
+}
+
+// ── Camera ──────────────────────────────────────────────────────────────────
+
+/** How far the canvas zooms: 1 shows the whole map square, fitted to the canvas' shorter side. */
+export const MIN_ZOOM = 1
+export const MAX_ZOOM = 6
+
+/** What the canvas shows: the zoom and the view's top-left corner, in viewBox units. View state, never saved. */
+export interface Camera {
+  zoom: number
+  x: number
+  y: number
+}
+
+/** The part of the viewBox plane in view, shaped like the canvas: its `viewBox`. */
+export interface ViewRect {
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
+const clampTo = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n))
+
+/**
+ * The view's size in viewBox units for a canvas `width` x `height` px: the map
+ * square spans the shorter side at zoom 1 and the longer side shows more of
+ * the plane. Square until the canvas has been measured.
+ */
+function viewSize(zoom: number, width: number, height: number): { w: number; h: number } {
+  const span = VIEW_SIZE / zoom
+  if (!(width > 0 && height > 0)) return { w: span, h: span }
+  return width >= height ? { w: (span * width) / height, h: span } : { w: span, h: (span * height) / width }
+}
+
+/**
+ * The zoom held to its range and, per axis, the view held on the map: centred
+ * where it is wider than the map (the canvas' longer side at low zoom), else
+ * kept inside it.
+ */
+export function clampCamera(camera: Camera, width: number, height: number): Camera {
+  const zoom = clampTo(camera.zoom, MIN_ZOOM, MAX_ZOOM)
+  const { w, h } = viewSize(zoom, width, height)
+  const axis = (at: number, span: number) =>
+    span >= VIEW_SIZE ? (VIEW_SIZE - span) / 2 : clampTo(at, 0, VIEW_SIZE - span)
+  return { zoom, x: axis(camera.x, w), y: axis(camera.y, h) }
+}
+
+/** The rectangle a camera shows on a canvas `width` x `height` px, the camera clamped first. */
+export function viewBoxFor(camera: Camera, width: number, height: number): ViewRect {
+  const { zoom, x, y } = clampCamera(camera, width, height)
+  return { x, y, ...viewSize(zoom, width, height) }
+}
+
+/**
+ * The camera at another zoom with the viewBox point `p` drawn where `at` is
+ * drawn now: by default `p` itself, so the point under the pointer stays put.
+ * At the same zoom it is a pan that brings `p` back under the pointer at `at`.
+ */
+export function zoomAbout(camera: Camera, p: Point, zoom: number, width: number, height: number, at: Point = p): Camera {
+  const from = clampCamera(camera, width, height)
+  const z = clampTo(zoom, MIN_ZOOM, MAX_ZOOM)
+  // The view's width and height both scale by 1 / zoom: an offset on screen is `k` times as many units.
+  const k = from.zoom / z
+  return clampCamera({ zoom: z, x: p[0] - (at[0] - from.x) * k, y: p[1] - (at[1] - from.y) * k }, width, height)
 }

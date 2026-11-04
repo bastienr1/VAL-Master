@@ -254,12 +254,10 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
   const [composing, setComposing] = useState(false)
   const [composeError, setComposeError] = useState<ComposeFailure | null>(null)
 
-  const canvasBox = useRef<HTMLDivElement>(null)
   /** The canvas keeps its own zoom: the page's `+` / `-` / `0` keys and the strip's placement ask it. */
   const canvas = useRef<PlayCanvasHandle>(null)
   /** When Space went down (event time), until its keyup decides whether it was a tap. */
   const spaceDownAt = useRef<number | null>(null)
-  const [boxSize, setBoxSize] = useState(0)
 
   // Resizable side panels (lg and up). Each panel's room is the grid less the rail and the
   // other panel when it is open: the grid has no flex-grow for the hook to read, and its
@@ -388,18 +386,6 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
       cancelled = true
     }
   }, [loadId])
-
-  // The canvas is a square as large as the middle column allows.
-  useEffect(() => {
-    const el = canvasBox.current
-    if (!el) return
-    const observer = new ResizeObserver(entries => {
-      const rect = entries[0]?.contentRect
-      if (rect) setBoxSize(Math.max(0, Math.floor(Math.min(rect.width, rect.height))))
-    })
-    observer.observe(el)
-    return () => observer.disconnect()
-  }, [load])
 
   // Playback loops through the steps until paused or a step is picked.
   useEffect(() => {
@@ -872,36 +858,31 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
           {playbookOpen && map && <PlaybookPanel key={map} map={map} />}
         </aside>
 
+        {/* The canvas fills the column inside its padding and measures itself. */}
         <div
-          ref={canvasBox}
           className="relative shrink-0 h-[70vh] lg:h-auto min-h-0 min-w-0 p-3 flex items-center justify-center overflow-hidden lg:row-start-1 lg:col-start-3"
         >
           {!registry && registryStatus === 'loading' ? (
-            <div style={{ width: boxSize, height: boxSize }} className="rounded-xl bg-bg-card animate-pulse" aria-hidden="true" />
+            <div className="absolute inset-3 rounded-xl bg-bg-card animate-pulse" aria-hidden="true" />
           ) : gameMap && mapDrawable && step ? (
-            <div
-              style={{ width: boxSize, height: boxSize }}
-              className={`relative transition-opacity ${composing ? 'opacity-60 pointer-events-none' : ''}`}
-            >
-              {boxSize > 0 && (
-                <PlayCanvas
-                  ref={canvas}
-                  map={gameMap}
-                  side={side}
-                  step={step}
-                  previous={previous}
-                  tool={tool}
-                  pending={pending}
-                  selectedId={selectedId}
-                  showCallouts={showCallouts}
-                  animate={animate}
-                  onSelect={onCanvasSelect}
-                  onChange={onCanvasChange}
-                  onPendingDone={() => setPending(null)}
-                  onUnresolved={setUnresolved}
-                />
-              )}
-              {/* On the map square, its right end clear of the canvas' zoom overlay. */}
+            <div className={`absolute inset-3 transition-opacity ${composing ? 'opacity-60 pointer-events-none' : ''}`}>
+              <PlayCanvas
+                ref={canvas}
+                map={gameMap}
+                side={side}
+                step={step}
+                previous={previous}
+                tool={tool}
+                pending={pending}
+                selectedId={selectedId}
+                showCallouts={showCallouts}
+                animate={animate}
+                onSelect={onCanvasSelect}
+                onChange={onCanvasChange}
+                onPendingDone={() => setPending(null)}
+                onUnresolved={setUnresolved}
+              />
+              {/* Over the canvas, its right end clear of the zoom overlay at the canvas' top-right. */}
               {unresolved.length > 0 && (
                 <div className="absolute top-2 left-2 right-36 pointer-events-none">
                   <span className="inline-block max-w-full truncate rounded-md bg-bg-primary/85 px-2 py-1 text-[11px] text-val-yellow">

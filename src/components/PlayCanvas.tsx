@@ -18,10 +18,12 @@
  * placed with a CSS `translate`, so stepping through the play animates them
  * walking.
  *
- * Zoom and pan (§2.2) are view state, never saved and reset with the map: the
- * viewBox shows a square `1000 / zoom` wide, its corner held inside the map,
- * and every pointer goes through the svg's screen matrix, so a press lands on
- * what is drawn under it at any zoom. Sizes stay in viewBox units: markers,
+ * The svg fills its whole column and its viewBox takes the column's shape
+ * (`viewBoxFor`): at zoom 1 the map square fits the shorter side, centred on
+ * the longer; zoomed in, the map runs edge to edge and pans. Zoom and pan
+ * (§2.2) are view state, never saved and reset with the map. Every pointer
+ * goes through the svg's screen matrix, so a press lands on what is drawn
+ * under it at any zoom and shape. Sizes stay in viewBox units: markers,
  * labels and the inline text field grow with the map.
  */
 
@@ -57,11 +59,18 @@ import {
   type TextElement,
 } from '../lib/playDoc'
 import {
+  MAX_ZOOM,
+  MIN_ZOOM,
   UTILITY_STYLE,
   VIEW_SIZE,
+  clampCamera,
   ghostAgents,
   sceneForStep,
+  viewBoxFor,
   viewToImage,
+  zoomAbout,
+  type Camera,
+  type ViewRect,
   type PlacedAbility,
   type PlacedAgent,
   type PlacedMarker,
@@ -193,8 +202,6 @@ const PEN_SAMPLE_PX = 6
 /** An arrow shorter than this (client px) is a slip, not an arrow. */
 const ARROW_MIN_PX = 8
 
-const MIN_ZOOM = 1
-const MAX_ZOOM = 6
 /** What one press of a zoom button or key multiplies the zoom by. */
 const ZOOM_STEP = 1.25
 /** The wheel zooms by `exp(-deltaY * WHEEL_RATE)`. */
@@ -271,39 +278,12 @@ const clampPoint = ([x, y]: Point): Point => [clamp(x, 0, VIEW_SIZE), clamp(y, 0
 
 const round5 = (n: number) => Math.round(n * 1e5) / 1e5
 
-/** What the canvas shows of the map: the zoom and the view's top-left corner, in viewBox units. */
-interface Camera {
-  zoom: number
-  x: number
-  y: number
-}
-
+/** The whole map, fitted to the canvas (playScene's `clampCamera` centres it). */
 const HOME: Camera = { zoom: 1, x: 0, y: 0 }
 
-/** The zoom held to its range and the view held inside the map. */
-function clampCamera({ zoom, x, y }: Camera): Camera {
-  const z = clamp(zoom, MIN_ZOOM, MAX_ZOOM)
-  const room = VIEW_SIZE - VIEW_SIZE / z
-  return { zoom: z, x: clamp(x, 0, room), y: clamp(y, 0, room) }
-}
+const centreOf = ({ x, y, w, h }: ViewRect): Point => [x + w / 2, y + h / 2]
 
-/**
- * The camera at another zoom with the viewBox point `p` drawn where `at` is
- * drawn now: by default `p` itself, so it stays put under the pointer.
- */
-function zoomAbout(camera: Camera, p: Point, zoom: number, at: Point = p): Camera {
-  const z = clamp(zoom, MIN_ZOOM, MAX_ZOOM)
-  const k = camera.zoom / z
-  return clampCamera({ zoom: z, x: p[0] - (at[0] - camera.x) * k, y: p[1] - (at[1] - camera.y) * k })
-}
-
-/** The camera moved so the viewBox point `grab` comes back under the pointer, which is over `at`. */
-const panned = (camera: Camera, grab: Point, at: Point): Camera => zoomAbout(camera, grab, camera.zoom, at)
-
-const centreOf = ({ zoom, x, y }: Camera): Point => [x + VIEW_SIZE / zoom / 2, y + VIEW_SIZE / zoom / 2]
-
-const viewBoxOf = ({ zoom, x, y }: Camera) =>
-  [x, y, VIEW_SIZE / zoom, VIEW_SIZE / zoom].map(n => Math.round(n * 1e3) / 1e3).join(' ')
+const viewBoxAttr = ({ x, y, w, h }: ViewRect) => [x, y, w, h].map(n => Math.round(n * 1e3) / 1e3).join(' ')
 
 /** A space typed in a field is not Space held to pan. */
 const isEditable = (target: EventTarget | null) =>
@@ -393,12 +373,14 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
 
   const rootRef = useRef<HTMLDivElement>(null)
   const svgRef = useRef<SVGSVGElement>(null)
+  const backdropRef = useRef<SVGRectElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const pressRef = useRef<Press | null>(null)
   /** Set by Escape so the blur that follows does not commit. */
   const skipBlurRef = useRef(false)
 
-  const [width, setWidth] = useState(0)
+  /** The svg's size in px, which the viewBox takes the shape of. */
+  const [size, setSize] = useState({ width: 0, height: 0 })
   const [hoverId, setHoverId] = useState<string | null>(null)
   const [live, setLive] = useState<Live | null>(null)
   const [draft, setDraft] = useState<Draft | null>(null)
@@ -455,8 +437,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
     if (!el) return
     const observer = new ResizeObserver(entries => {
       const rect = entries[0]?.contentRect
-      // The map is the largest square that fits: that is the width labels care about.
-      if (rect) setWidth(Math.min(rect.width, rect.height || rect.width))
+      if (rect) setSize({ width: rect.width, height: rect.height })
     })
     observer.observe(el)
     return () => observer.disconnect()
@@ -508,11 +489,12 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
 
   const agentOf = (name: string): GameAgent | null => registry?.agents.byName.get(name.trim().toLowerCase()) ?? null
 
-  // Zoomed in, the map is drawn wider than its box: labels go by the drawn width.
-  const drawnWidth = width * camera.zoom
+  // The map square fits the svg's shorter side at zoom 1 and grows with the zoom: labels go by its drawn width.
+  const fit = Math.min(size.width, size.height)
+  const drawnWidth = fit * camera.zoom
   const showLabels = drawnWidth >= LABEL_MIN_WIDTH_PX
-  // Width is 0 until the first measure: full size then, so callouts do not flash small.
-  const labelScale = width > 0 && drawnWidth < COMPACT_LABEL_WIDTH_PX ? COMPACT_LABEL_SCALE : 1
+  // Size is 0 until the first measure: full size then, so callouts do not flash small.
+  const labelScale = fit > 0 && drawnWidth < COMPACT_LABEL_WIDTH_PX ? COMPACT_LABEL_SCALE : 1
   // 22 → 19 and 20 → 17 viewBox units on a compact canvas.
   const calloutLabel = Math.round(CALLOUT_LABEL * labelScale)
   const utilityLabel = Math.round(UTILITY_LABEL * labelScale)
@@ -550,20 +532,37 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
 
   // ── Camera ──────────────────────────────────────────────────────────────
 
+  /** What the camera shows on the svg as it is now sized. */
+  const viewOf = (camera: Camera) => viewBoxFor(camera, size.width, size.height)
+
   /**
-   * Shows the map through `next`. The attribute is set at once, so the next
-   * pointer event already converts through it; `commit` false leaves React
-   * state for the end of a pan or a pinch, sparing a render per move.
+   * Shows the map through `next`, clamped to the map. The attributes are set
+   * at once, so the next pointer event already converts through them;
+   * `commit` false leaves React state for the end of a pan or a pinch,
+   * sparing a render per move.
    */
   const applyCamera = (next: Camera, commit = true) => {
-    cameraRef.current = next
-    svgRef.current?.setAttribute('viewBox', viewBoxOf(next))
-    if (commit) setCamera(next)
+    const shown = clampCamera(next, size.width, size.height)
+    cameraRef.current = shown
+    const view = viewOf(shown)
+    svgRef.current?.setAttribute('viewBox', viewBoxAttr(view))
+    const backdrop = backdropRef.current
+    if (backdrop) {
+      backdrop.setAttribute('x', String(view.x))
+      backdrop.setAttribute('y', String(view.y))
+      backdrop.setAttribute('width', String(view.w))
+      backdrop.setAttribute('height', String(view.h))
+    }
+    if (commit) setCamera(shown)
   }
+
+  /** The camera at another zoom with the viewBox point `p` where `at` is on screen (default `p`). */
+  const zoomed = (p: Point, zoom: number, at: Point = p) =>
+    zoomAbout(cameraRef.current, p, zoom, size.width, size.height, at)
 
   const zoomCentre = (factor: number) => {
     const current = cameraRef.current
-    applyCamera(zoomAbout(current, centreOf(current), current.zoom * factor))
+    applyCamera(zoomed(centreOf(viewOf(current)), current.zoom * factor))
   }
 
   useImperativeHandle(ref, () => ({
@@ -571,7 +570,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
     zoomOut: () => zoomCentre(1 / ZOOM_STEP),
     resetZoom: () => applyCamera(HOME),
     visibleCentre: () => {
-      const [x, y] = centreOf(cameraRef.current)
+      const [x, y] = centreOf(viewOf(cameraRef.current))
       const { u, v } = viewToImage(scene.view, x, y, scene.turns)
       return { u, v }
     },
@@ -585,7 +584,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
     const unit =
       e.deltaMode === WheelEvent.DOM_DELTA_LINE ? WHEEL_LINE_PX : e.deltaMode === WheelEvent.DOM_DELTA_PAGE ? VIEW_SIZE : 1
     const current = cameraRef.current
-    const next = zoomAbout(current, at, current.zoom * Math.exp(-e.deltaY * unit * WHEEL_RATE))
+    const next = zoomed(at, current.zoom * Math.exp(-e.deltaY * unit * WHEEL_RATE))
     if (next.zoom !== current.zoom) applyCamera(next)
   }
   const onWheelRef = useRef(onWheel)
@@ -789,7 +788,8 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
           press.dragging = true
           setPanning(true)
         }
-        applyCamera(panned(cameraRef.current, press.grab, at), false)
+        // Same zoom: the grabbed point comes back under the pointer.
+        applyCamera(zoomed(press.grab, cameraRef.current.zoom, at), false)
         return
       }
       case 'move': {
@@ -937,7 +937,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
     const at = toView((a[0] + b[0]) / 2, (a[1] + b[1]) / 2)
     if (at) {
       const zoom = (pinch.zoom * Math.hypot(a[0] - b[0], a[1] - b[1])) / pinch.spread
-      applyCamera(zoomAbout(cameraRef.current, pinch.grab, zoom, at), false)
+      applyCamera(zoomed(pinch.grab, zoom, at), false)
     }
     return true
   }
@@ -1575,6 +1575,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
     scene.abilities.length === 1 ? 'y' : 'ies'
   }`
 
+  const visible = viewOf(camera)
   const zoomButton =
     'w-7 h-7 flex items-center justify-center text-text-secondary hover:text-val-cyan disabled:opacity-30 disabled:pointer-events-none transition-colors'
 
@@ -1582,7 +1583,9 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
     <div ref={rootRef} className="relative h-full w-full">
       <svg
         ref={svgRef}
-        viewBox={viewBoxOf(camera)}
+        viewBox={viewBoxAttr(visible)}
+        // The viewBox has the svg's shape, so `meet` leaves no bands inside it.
+        preserveAspectRatio="xMidYMid meet"
         className="block h-full w-full select-none"
         role="group"
         aria-label={`${map.name}, ${step.name || 'step'}: ${counts}`}
@@ -1590,9 +1593,9 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
           touchAction: 'none',
           userSelect: 'none',
           // Zoomed in, the select tool's empty map pans, and says so.
-        cursor:
-          panCursor ??
-          (drawing ? 'crosshair' : dragging ? 'grabbing' : selecting && camera.zoom > MIN_ZOOM ? 'grab' : 'default'),
+          cursor:
+            panCursor ??
+            (drawing ? 'crosshair' : dragging ? 'grabbing' : selecting && camera.zoom > MIN_ZOOM ? 'grab' : 'default'),
         }}
         // A middle press would otherwise start the browser's autoscroll.
         onMouseDown={e => {
@@ -1637,8 +1640,10 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
           ))}
         </defs>
 
+        {/* The whole view, beyond the map square too; kept in step with the viewBox during a pan. */}
+        <rect ref={backdropRef} x={visible.x} y={visible.y} width={visible.w} height={visible.h} fill={BACKDROP} />
+
         <g clipPath={`url(#${boxClip})`}>
-          <rect width={VIEW_SIZE} height={VIEW_SIZE} fill={BACKDROP} />
           {map.displayIcon && (
             // The picture turns about the centre; everything else is placed
             // already turned by the scene, so it stays upright.

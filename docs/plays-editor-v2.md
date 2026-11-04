@@ -61,9 +61,12 @@ Top to bottom, all labels `text-[10px] uppercase tracking-widest text-text-secon
 ### 2.2 Canvas (`src/components/PlayCanvas.tsx`)
 
 Replaces `PlayMinimap.tsx` (delete it and its exports; `playScene.ts` is
-rewritten for v2, see section 4). Square, as large as the middle column allows,
-centred, `viewBox 0 0 1000 1000`, the map cropped to its callouts and turned by
-`sceneTurns` as before.
+rewritten for v2, see section 4). The svg fills the whole middle column; the
+map lives in a 1000-unit square cropped to its callouts and turned by
+`sceneTurns` as before, and the viewBox is a rectangle with the column's aspect
+(`viewBoxFor`): at 100% the square fits on the shorter side, centred on the
+longer one; zoomed in, the view is clamped inside the square so the map runs
+edge to edge and panning reveals the rest.
 
 Map art: the Riot `displayIcon` drawn through an SVG filter that turns its grey
 walls teal on the navy backdrop (`#0B1220`): `feColorMatrix` mapping luminance

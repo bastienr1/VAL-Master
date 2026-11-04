@@ -6,10 +6,12 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
   AGENT_SPREAD_RADIUS,
+  MAX_ZOOM,
   MIN_UTILITY_RADIUS,
   UTILITY_RADIUS_CM,
   UTILITY_STYLE,
   VIEW_SIZE,
+  clampCamera,
   cmToView,
   ghostAgents,
   imageToView,
@@ -17,8 +19,11 @@ import {
   sceneForStep,
   sceneTurns,
   sceneViewport,
+  viewBoxFor,
   viewToImage,
+  zoomAbout,
   type SceneMap,
+  type ViewRect,
 } from './playScene.ts'
 import {
   calloutViewport,
@@ -426,4 +431,58 @@ test('ghostAgents reads positions as written, not as spread', () => {
   // Drawn where the previous step drew it: spread below its partner.
   close(ghosts[0].x, 500)
   close(ghosts[0].y, 500 + AGENT_SPREAD_RADIUS)
+})
+
+const closeRect = (actual: ViewRect, expected: ViewRect) => {
+  close(actual.x, expected.x)
+  close(actual.y, expected.y)
+  close(actual.w, expected.w)
+  close(actual.h, expected.h)
+}
+
+test('viewBoxFor at zoom 1 fits the map square to the shorter side and centres it on the longer', () => {
+  closeRect(viewBoxFor({ zoom: 1, x: 0, y: 0 }, 1600, 800), { x: -500, y: 0, w: 2000, h: 1000 })
+  closeRect(viewBoxFor({ zoom: 1, x: 300, y: 300 }, 500, 1000), { x: 0, y: -500, w: 1000, h: 2000 })
+  closeRect(viewBoxFor({ zoom: 1, x: 0, y: 0 }, 600, 600), { x: 0, y: 0, w: 1000, h: 1000 })
+  // Unmeasured: square.
+  closeRect(viewBoxFor({ zoom: 2, x: 100, y: 100 }, 0, 0), { x: 100, y: 100, w: 500, h: 500 })
+})
+
+test('viewBoxFor at zoom 2 in a 2:1 canvas shows the map 1000 wide and 500 tall, held on the map', () => {
+  closeRect(viewBoxFor({ zoom: 2, x: 300, y: 900 }, 800, 400), { x: 0, y: 500, w: 1000, h: 500 })
+  closeRect(viewBoxFor({ zoom: 2, x: 0, y: -40 }, 800, 400), { x: 0, y: 0, w: 1000, h: 500 })
+  // Zoomed past that, the map is wider than the view and pans that way too.
+  closeRect(viewBoxFor({ zoom: 4, x: 900, y: 100 }, 800, 400), { x: 500, y: 100, w: 500, h: 250 })
+})
+
+test('clampCamera holds the zoom to its range', () => {
+  assert.equal(clampCamera({ zoom: 0.4, x: 0, y: 0 }, 600, 600).zoom, 1)
+  assert.equal(clampCamera({ zoom: 40, x: 0, y: 0 }, 600, 600).zoom, MAX_ZOOM)
+})
+
+test('zoomAbout keeps the point under the pointer where it is on screen', () => {
+  const [width, height] = [900, 600]
+  const before = clampCamera({ zoom: 2, x: 200, y: 200 }, width, height)
+  const p: [number, number] = [450, 380]
+  const after = zoomAbout(before, p, 3, width, height)
+  const a = viewBoxFor(before, width, height)
+  const b = viewBoxFor(after, width, height)
+  assert.equal(after.zoom, 3)
+  close((p[0] - a.x) / a.w, (p[0] - b.x) / b.w)
+  close((p[1] - a.y) / a.h, (p[1] - b.y) / b.h)
+})
+
+test('zoomAbout at the same zoom pans, and a pan past the edge stops at the edge', () => {
+  const [width, height] = [600, 600]
+  const camera = { zoom: 3, x: 300, y: 300 }
+  // The point grabbed at (400, 400) is now under the pointer at (350, 420): the view follows.
+  const panned = zoomAbout(camera, [400, 400], 3, width, height, [350, 420])
+  close(panned.x, 350)
+  close(panned.y, 280)
+  const far = zoomAbout(camera, [400, 400], 3, width, height, [-5000, 9000])
+  close(far.x, VIEW_SIZE - VIEW_SIZE / 3)
+  close(far.y, 0)
+  // Zooming out to 1 in a wide canvas centres the map again, whatever the pointer.
+  const out = zoomAbout({ zoom: 2, x: 0, y: 0 }, [100, 100], 1, 1600, 800)
+  closeRect(viewBoxFor(out, 1600, 800), { x: -500, y: 0, w: 2000, h: 1000 })
 })
