@@ -426,9 +426,13 @@ Zoom and pan (2.2) checked in the signed-in app: a wheel over the map zoomed
 to 182% about the pointer without scrolling the page, a drag panned the view,
 the 0 key reset it; Space held to pan no longer toggles playback.
 
-The replay import (2.7) is built with 13 conversion tests on a hand-made
-bundle plus the picker, deep link and review-page link; not yet tried on a
-real bundle in the signed-in app.
+The replay import (2.7) was tried on a real bundle in the signed-in app
+(2026-11-06): the picker listed the 27 matches with a replay, Abyss first; the
+Lotus match loaded its 26 rounds with sides; round 3 became "Round 3 · Lotus ·
+2026-11-06" with Barrier drop, First contact ("0:13 after barrier. Chamber
+killed Killjoy.") and End ("0:58 … The enemy won by elimination"), the map
+switched to Lotus attack, allies at the bottom with their moves, enemies in
+red, abilities drawn.
 
 Not yet verified: the phone layout, touch input and pinch zoom on a real
 touch screen.
