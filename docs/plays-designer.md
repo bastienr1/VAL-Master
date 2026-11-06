@@ -345,6 +345,33 @@ title, side chip, the five agent icons, the summary line, updated date. Empty
 state: the dashed `EmptyLine` style from `Improve.tsx`: "Write your first play:
 the map, the comp, and what each agent does. Claude draws it on the minimap."
 
+## 8a. Templates
+
+Four starting points, in `src/lib/playTemplates.ts`, so a play starts with the
+right phases and a brief scaffold instead of a blank textarea:
+
+| Template | Side | Phases | Needs a site |
+|---|---|---|---|
+| Attack | attack | Setup → Execute → Post-plant | no |
+| Defense | defense | Setup → Hold → Retake | no |
+| Post-plant | attack | Plant → Hold → Deny | yes |
+| Retake | defense | Regroup → Retake → Defuse | yes |
+
+Each phase has a caption that says what to write for it. A template with a
+site puts the agents on `<Site> Site` and a spike marker there (Retake also
+marks the expected enemies on the site in Regroup); the others put everyone in
+their side's spawn. `templateDoc(template, comp, site?)` builds the document,
+`templateScaffold(template, map, site?)` the brief text with one line per
+phase to fill in. `emptyPlayDoc` is the Attack or Defense template with no site.
+
+In the designer the brief card shows a **Start from a template** strip while
+no play exists (four cards: name, side, phases); a template with a site shows
+A / B / C chips first (the sites the map has). Applying one sets the side,
+the phases, the comp from the agents named in the brief, and fills the brief
+with the scaffold when it is empty. When a play already exists the strip hides
+behind a "Templates" link and asks before replacing the phases.
+`/plays/new?template=retake&site=B` applies a template on arrival.
+
 ## 9. Build order
 
 | # | Task | Tier | After |
