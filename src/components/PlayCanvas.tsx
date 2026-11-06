@@ -91,11 +91,15 @@ export interface PlayCanvasProps {
   pending: { agent: string; slot: AbilitySlot } | null
   selectedId: string | null
   showCallouts: boolean
-  /** False while scrubbing fast. */
+  /** False while scrubbing fast, and for a replay's frames. */
   animate: boolean
   onSelect(id: string | null): void
-  /** Every edit of the step goes through here, as a new step object. */
-  onChange(step: PlayStep): void
+  /**
+   * Every edit of the step goes through here, as a new step object. Absent,
+   * the canvas is read-only (a replay playing, §2.8): a press selects, the map
+   * zooms and pans, and nothing is moved, drawn or placed.
+   */
+  onChange?(step: PlayStep): void
   /** Pen/arrow/text/marker/ability placements call this with the new element appended. */
   onPendingDone(): void
   onUnresolved?(names: string[]): void
@@ -498,8 +502,9 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
   // 22 → 19 and 20 → 17 viewBox units on a compact canvas.
   const calloutLabel = Math.round(CALLOUT_LABEL * labelScale)
   const utilityLabel = Math.round(UTILITY_LABEL * labelScale)
-  const drawing = pending !== null || DRAW_TOOLS.has(tool)
-  const selecting = tool === 'select' && pending === null
+  const readOnly = onChange === undefined
+  const drawing = !readOnly && (pending !== null || DRAW_TOOLS.has(tool))
+  const selecting = !readOnly && tool === 'select' && pending === null
   const dragging = live !== null
   /** A pan in progress holds the map and Space held offers to: either outranks the tool's cursor. */
   const panCursor = panning ? 'grabbing' : spaceHeld ? 'grab' : undefined
@@ -657,7 +662,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
     if (el?.kind !== 'text') return
     // A blank text would leave nothing to see or click: keep the old one.
     const text = said.value.trim() ? said.value : el.text
-    if (text !== el.text) onChange(withElement(step, { ...el, text }))
+    if (text !== el.text) onChange?.(withElement(step, { ...el, text }))
   }
 
   const startEditing = (id: string) => {
@@ -667,6 +672,10 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
 
   /** A press that ended where it started, for every tool that acts on a click. */
   const click = (press: ClickPress) => {
+    if (readOnly) {
+      onSelect(press.id)
+      return
+    }
     if (pending) {
       if (!inSquare(press.at)) return
       const { shape, radius } = abilityShape(pending.agent, pending.slot)
@@ -679,7 +688,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
         radius,
         at: toPos(press.at),
       }
-      onChange(withElement(step, el))
+      onChange?.(withElement(step, el))
       onSelect(el.id)
       onPendingDone()
       return
@@ -690,7 +699,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
         return
       case 'eraser':
         if (!press.id) return
-        onChange(withoutElement(step, press.id))
+        onChange?.(withoutElement(step, press.id))
         if (press.id === selectedId) onSelect(null)
         return
       case 'text': {
@@ -702,7 +711,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
         }
         if (!inSquare(press.at)) return
         const el: TextElement = { kind: 'text', id: newId(), text: 'Text', color: WHITE, at: toPos(press.at) }
-        onChange(withElement(step, el))
+        onChange?.(withElement(step, el))
         onSelect(el.id)
         startEditing(el.id)
         return
@@ -712,7 +721,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
       case 'pin': {
         if (!inSquare(press.at)) return
         const el: MarkerElement = { kind: 'marker', id: newId(), type: tool, at: toPos(press.at) }
-        onChange(withElement(step, el))
+        onChange?.(withElement(step, el))
         onSelect(el.id)
         return
       }
@@ -747,6 +756,11 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
       // A middle-button drag, or a drag with Space held, pans under any tool.
       press = { mode: 'pan', pointerId, client, grab: at, dragging: true, click: null }
       setPanning(true)
+    } else if (readOnly) {
+      // Nothing to move or draw: a press selects, and zoomed in the map pans.
+      const select: ClickPress = { mode: 'click', pointerId, at, id }
+      press =
+        cameraRef.current.zoom > MIN_ZOOM ? { mode: 'pan', pointerId, client, grab: at, dragging: false, click: select } : select
     } else if (pending) {
       press = { mode: 'click', pointerId, at, id }
     } else if (tool === 'select') {
@@ -831,7 +845,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
             : [live?.dx ?? 0, live?.dy ?? 0]
           setLive(null)
           const el = moved(press.id, press.part, dx, dy)
-          if (el) onChange(withElement(step, el))
+          if (el) onChange?.(withElement(step, el))
           if (press.id !== selectedId) onSelect(press.id)
         } else if (press.wasSelected && elementAt(step, press.id)?.kind === 'text') {
           // A second click on a selected text opens it for typing.
@@ -848,7 +862,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
           points = [...points, clampPoint(at)]
         }
         if (points.length < 2) return
-        onChange(
+        onChange?.(
           withElement(step, {
             kind: 'pen',
             id: newId(),
@@ -865,7 +879,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
         setDraft(null)
         if (Math.hypot(e.clientX - press.client[0], e.clientY - press.client[1]) < ARROW_MIN_PX) return
         const to = at ? clampPoint(at) : press.to
-        onChange(withElement(step, { kind: 'arrow', id: newId(), from: toPos(press.from), to: toPos(to), color: WHITE }))
+        onChange?.(withElement(step, { kind: 'arrow', id: newId(), from: toPos(press.from), to: toPos(to), color: WHITE }))
         return
       }
       case 'pan':
@@ -1595,7 +1609,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
           // Zoomed in, the select tool's empty map pans, and says so.
           cursor:
             panCursor ??
-            (drawing ? 'crosshair' : dragging ? 'grabbing' : selecting && camera.zoom > MIN_ZOOM ? 'grab' : 'default'),
+            (drawing ? 'crosshair' : dragging ? 'grabbing' : (selecting || readOnly) && camera.zoom > MIN_ZOOM ? 'grab' : 'default'),
         }}
         // A middle press would otherwise start the browser's autoscroll.
         onMouseDown={e => {

@@ -3,59 +3,38 @@
  *
  * "I played this comp; load the round and edit it into the next strategy."
  * The round is snapshotted at a few moments (barrier drop, first contact,
- * plant, end); each snapshot becomes a step with every living player as an
- * agent element, the abilities cast since the previous snapshot, the area
- * effects still up that no cast explains, and the planted spike.
+ * plant, end); each snapshot is the replay frame at that moment
+ * (`frameStep`, §2.8) with every agent's move to the next snapshot added.
  *
  * Pure, no React, no Supabase: the caller supplies the agent lookup (built
  * from the registry) and the map transform. Must not import `gameContent.ts`,
  * so that `node --test` can type-check and run it.
  */
 
-import type { ReplayBundle, ReplayCast, ReplayEffect, ReplayKill, ReplayPlayer, ReplayRound } from './replayBundle.ts'
+import type { ReplayBundle, ReplayKill, ReplayPlayer, ReplayRound } from './replayBundle.ts'
+import type { MapTransform } from './replayScene.ts'
+import { parsePlayDoc, type AgentElement, type PlayDoc } from './playDoc.ts'
 import {
-  deathTimesBySubject,
-  isAliveAt,
-  isPresentAt,
-  playerStateAt,
-  worldToImage,
-  type MapTransform,
-  type PlayerState,
-} from './replayScene.ts'
-import { newId, parsePlayDoc, type AbilitySlot, type PlayDoc, type PlayPos, type UtilityKind } from './playDoc.ts'
-import { abilityShape, SLOT_KEYS } from './agentAbilities.ts'
+  createFrameIds,
+  frameStep,
+  roundBarrier,
+  roundPlant,
+  roundSide,
+  type ReplayAgentInfo,
+  type ReplayAgentLookup,
+} from './replayFrame.ts'
 
-export interface ReplayAgentInfo { name: string; abilities: { slot: AbilitySlot; name: string }[] }
-export type ReplayAgentLookup = (agentUuid: string | null) => ReplayAgentInfo | null
+export type { ReplayAgentInfo, ReplayAgentLookup }
 export interface ReplayPlay { doc: PlayDoc; side: 'attack' | 'defense'; mapUuid: string | null; title: string; brief: string }
 
-/** Without a measured barrier, the buy phase is taken as 30 s. */
-const BUY_PHASE_MS = 30_000
 /** Without an end or a kill, the round is taken to run its full 100 s timer. */
 const ROUND_TIMER_MS = 100_000
 /** Snapshots closer together than this say the same thing twice. */
 const MIN_STEP_GAP_MS = 4_000
 /** An agent that moved less than this (image units) between two steps stays put. */
 const MOVE_THRESHOLD = 0.02
-/** A cast explains an effect that opens within this time of it… */
-const CAST_EFFECT_MS = 3_000
-/** …and this distance (world cm). */
-const CAST_EFFECT_CM = 300
 const MAX_COMP = 5
 const UNKNOWN_AGENT = 'Agent'
-
-const KEY_TO_SLOT: Record<string, AbilitySlot> = Object.fromEntries(
-  (Object.entries(SLOT_KEYS) as [AbilitySlot, string][]).map(([slot, key]) => [key, slot]),
-)
-
-const EFFECT_SHAPES: Record<string, UtilityKind> = {
-  smoke: 'smoke',
-  wall: 'wall',
-  trap: 'trap',
-  slow: 'slow',
-  damage_zone: 'molly',
-  recon: 'recon',
-}
 
 /**
  * Map display names by the codename in the map's asset path (`/Game/Maps/Jam/Jam`
@@ -89,28 +68,12 @@ function mapName(mapUrl: string): string {
   return MAP_NAMES[code.toLowerCase()] ?? (code || 'Unknown map')
 }
 
-const clamp01 = (n: number) => Math.max(0, Math.min(1, n))
-
-function imagePos(transform: MapTransform, x: number, y: number): { u: number; v: number } {
-  const [u, v] = worldToImage(transform, x, y)
-  return { u: clamp01(u), v: clamp01(v) }
-}
-
 function roundKills(bundle: ReplayBundle, round: ReplayRound): ReplayKill[] {
   return bundle.kills.filter(k => k.round === round.n).sort((a, b) => a.t - b.t)
 }
 
-function plantOf(bundle: ReplayBundle, round: ReplayRound) {
-  const record = bundle.spike.plants.find(p => p.round === round.n) ?? null
-  return { t: round.plant ?? record?.t ?? null, record }
-}
-
-function barrierOf(round: ReplayRound): number {
-  return round.barrierMs ?? round.buyStartMs + BUY_PHASE_MS
-}
-
 function endOf(round: ReplayRound, kills: ReplayKill[]): number {
-  const barrier = barrierOf(round)
+  const barrier = roundBarrier(round)
   const end = round.endMs ?? (kills.length > 0 ? kills[kills.length - 1].t : barrier + ROUND_TIMER_MS)
   return Math.max(end, barrier)
 }
@@ -122,14 +85,14 @@ function endOf(round: ReplayRound, kills: ReplayKill[]): number {
  * end comes too soon after a middle moment, that moment gives way).
  */
 export function replayStepTimes(bundle: ReplayBundle, round: ReplayRound): { t: number; name: string }[] {
-  const barrier = barrierOf(round)
+  const barrier = roundBarrier(round)
   const kills = roundKills(bundle, round)
   const end = endOf(round, kills)
 
   const middle: { t: number; name: string }[] = []
   const firstKill = kills.find(k => k.t > barrier)
   if (firstKill) middle.push({ t: firstKill.t, name: 'First contact' })
-  const plant = plantOf(bundle, round).t
+  const plant = roundPlant(bundle, round).t
   if (plant !== null) middle.push({ t: plant, name: 'Plant' })
 
   const steps = [{ t: barrier, name: 'Barrier drop' }]
@@ -182,46 +145,18 @@ export function roundToPlay(
   const inComp = (name: string) => comp.some(c => c.toLowerCase() === name.toLowerCase())
   const enemies = bundle.players.filter(p => p.team === 'ENEMY').map(p => infoOf(p)?.name ?? UNKNOWN_AGENT)
 
-  const side: 'attack' | 'defense' = round.side === 'defender' ? 'defense' : 'attack'
+  const side = roundSide(round)
   const map = mapName(bundle.match.mapUrl)
   const date = bundle.match.recordedAt.slice(0, 10)
 
   const kills = roundKills(bundle, round)
-  const barrier = barrierOf(round)
+  const barrier = roundBarrier(round)
   const end = endOf(round, kills)
   const times = replayStepTimes(bundle, round)
-  const deaths = deathTimesBySubject(bundle)
-  const plant = plantOf(bundle, round)
+  const plant = roundPlant(bundle, round)
   const firstKill = kills.find(k => k.t > barrier) ?? null
 
-  // Where the spike was planted: the plant's own point, else where the planter stood.
-  let plantAt: PlayPos | null = null
-  if (plant.record?.x != null && plant.record.y != null) {
-    plantAt = imagePos(transform, plant.record.x, plant.record.y)
-  } else if (plant.t !== null && plant.record?.player) {
-    const state = playerStateAt(bundle.tracks.byPlayer[plant.record.player] ?? [], plant.t)
-    if (state) plantAt = imagePos(transform, state.x, state.y)
-  }
   const site = plant.record?.site ?? null
-
-  // Stable ids: one per player, one per effect, one for the spike, across every step.
-  const playerIds = new Map(bundle.players.map(p => [p.subject, newId()]))
-  const effectIds = new Map<ReplayEffect, string>()
-  const spikeId = newId()
-
-  const livingAt = (subject: string, t: number): PlayerState | null => {
-    const state = playerStateAt(bundle.tracks.byPlayer[subject] ?? [], t)
-    if (!isPresentAt(state, t, round.buyStartMs) || !isAliveAt(state, deaths.get(subject), t)) return null
-    return state
-  }
-  const carrierAt = (subject: string, t: number) =>
-    bundle.spike.carriers.some(c => c.player === subject && c.from <= t && t < c.to)
-
-  const positioned = (c: ReplayCast): c is ReplayCast & { x: number; y: number } => c.x !== null && c.y !== null
-  const casts = bundle.casts.filter(positioned)
-  const explained = (e: ReplayEffect) =>
-    casts.some(c => Math.abs(c.t - e.start) <= CAST_EFFECT_MS && Math.hypot(c.x - e.x, c.y - e.y) <= CAST_EFFECT_CM)
-  const orphanEffects = bundle.effects.filter(e => e.start >= round.buyStartMs && e.start <= end && !explained(e))
 
   const winner = round.winner === 'ALLY' ? 'your team' : round.winner === 'ENEMY' ? 'the enemy' : null
   const how = round.how ? round.how.replace(/_/g, ' ').toLowerCase() : null
@@ -233,75 +168,22 @@ export function roundToPlay(
     End: outcome ? `${capitalize(outcome)}.` : 'Round over.',
   }
 
+  // Every snapshot is the frame at its time; ids are shared so the editor animates them.
+  const ids = createFrameIds()
+  const frames = times.map(step => frameStep(bundle, step.t, lookup, transform, ids, round))
   const steps = times.map((step, i) => {
-    const next = times[i + 1] ?? null
-    const prevT = i === 0 ? round.buyStartMs : times[i - 1].t
-    const elements: unknown[] = []
-
-    for (const player of bundle.players) {
-      const state = livingAt(player.subject, step.t)
-      if (!state) continue
-      const agent = infoOf(player)?.name ?? UNKNOWN_AGENT
-      if (player.team === 'ALLY' && !inComp(agent)) continue
-      const at = imagePos(transform, state.x, state.y)
-      const el: Record<string, unknown> = {
-        kind: 'agent',
-        id: playerIds.get(player.subject),
-        agent,
-        team: player.team === 'ALLY' ? 'ally' : 'enemy',
-        at,
-      }
-      const then = next ? livingAt(player.subject, next.t) : null
-      if (then) {
-        const to = imagePos(transform, then.x, then.y)
-        if (Math.hypot(to.u - at.u, to.v - at.v) > MOVE_THRESHOLD) el.moveTo = to
-      }
-      if (carrierAt(player.subject, step.t)) el.spike = true
-      elements.push(el)
+    const next = frames[i + 1] ?? null
+    const elements = frames[i].elements.filter(el => el.kind !== 'agent' || el.team !== 'ally' || inComp(el.agent))
+    for (const el of elements) {
+      if (el.kind !== 'agent' || !next) continue
+      // The move to where the agent stands at the next snapshot, alive then.
+      const then = next.elements.find((e): e is AgentElement => e.kind === 'agent' && e.id === el.id)
+      if (!then || el.at.u === undefined || el.at.v === undefined || then.at.u === undefined || then.at.v === undefined) continue
+      if (Math.hypot(then.at.u - el.at.u, then.at.v - el.at.v) > MOVE_THRESHOLD) el.moveTo = { u: then.at.u, v: then.at.v }
     }
-
-    for (const cast of casts) {
-      if (cast.round !== round.n || cast.t <= prevT || cast.t > step.t) continue
-      const info = infoOf(playerBySubject.get(cast.player))
-      const agent = info?.name ?? UNKNOWN_AGENT
-      const slot = KEY_TO_SLOT[cast.slot] ?? null
-      const el: Record<string, unknown> = { kind: 'ability', id: newId(), agent, slot, shape: 'other', at: imagePos(transform, cast.x, cast.y) }
-      if (slot) {
-        const { shape, radius } = abilityShape(agent, slot)
-        el.shape = shape
-        el.radius = radius
-        el.label = info?.abilities.find(a => a.slot === slot)?.name ?? SLOT_KEYS[slot]
-      }
-      elements.push(el)
-    }
-
-    for (const effect of orphanEffects) {
-      if (effect.start > step.t || (effect.end ?? end) < step.t) continue
-      let id = effectIds.get(effect)
-      if (!id) {
-        id = newId()
-        effectIds.set(effect, id)
-      }
-      const owner = effect.owner ? playerBySubject.get(effect.owner) : undefined
-      elements.push({
-        kind: 'ability',
-        id,
-        agent: infoOf(owner)?.name ?? lookup(effect.agent)?.name ?? UNKNOWN_AGENT,
-        slot: null,
-        shape: EFFECT_SHAPES[effect.kind] ?? 'other',
-        at: imagePos(transform, effect.x, effect.y),
-      })
-    }
-
-    if (plantAt && plant.t !== null && plant.t <= step.t) {
-      const marker: Record<string, unknown> = { kind: 'marker', id: spikeId, type: 'spike', at: plantAt }
-      if (site) marker.label = site
-      elements.push(marker)
-    }
-
     const since = `${clock(step.t - barrier)} after barrier`
     const fact = facts[step.name]
-    return { id: slugOf(step.name), name: step.name, caption: fact ? `${since}. ${fact}` : `${since}.`, elements }
+    return { ...frames[i], id: slugOf(step.name), name: step.name, caption: fact ? `${since}. ${fact}` : `${since}.`, elements }
   })
 
   const summary = `Round ${round.n} from the replay${outcome ? `: ${outcome}` : ''}`

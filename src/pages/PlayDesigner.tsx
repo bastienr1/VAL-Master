@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type Ref } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { ArrowLeft } from 'lucide-react'
-import PlayCanvas, { type PlayCanvasHandle, type Tool } from '../components/PlayCanvas'
+import PlayCanvas, { type PlayCanvasHandle, type PlayCanvasProps, type Tool } from '../components/PlayCanvas'
 import AbilityPopover from '../components/play/AbilityPopover'
 import AgentStrip, { type AgentRole } from '../components/play/AgentStrip'
 import { SplitterHandle, useSplitter } from '../components/ColumnSplitter'
@@ -9,6 +9,7 @@ import BriefDrawer, { type ComposeFailure } from '../components/play/BriefDrawer
 import EditorRail from '../components/play/EditorRail'
 import EditorToolbar from '../components/play/EditorToolbar'
 import PlaybookPanel from '../components/play/PlaybookPanel'
+import ReplayTransport, { type ReplayClock, type ReplayView } from '../components/play/ReplayTransport'
 import { useGameContent, useGameContentNames } from '../hooks/useGameContent'
 import { useMediaQuery } from '../hooks/useMediaQuery'
 import { abilitiesForComp } from '../lib/composeAbilities'
@@ -33,10 +34,22 @@ import { canRedo, canUndo, historyOf, pushHistory, redoHistory, undoHistory, typ
 import { sceneTurns, sceneViewport, viewToImage } from '../lib/playScene'
 import { PLAY_TEMPLATES, mapSites, templateById, templateDoc, templateScaffold, type PlayTemplate } from '../lib/playTemplates'
 import { createPlay, deletePlay, getPlay, updatePlay, type PlayInput } from '../lib/plays'
-import { replayRoundToPlay } from '../lib/replayMatches'
+import type { ReplayBundle, ReplayRound } from '../lib/replayBundle'
+import {
+  createFrameIds,
+  formatRoundClock,
+  frameStep,
+  roundAt,
+  roundSide,
+  roundSpan,
+  roundTicks,
+  type FrameIds,
+} from '../lib/replayFrame'
+import { replayContext, replayRoundToPlay, type ReplayContext } from '../lib/replayMatches'
 import { getReplayBundle } from '../lib/replays'
 import type { ReplayPlay } from '../lib/replayToPlay'
 import type { PlaySide } from '../lib/types'
+import { createValueStore, type ValueStore } from '../lib/valueStore'
 
 /** A boolean kept per device; the fallback when storage is blocked or empty. */
 function readFlag(key: string, fallback: boolean): boolean {
@@ -71,6 +84,14 @@ const TOOL_KEYS: Record<string, Tool> = { v: 'select', p: 'pen', a: 'arrow', t: 
 
 /** Space let go within this toggles playback; held longer, it was the canvas' pan key. */
 const SPACE_TAP_MS = 300
+
+/** How often the replay's clock and scrubber follow the playing frame (§2.8). */
+const CLOCK_MS = 50
+/** What `,` and `.` move the replay by. */
+const NUDGE_MS = 1000
+/** A tick this close to a captured moment names it in the step's caption. */
+const TICK_NEAR_MS = 2000
+const TOAST_MS = 1500
 
 /** What a new step at this index is called, per side, before falling back to "Step N". */
 const STEP_NAMES: Record<PlaySide, string[]> = {
@@ -184,6 +205,72 @@ function isPristine(doc: PlayDoc, side: PlaySide): boolean {
   )
 }
 
+// ── Replay mode (§2.8) ──────────────────────────────────────────────────────
+
+/** A match open in the replay mode, with what its frames are built from, made once per bundle. */
+interface OpenReplay extends ReplayContext {
+  matchId: string
+  bundle: ReplayBundle
+  /** Stable element ids per player, effect and plant, so the canvas keys them across frames. */
+  ids: FrameIds
+  /** A player's agent name, for the ticks and the captions. */
+  nameOf(subject: string): string
+}
+
+/** The paused frame once edited, and whether this version of it is already a step. */
+interface LiveFrame {
+  step: PlayStep
+  captured: boolean
+}
+
+/** Round 1, where a match opens. */
+const firstRound = (bundle: ReplayBundle): ReplayRound => bundle.rounds.find(r => r.n === 1) ?? bundle.rounds[0]
+
+/** A round's barrier drop: where a jump to the round lands. */
+const barrierOf = (bundle: ReplayBundle, round: ReplayRound): number =>
+  roundTicks(bundle, round).find(t => t.kind === 'barrier')?.t ?? roundSpan(bundle, round).start
+
+/** The round's side and how it went, for a caption no tick explains: "attack, won by elimination". */
+function roundFacts(round: ReplayRound): string {
+  const result = round.winner === 'ALLY' ? 'won' : round.winner === 'ENEMY' ? 'lost' : null
+  const how = round.how ? round.how.replace(/_/g, ' ').toLowerCase() : null
+  return result ? `${roundSide(round)}, ${result}${how ? ` by ${how}` : ''}` : roundSide(round)
+}
+
+/**
+ * A captured frame's allies joined to the comp while it has room. One left
+ * over is dropped from the step: a saved play with an ally outside the comp
+ * would not open again.
+ */
+function fitComp(comp: string[], step: PlayStep): { comp: string[]; step: PlayStep } {
+  const next = [...comp]
+  const inComp = (name: string) => next.some(c => sameName(c, name))
+  for (const e of step.elements) {
+    if (e.kind === 'agent' && e.team === 'ally' && !inComp(e.agent) && next.length < MAX_COMP) next.push(e.agent)
+  }
+  const elements = step.elements.filter(e => e.kind !== 'agent' || e.team !== 'ally' || inComp(e.agent))
+  return { comp: next, step: elements.length === step.elements.length ? step : { ...step, elements } }
+}
+
+const noSubscribe = () => () => {}
+
+/**
+ * The canvas, fed from the frame store when one is given: a playing replay
+ * renders this and the canvas each animation frame and leaves the rest of the
+ * editor alone (§2.8). Without a store, or before its first frame, it draws
+ * the step it is given. The page keeps one of these mounted in both views, so
+ * the canvas keeps its zoom across them.
+ */
+function FrameCanvas({
+  frames,
+  step,
+  ref,
+  ...props
+}: PlayCanvasProps & { frames: ValueStore<PlayStep | null> | null; ref?: Ref<PlayCanvasHandle> }) {
+  const frame = useSyncExternalStore(frames?.subscribe ?? noSubscribe, () => frames?.get() ?? null)
+  return <PlayCanvas ref={ref} {...props} step={frame ?? step} />
+}
+
 /**
  * `/plays/new` and `/plays/:id`. A play created here keeps its editor: the URL
  * becomes `/plays/:id` but the state, the step shown and the "Saved" flash
@@ -209,14 +296,16 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
   const navigate = useNavigate()
   const { registry, status: registryStatus } = useGameContent()
   const { mapNames } = useGameContentNames()
-  // `/plays/new?template=retake&site=B` or `?replay=<match id>&round=7`, read once: applied
-  // when the map (the registry, for a replay) is known, then cleared.
+  // `/plays/new?template=retake&site=B`, or `?replay=<match id>` (the replay mode, at
+  // `&round=7`'s barrier when given; `&mode=steps` imports that round's snapshots instead),
+  // read once: applied when the map (the registry, for a replay) is known, then cleared.
   const [searchParams, setSearchParams] = useSearchParams()
   const [deepLink] = useState(() => ({
     template: searchParams.get('template'),
     site: searchParams.get('site'),
     replay: searchParams.get('replay'),
     round: searchParams.get('round'),
+    mode: searchParams.get('mode'),
   }))
   const deepLinked = useRef(false)
 
@@ -257,6 +346,19 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
   const [unresolved, setUnresolved] = useState<string[]>([])
   const [hint, setHint] = useState<string | null>(null)
 
+  // Replay mode (§2.8). The replay time lives in `replayMsRef`; the page renders when the
+  // mode, the view or the playing state changes, never per frame.
+  const [replay, setReplay] = useState<OpenReplay | null>(null)
+  /** The match the play was built from (`doc.replay`): kept after Exit, so it saves and reopens. */
+  const [replayLink, setReplayLink] = useState<string | null>(null)
+  const [replayPlaying, setReplayPlaying] = useState(false)
+  const [replaySpeed, setReplaySpeed] = useState(1)
+  const [live, setLive] = useState<LiveFrame | null>(null)
+  const [view, setView] = useState<ReplayView>('replay')
+  const [openingReplay, setOpeningReplay] = useState(false)
+  /** "Step captured", over the canvas for a moment. */
+  const [toast, setToast] = useState<string | null>(null)
+
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [savedFlash, setSavedFlash] = useState(false)
@@ -267,6 +369,21 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
   const canvas = useRef<PlayCanvasHandle>(null)
   /** When Space went down (event time), until its keyup decides whether it was a tap. */
   const spaceDownAt = useRef<number | null>(null)
+
+  /** The replay time, ms: the loop advances it, every replay action reads it. */
+  const replayMsRef = useRef(0)
+  /**
+   * The round shown, set by every jump. Kept rather than read back from the
+   * time: a round without an end runs to the next one's buy start, which
+   * `roundAt` already counts as the next round.
+   */
+  const replayRoundRef = useRef<ReplayRound | null>(null)
+  /** Bumped by every jump of the replay time: a frame loop started before it stops. */
+  const replayEpoch = useRef(0)
+  /** The replay's frame, each animation frame while it plays: only the canvas reads it. */
+  const [frames] = useState(() => createValueStore<PlayStep | null>(null))
+  /** The replay time and round a few times a second while it plays, and on every jump: only the transport reads it. */
+  const [clock] = useState(() => createValueStore<ReplayClock | null>(null))
 
   // Resizable side panels (lg and up). Each panel's room is the grid less the rail and the
   // other panel when it is open: the grid has no flex-grow for the hook to read, and its
@@ -320,8 +437,12 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
   const previous = stepAt > 0 ? doc.steps[stepAt - 1] : null
   const isPlaying = playing && stepCount > 1
   const empty = !hasElements(doc)
+  /** The canvas shows the replay rather than a step of the play. */
+  const inReplay = replay !== null && view === 'replay'
 
-  const dirty = snapshotOf({ title, map, side, brief, doc }) !== snapshot
+  /** What Save writes: the doc, with the match it was built from. */
+  const savedDoc: PlayDoc = replayLink ? { ...doc, replay: { matchId: replayLink } } : doc
+  const dirty = snapshotOf({ title, map, side, brief, doc: savedDoc }) !== snapshot
 
   // ── History ───────────────────────────────────────────────────────────────
 
@@ -380,6 +501,7 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
         setSide(play.side)
         setBrief(play.brief)
         setHistory(historyOf(loaded))
+        setReplayLink(loaded.replay?.matchId ?? null)
         setComposedWith(play.composed_with)
         // A play with something drawn opens on the map; an empty one on its brief.
         setDrawerOpen(!hasElements(loaded))
@@ -415,11 +537,55 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
     return () => clearTimeout(timer)
   }, [hint])
 
+  useEffect(() => {
+    if (!toast) return
+    const timer = setTimeout(() => setToast(null), TOAST_MS)
+    return () => clearTimeout(timer)
+  }, [toast])
+
+  // The replay plays: wall time × speed, a frame per animation frame into the canvas' store,
+  // the clock every 50 ms, until the end of the round shown, where it pauses.
+  useEffect(() => {
+    if (!replay || !replayPlaying) return
+    const { bundle, lookup, transform, ids } = replay
+    const round = replayRoundRef.current ?? roundAt(bundle, replayMsRef.current)
+    const { end } = roundSpan(bundle, round)
+    const epoch = replayEpoch.current
+    let raf = 0
+    let last: number | null = null
+    let clockAt = Number.NEGATIVE_INFINITY
+    const tick = (now: number) => {
+      if (replayEpoch.current !== epoch) return
+      const t = Math.min(end, replayMsRef.current + (last === null ? 0 : (now - last) * replaySpeed))
+      last = now
+      replayMsRef.current = t
+      frames.set(frameStep(bundle, t, lookup, transform, ids, round))
+      const over = t >= end
+      if (over || now - clockAt >= CLOCK_MS) {
+        clock.set({ ms: t, round })
+        clockAt = now
+      }
+      if (over) setReplayPlaying(false)
+      else raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
+    return () => {
+      cancelAnimationFrame(raf)
+      // Paused: the clock shows the very frame the canvas holds.
+      if (replayEpoch.current === epoch) clock.set({ ms: replayMsRef.current, round })
+    }
+  }, [replay, replayPlaying, replaySpeed, frames, clock])
+
   // ── Steps ─────────────────────────────────────────────────────────────────
 
+  /** A step from the rail or the arrows; with a replay open it pauses it and shows the step. */
   const pickStep = (i: number) => {
     setPlaying(false)
     setStepIndex(Math.max(0, Math.min(stepCount - 1, i)))
+    if (replay) {
+      setReplayPlaying(false)
+      setView('steps')
+    }
   }
 
   /** A copy of the active step (ids kept, so agents walk) right after it. */
@@ -463,15 +629,47 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
     })
   }
 
+  /** What the canvas shows: the active step, or in the replay view the edited frame, else the frame. */
+  const shownStep = (): PlayStep | undefined => (inReplay ? (live?.step ?? frames.get() ?? undefined) : step)
+
+  /**
+   * An edit of the paused replay frame. The first copies the frame into the
+   * live frame with a step id of its own and its replay time; the next ones
+   * edit that copy. Not on the undo stack: Capture is what enters the play.
+   */
+  const onFrameChange = (next: PlayStep) => {
+    const t = replayMsRef.current
+    setLive(l => ({ step: l ? next : { ...next, id: newId(), replayMs: t }, captured: false }))
+  }
+
+  /** An edit of what the canvas shows: the active step through history, or the paused frame. None while a replay plays. */
+  const editShown = (fn: (s: PlayStep) => PlayStep, prune = false) => {
+    if (!inReplay) {
+      editStep(fn, null, prune)
+      return
+    }
+    const base = replayPlaying ? undefined : shownStep()
+    if (base) onFrameChange(fn(base))
+  }
+
+  /** From the drawer's list, which is the active step's. */
   const removeElement = (id: string) => {
     editStep(s => withoutElement(s, id), null, true)
+    if (selectedId === id) setSelectedId(null)
+  }
+
+  /** Delete / Backspace: the selection off what the canvas shows, the paused replay frame included. */
+  const removeShown = (id: string) => {
+    if (inReplay && replayPlaying) return
+    editShown(s => withoutElement(s, id), true)
     if (selectedId === id) setSelectedId(null)
   }
 
   /** Selecting an agent on the map opens its abilities; clicking empty map closes them unless one is armed. */
   const onCanvasSelect = (id: string | null) => {
     setSelectedId(id)
-    const el = id && step ? elementAt(step, id) : null
+    const shown = shownStep()
+    const el = id && shown ? elementAt(shown, id) : null
     if (el?.kind === 'agent') setPopoverAgent(el.agent)
     else if (id === null && !pending) setPopoverAgent(null)
   }
@@ -485,11 +683,13 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
    * A tile of the strip: an agent already on the map for the current team is
    * selected; otherwise it is placed at the middle of the view, joining the
    * comp when it is an ally. A sixth ally is refused, not placed: a saved play
-   * with an ally outside the comp would not open again.
+   * with an ally outside the comp would not open again. On a paused replay
+   * frame the agent joins the frame, and the comp when the frame is captured.
    */
   const pickAgent = (agent: GameAgent) => {
-    if (!step || !gameMap) return
-    const existing = step.elements.find(
+    const shown = shownStep()
+    if (!shown || !gameMap || (inReplay && replayPlaying)) return
+    const existing = shown.elements.find(
       (e): e is AgentElement => e.kind === 'agent' && e.team === team && sameName(e.agent, agent.name),
     )
     if (existing) {
@@ -498,7 +698,7 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
       return
     }
     const compName = doc.comp.find(name => sameName(name, agent.name))
-    if (team === 'ally' && !compName && doc.comp.length >= MAX_COMP) {
+    if (!inReplay && team === 'ally' && !compName && doc.comp.length >= MAX_COMP) {
       setHint('Comp is full')
       return
     }
@@ -512,13 +712,17 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
       team,
       at: { u: centre.u, v: centre.v },
     }
-    const joins = team === 'ally' && !compName
-    const stepId = step.id
-    commitWith(d => ({
-      ...d,
-      comp: joins ? [...d.comp, agent.name] : d.comp,
-      steps: d.steps.map(s => (s.id === stepId ? withElement(s, el) : s)),
-    }))
+    if (inReplay) {
+      onFrameChange(withElement(shown, el))
+    } else {
+      const joins = team === 'ally' && !compName
+      const stepId = shown.id
+      commitWith(d => ({
+        ...d,
+        comp: joins ? [...d.comp, agent.name] : d.comp,
+        steps: d.steps.map(s => (s.id === stepId ? withElement(s, el) : s)),
+      }))
+    }
     setSelectedId(el.id)
     setPopoverAgent(el.agent)
     setPending(null)
@@ -557,7 +761,8 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
 
   const changeSide = (next: PlaySide) => {
     if (next === side) return
-    if (isPristine(doc, side)) commit(emptyPlayDoc([], next))
+    // On the doc as it is by then: a replay jump can capture a step just before it turns the side.
+    commitWith(d => (isPristine(d, side) ? emptyPlayDoc([], next) : d))
     setSide(next)
   }
 
@@ -599,21 +804,191 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
     setBrief(play.brief)
   }
 
+  // ── Replay mode (§2.8) ────────────────────────────────────────────────────
+
+  const currentRound = (open: OpenReplay) => replayRoundRef.current ?? roundAt(open.bundle, replayMsRef.current)
+
+  /**
+   * The replay at `t`, held inside `round` (by default the round of `t`): the
+   * frame into the canvas' store, the clock, and the round's side through the
+   * rail's own setter, so the map turns with it. A frame loop still running
+   * stops here.
+   */
+  const showReplayAt = (open: OpenReplay, t: number, round: ReplayRound = roundAt(open.bundle, t)) => {
+    const span = roundSpan(open.bundle, round)
+    const at = Math.max(span.start, Math.min(span.end, t))
+    replayEpoch.current += 1
+    replayMsRef.current = at
+    replayRoundRef.current = round
+    frames.set(frameStep(open.bundle, at, open.lookup, open.transform, open.ids, round))
+    clock.set({ ms: at, round })
+    changeSide(roundSide(round))
+  }
+
+  /**
+   * The frame shown, edited or not, as a new step after the active one: named
+   * by its round clock, captioned by the nearest tick within 2 s (else the
+   * round's side and outcome), its allies joined to the comp, one undo step,
+   * selected in the rail. Into an untouched blank play it replaces the blank
+   * steps instead of landing among them. False when the play is full.
+   */
+  const capture = (source: PlayStep | null = live?.step ?? frames.get()): boolean => {
+    if (!replay || !source) return false
+    const pristine = isPristine(doc, side)
+    if (!pristine && stepCount >= MAX_STEPS) return false
+    const t = source.replayMs ?? replayMsRef.current
+    const round = currentRound(replay)
+    const name = formatRoundClock(round, t)
+    const near = roundTicks(replay.bundle, round, replay.nameOf)
+      .filter(tick => Math.abs(tick.t - t) <= TICK_NEAR_MS)
+      .sort((a, b) => Math.abs(a.t - t) - Math.abs(b.t - t))[0]
+    const fitted = fitComp(pristine ? [] : doc.comp, {
+      ...source,
+      id: newId(),
+      name,
+      caption: `${name} · ${near?.label ?? roundFacts(round)}`,
+      replayMs: t,
+    })
+    const at = pristine ? 0 : stepAt + 1
+    const steps = pristine ? [fitted.step] : [...doc.steps.slice(0, at), fitted.step, ...doc.steps.slice(at)]
+    commit({ ...doc, comp: fitted.comp, steps })
+    setStepIndex(at)
+    setPlaying(false)
+    setLive(l => (l && l.step === source ? { ...l, captured: true } : l))
+    return true
+  }
+
+  /** Before the replay time moves: an edited frame not captured yet becomes a step (with a toast), then the live frame goes. */
+  const settleLive = () => {
+    if (live && !live.captured) setToast(capture(live.step) ? 'Step captured' : 'The play is full: the edit was not captured')
+    setLive(null)
+  }
+
+  /** Opens a match in the replay mode at `t`, paused, on its map. The error line says why when its positions cannot be placed. */
+  const enterReplay = (matchId: string, bundle: ReplayBundle, t: number) => {
+    if (!registry) return
+    let context: ReplayContext
+    try {
+      context = replayContext(bundle, registry)
+    } catch (e) {
+      setError(messageOf(e))
+      return
+    }
+    if (replay) settleLive()
+    const agentOf = new Map(bundle.players.map(p => [p.subject, p.agentId]))
+    const open: OpenReplay = {
+      ...context,
+      matchId,
+      bundle,
+      ids: createFrameIds(),
+      nameOf: subject => context.lookup(agentOf.get(subject) ?? null)?.name ?? 'Agent',
+    }
+    const mapName = bundle.match.mapUuid ? registry.maps.byId.get(bundle.match.mapUuid)?.name : undefined
+    if (mapName) setMapPick(mapName)
+    // A strat started from a match is named after it until the user renames it.
+    if (title === UNTITLED) setTitle(truncate(`${mapName ?? 'Match'} · ${bundle.match.recordedAt.slice(0, 10)} · from replay`, TITLE_MAX))
+    setReplay(open)
+    setReplayLink(matchId)
+    setReplayPlaying(false)
+    setPlaying(false)
+    setLive(null)
+    setView('replay')
+    setSelectedId(null)
+    setPending(null)
+    showReplayAt(open, t)
+  }
+
+  /** **Play match** from the picker: round 1's barrier drop. */
+  const playMatch = (bundle: ReplayBundle, matchId: string) => enterReplay(matchId, bundle, barrierOf(bundle, firstRound(bundle)))
+
+  /** **Open replay** on a play built from one: at the active step's moment, else round 1's barrier drop. */
+  const openReplay = () => {
+    if (!replayLink || openingReplay) return
+    const matchId = replayLink
+    const at = step?.replayMs
+    setOpeningReplay(true)
+    getReplayBundle(matchId)
+      .then(bundle => {
+        if (!bundle) throw new Error('The match this play came from has no replay attached any more.')
+        enterReplay(matchId, bundle, at ?? barrierOf(bundle, firstRound(bundle)))
+      })
+      .catch((e: unknown) => setError(messageOf(e)))
+      .finally(() => setOpeningReplay(false))
+  }
+
+  /** Exit keeps the captured steps and drops the live frame. */
+  const exitReplay = () => {
+    replayEpoch.current += 1
+    replayRoundRef.current = null
+    clock.set(null)
+    setReplay(null)
+    setReplayPlaying(false)
+    setLive(null)
+    setView('replay')
+    setSelectedId(null)
+    frames.set(null)
+  }
+
+  const playReplay = () => {
+    if (!replay) return
+    settleLive()
+    setView('replay')
+    setPlaying(false)
+    const round = currentRound(replay)
+    const span = roundSpan(replay.bundle, round)
+    // At the round's end, play starts it over, the way a video player does.
+    if (replayMsRef.current >= span.end) showReplayAt(replay, span.start, round)
+    setReplayPlaying(true)
+  }
+
+  const toggleReplay = () => (replayPlaying ? setReplayPlaying(false) : playReplay())
+
+  /** The replay at `t`, paused, in the replay view: the scrubber, a nudge, a round chip, Back to replay. */
+  const seekReplay = (t: number, round?: ReplayRound) => {
+    if (!replay) return
+    settleLive()
+    setReplayPlaying(false)
+    setPlaying(false)
+    setView('replay')
+    showReplayAt(replay, t, round)
+  }
+
+  const jumpToRound = (n: number) => {
+    const round = replay?.bundle.rounds.find(r => r.n === n)
+    if (replay && round) seekReplay(barrierOf(replay.bundle, round), round)
+  }
+
+  const nudgeReplay = (ms: number) => {
+    if (replay) seekReplay(replayMsRef.current + ms, currentRound(replay))
+  }
+
+  /** From the steps view: the replay at the active step's moment when it has one, else where it was. */
+  const backToReplay = () => {
+    if (step?.replayMs !== undefined) seekReplay(step.replayMs)
+    else setView('replay')
+  }
+
   useEffect(() => {
     if (deepLinked.current || loadId !== undefined || !registry || !empty || !deepLink.replay) return
     deepLinked.current = true
     const matchId = deepLink.replay
-    const round = Number(deepLink.round)
-    // Cleared at once, so a reload does not load the round over the user's work.
+    const said = deepLink.round
+    const round = said === null ? null : Number(said)
+    const snapshots = deepLink.mode === 'steps'
+    // Cleared at once, so a reload does not load the match over the user's work.
     setSearchParams({}, { replace: true })
-    const bundleLoad = Number.isInteger(round) && round >= 1
-      ? getReplayBundle(matchId)
-      : Promise.reject(new Error('The replay link names no round.'))
+    const bundleLoad =
+      (round !== null && !(Number.isInteger(round) && round >= 1)) || (snapshots && round === null)
+        ? Promise.reject(new Error('The replay link names no round.'))
+        : getReplayBundle(matchId)
     bundleLoad
       .then(bundle => {
         if (!bundle) throw new Error('That match has no replay attached.')
-        if (!bundle.rounds.some(r => r.n === round)) throw new Error(`The replay has no round ${round}.`)
-        loadReplayPlay(replayRoundToPlay(bundle, round, registry))
+        const picked = round === null ? firstRound(bundle) : bundle.rounds.find(r => r.n === round)
+        if (!picked) throw new Error(`The replay has no round ${round}.`)
+        // `&mode=steps` is the §2.7 snapshot import; otherwise the replay mode at the round's barrier, paused.
+        if (snapshots) loadReplayPlay(replayRoundToPlay(bundle, picked.n, registry))
+        else enterReplay(matchId, bundle, barrierOf(bundle, picked))
       })
       .catch((e: unknown) => setError(messageOf(e)))
   })
@@ -668,7 +1043,7 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
       side,
       comp: doc.comp,
       brief,
-      play: doc,
+      play: savedDoc,
       composed_with: composedWith,
     }
     setSaving(true)
@@ -684,7 +1059,7 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
       }
       setTitle(savedTitle)
       setMapPick(map)
-      setSnapshot(snapshotOf({ title: savedTitle, map, side, brief, doc }))
+      setSnapshot(snapshotOf({ title: savedTitle, map, side, brief, doc: savedDoc }))
       setSavedFlash(true)
     } catch (e) {
       setError(messageOf(e))
@@ -734,7 +1109,7 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
       } else if (e.key === 'Delete' || e.key === 'Backspace') {
         if (!selectedId) return
         e.preventDefault()
-        removeElement(selectedId)
+        removeShown(selectedId)
       } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
         e.preventDefault()
         if (e.repeat) setAnimate(false)
@@ -750,6 +1125,9 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
         canvas.current?.zoomOut()
       } else if (e.key === '0') {
         canvas.current?.resetZoom()
+      } else if ((e.key === ',' || e.key === '.') && replay) {
+        e.preventDefault()
+        nudgeReplay(e.key === ',' ? -NUDGE_MS : NUDGE_MS)
       } else if (!e.shiftKey && TOOL_KEYS[key]) {
         chooseTool(TOOL_KEYS[key])
       } else if (key.length === 1 && key >= '1' && key <= '4') {
@@ -765,7 +1143,10 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
         spaceDownAt.current = null
         if (downAt === null || isEditable(e.target) || inPlaybookPanel(e.target)) return
         e.preventDefault()
-        if (e.timeStamp - downAt < SPACE_TAP_MS && stepCount > 1) setPlaying(p => !p)
+        if (e.timeStamp - downAt >= SPACE_TAP_MS) return
+        // In the replay view Space plays the match, not the step walk.
+        if (replay && view === 'replay') toggleReplay()
+        else if (stepCount > 1) setPlaying(p => !p)
       }
     }
     window.addEventListener('keydown', onKeyDown)
@@ -849,6 +1230,8 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
         drawerOpen={drawerOpen}
         onToggleDrawer={() => setDrawerOpen(o => !o)}
         briefHint={composedWith === null}
+        onOpenReplay={replayLink && !replay && registry ? openReplay : undefined}
+        openingReplay={openingReplay}
         canSave={dirty && Boolean(map)}
         saving={saving}
         savedFlash={savedFlash}
@@ -858,6 +1241,25 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
 
       {error && (
         <div className="shrink-0 border-b border-val-red/25 bg-val-red/10 text-val-red text-sm px-3 py-1.5">{error}</div>
+      )}
+
+      {replay && (
+        <ReplayTransport
+          bundle={replay.bundle}
+          clock={clock}
+          nameOf={replay.nameOf}
+          playing={replayPlaying}
+          onTogglePlay={toggleReplay}
+          speed={replaySpeed}
+          onSpeed={setReplaySpeed}
+          onSeek={ms => seekReplay(ms, currentRound(replay))}
+          onRound={jumpToRound}
+          canCapture={isPristine(doc, side) || stepCount < MAX_STEPS}
+          onCapture={() => capture()}
+          view={view}
+          onBackToReplay={backToReplay}
+          onExit={exitReplay}
+        />
       )}
 
       <div
@@ -877,7 +1279,13 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
             onAddStep={addStep}
             onRemoveStep={removeStep}
             playing={isPlaying}
-            onTogglePlay={() => setPlaying(p => !p)}
+            onTogglePlay={() => {
+              if (replay) {
+                setReplayPlaying(false)
+                setView('steps')
+              }
+              setPlaying(p => !p)
+            }}
             speedMs={speedMs}
             onSpeed={setSpeedMs}
             onStepName={name => editStep(s => ({ ...s, name }), `name:${step?.id}`)}
@@ -910,22 +1318,35 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
             <div className="absolute inset-3 rounded-xl bg-bg-card animate-pulse" aria-hidden="true" />
           ) : gameMap && mapDrawable && step ? (
             <div className={`absolute inset-3 transition-opacity ${composing ? 'opacity-60 pointer-events-none' : ''}`}>
-              <PlayCanvas
+              {/* In the replay view: the frame from its store (the edited copy once paused and
+                  changed), no ghosts, no walk, read-only while the match plays. */}
+              <FrameCanvas
                 ref={canvas}
+                frames={inReplay && !live ? frames : null}
                 map={gameMap}
                 side={side}
-                step={step}
-                previous={previous}
+                step={inReplay ? (live?.step ?? step) : step}
+                previous={inReplay ? null : previous}
                 tool={tool}
                 pending={pending}
                 selectedId={selectedId}
                 showCallouts={showCallouts}
-                animate={animate}
+                animate={inReplay ? false : animate}
                 onSelect={onCanvasSelect}
-                onChange={onCanvasChange}
+                onChange={inReplay ? (replayPlaying ? undefined : onFrameChange) : onCanvasChange}
                 onPendingDone={() => setPending(null)}
                 onUnresolved={setUnresolved}
               />
+              {toast && (
+                <div className="absolute top-2 left-1/2 -translate-x-1/2 pointer-events-none">
+                  <span
+                    role="status"
+                    className="inline-block whitespace-nowrap rounded-full border border-val-cyan/25 bg-bg-primary/85 px-3 py-1 text-[11px] font-medium text-val-cyan"
+                  >
+                    {toast}
+                  </span>
+                </div>
+              )}
               {/* Over the canvas, its right end clear of the zoom overlay at the canvas' top-right. */}
               {unresolved.length > 0 && (
                 <div className="absolute top-2 left-2 right-36 pointer-events-none">
@@ -987,6 +1408,7 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
               onApplyTemplate={applyTemplate}
               map={map}
               onLoadReplay={loadReplayPlay}
+              onPlayReplay={playMatch}
               brief={brief}
               onBrief={setBrief}
               canCompose={brief.trim().length > 0 && (gameMap?.callouts.length ?? 0) > 0}
@@ -1021,7 +1443,7 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
             activeAgent={popoverAgent}
             onPick={pickAgent}
             hint={hint}
-            enabled={Boolean(gameMap && mapDrawable)}
+            enabled={Boolean(gameMap && mapDrawable) && !(inReplay && replayPlaying)}
           />
         </div>
       </div>

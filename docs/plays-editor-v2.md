@@ -284,6 +284,75 @@ replaced, title and brief filled, drawer stays open. Deep link
 **Review page**: the replay minimap's HUD on the VOD workstation gets an
 "Open in Plays" link to that deep link for the round it is showing.
 
+### 2.8 Replay mode
+
+Loading a whole match and watching it in the editor, pausing to change what
+the agents do, and keeping the moments that matter as the steps of a strat.
+The per-round snapshot import (2.7) stays as "Load round"; this is "Play
+match".
+
+**Frame** (`src/lib/replayFrame.ts`, pure, tested; `replayToPlay.ts` is
+refactored to build its snapshots from it):
+`frameStep(bundle, t, lookup, transform, ids): PlayStep` is the state of the
+match at replay time `t` as a step: every present, alive player as an `agent`
+element (ally / enemy, image units, spike carrier flagged), no `moveTo`;
+area effects active at `t` as `ability` elements (`slot` from a cast of the
+same owner within 3 s and 300 cm, else null), casts of the last 2.5 s with a
+position as `ability` elements too (flashes and the like have no lasting
+effect); the plant of the current round at or before `t` as a `spike` marker.
+`ids` is a stable id table per subject, effect and plant, so the canvas can
+key markers across frames. Also `roundSpan(round): { start, end }` (buy start
+to `endMs`, else the next round's buy start, else `barrierMs + 120 s`),
+`roundSide(round): PlaySide` and `formatRoundClock(round, t)` ("R3 · 0:13",
+seconds since the barrier, negative during the buy).
+
+**Document**: `PlayStep` gains optional `replayMs?: number` (kept by
+`parsePlayDoc` when finite and ≥ 0) and `PlayDoc` gains optional
+`replay?: { matchId: string }`, so a saved strat can reopen its match.
+
+**Editor state**: `replay: { matchId, bundle } | null`, `replayMs`,
+`replayPlaying`, `replaySpeed` (0.25–4, default 1), `liveStep: PlayStep | null`
+(the paused frame once edited), `view: 'replay' | 'steps'`.
+
+**Transport** (`src/components/play/ReplayTransport.tsx`), a 56 px bar between
+the toolbar and the canvas while a replay is loaded: round chips (number,
+ATK/DEF, win dot; click = jump to that round's barrier drop, paused), a
+scrubber spanning the current round (`roundSpan`) with the barrier, kills and
+the plant as ticks, play/pause, speed menu, the clock from `formatRoundClock`,
+**Capture step**, and **Exit replay**.
+
+**Behaviour**:
+- Playing: a `requestAnimationFrame` loop advances `replayMs` by wall time ×
+  speed, computes `frameStep` and hands it to the canvas with `animate=false`
+  and no `onChange` (read-only while moving). Crossing into the next round
+  updates `side` (and so the map's orientation) from `roundSide`.
+- Paused: the frame is editable. The first `onChange` copies it into
+  `liveStep` with a fresh step id and `replayMs`; further edits go there.
+  **Capture step** appends `liveStep` (or the untouched frame) to `doc.steps`
+  after the active step, named `formatRoundClock`, caption from the round's
+  facts ("R3 · 0:13 · first contact"), and selects it in the rail. Pressing
+  play with an uncaptured edited `liveStep` captures it first (a one-line
+  toast "Step captured"). Scrubbing or jumping discards an unedited frame
+  silently.
+- The rail's steps are the captured moments; clicking one pauses the replay
+  and shows that step (`view: 'steps'`); a "Back to replay" button in the
+  transport (shown in that view) returns to `view: 'replay'` at the step's
+  `replayMs` when it has one.
+- Save writes the doc as usual with `replay: { matchId }`; a saved strat
+  whose doc has `replay` shows an **Open replay** button in the toolbar that
+  loads the bundle and enters replay mode at the active step's `replayMs`
+  (else round 1's barrier), paused.
+- Exit replay keeps the captured steps and drops the live frame.
+- Space in replay mode toggles the replay, not the step walk; ← → step
+  through captured steps as before, `,` / `.` nudge the replay by 1 s.
+
+**Picker and links**: `ReplayPicker` gets a **Play match** button at the
+match level (loads the bundle, enters replay mode at round 1's barrier,
+paused) beside the round grid's Load round. `/plays/new?replay=<matchId>`
+opens replay mode at round 1; with `&round=<n>` at that round's barrier drop,
+paused; `&mode=steps` keeps the 2.7 snapshot import. The review page's "Open
+in Plays" link uses the replay form.
+
 ## 3. Document v2 (`src/lib/playDoc.ts`)
 
 ```ts
@@ -433,6 +502,13 @@ Lotus match loaded its 26 rounds with sides; round 3 became "Round 3 · Lotus ·
 killed Killjoy.") and End ("0:58 … The enemy won by elimination"), the map
 switched to Lotus attack, allies at the bottom with their moves, enemies in
 red, abilities drawn.
+
+Replay mode (2.8) was tried on the same Lotus match in the signed-in app
+(2026-11-06): the deep link opened round 3 paused at the barrier with both
+teams on the map and the 26 round chips; Play advanced the clock, Pause froze
+it, a dragged agent and Capture step made "R3 · 0:02" (caption "R3 · 0:02 ·
+attack, lost by elimination"), a second capture at 0:06, Save created the
+strat, and reopening it offered Open replay.
 
 Not yet verified: the phone layout, touch input and pinch zoom on a real
 touch screen.

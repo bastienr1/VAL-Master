@@ -151,17 +151,18 @@ test('a mover gets moveTo, a camper and the last step do not', () => {
   for (const a of agents(doc.steps[3])) assert.equal(a.moveTo, undefined)
 })
 
-test('a cast becomes its ability, in the step it falls before', () => {
+test('a cast becomes its ability where its smoke stands, while the smoke is up', () => {
   const { doc } = roundToPlay(fixture(), 1, lookup, T)
   assert.equal(abilities(doc.steps[0]).length, 0)
   const cast = abilities(doc.steps[1]).filter(a => a.slot !== null)
   assert.equal(cast.length, 1)
   assert.deepEqual(
     { agent: cast[0].agent, slot: cast[0].slot, shape: cast[0].shape, radius: cast[0].radius, label: cast[0].label, at: cast[0].at },
-    { agent: 'Omen', slot: 'Ability2', shape: 'smoke', radius: 380, label: 'Dark Cover', at: { u: 0.65, v: 0.65 } },
+    { agent: 'Omen', slot: 'Ability2', shape: 'smoke', radius: 380, label: 'Dark Cover', at: { u: 0.65, v: 0.66 } },
   )
-  // Not carried into later steps.
-  assert.equal(abilities(doc.steps[2]).filter(a => a.slot !== null).length, 0)
+  // Carried while the smoke is up (to 70 s), gone after.
+  assert.equal(abilities(doc.steps[2]).filter(a => a.slot !== null).length, 1)
+  assert.equal(abilities(doc.steps[3]).filter(a => a.slot !== null).length, 0)
 })
 
 test('a cast by an unknown agent is labelled by its key', () => {

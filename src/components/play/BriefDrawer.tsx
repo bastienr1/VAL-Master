@@ -3,6 +3,7 @@ import { Loader2, Sparkles, X } from 'lucide-react'
 import type { AbilityElement, AbilitySlot, AgentElement, PlayStep } from '../../lib/playDoc'
 import { UTILITY_STYLE } from '../../lib/playScene'
 import type { PlayTemplate } from '../../lib/playTemplates'
+import type { ReplayBundle } from '../../lib/replayBundle'
 import type { ReplayPlay } from '../../lib/replayToPlay'
 import type { PlaySide } from '../../lib/types'
 import AgentIcon from './AgentIcon'
@@ -26,6 +27,8 @@ interface BriefDrawerProps {
   map: string
   /** A round of one of the user's replays, converted: replaces the play. */
   onLoadReplay(play: ReplayPlay): void
+  /** A whole match of the user's replays, opened in the replay mode (§2.8). */
+  onPlayReplay(bundle: ReplayBundle, matchId: string): void
 
   brief: string
   onBrief(brief: string): void
@@ -108,6 +111,10 @@ export default function BriefDrawer(props: BriefDrawerProps) {
             onLoad={play => {
               setReplayOpen(false)
               props.onLoadReplay(play)
+            }}
+            onPlay={(bundle, matchId) => {
+              setReplayOpen(false)
+              props.onPlayReplay(bundle, matchId)
             }}
           />
         </section>

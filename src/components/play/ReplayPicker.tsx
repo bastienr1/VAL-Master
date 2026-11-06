@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ArrowLeft, Loader2 } from 'lucide-react'
+import { ArrowLeft, Loader2, Play } from 'lucide-react'
 import GameImage from '../GameImage'
 import { useGameContent } from '../../hooks/useGameContent'
 import { useResource } from '../../hooks/useResource'
@@ -16,6 +16,8 @@ interface ReplayPickerProps {
   /** Something is drawn: loading a round asks before it replaces the steps. */
   hasElements: boolean
   onLoad(play: ReplayPlay): void
+  /** **Play match** (§2.8): the whole match in the editor's replay mode. Adds steps, replaces none. */
+  onPlay(bundle: ReplayBundle, matchId: string): void
 }
 
 const RESULT_CHIP: Record<ReplayMatch['result'], { label: string; className: string }> = {
@@ -42,12 +44,13 @@ interface Loaded {
 }
 
 /**
- * "From a replay" (docs/plays-editor-v2.md §2.7): the user's matches that have
- * a minimap bundle, then that bundle's rounds, then **Load round**, which
- * turns the round into a play through `roundToPlay`. Over a play with
- * something drawn it asks once before replacing the steps.
+ * "From a replay" (docs/plays-editor-v2.md §2.7, §2.8): the user's matches
+ * that have a minimap bundle, then that bundle's rounds. **Play match** opens
+ * the whole match in the editor's replay mode; **Load round** turns one round
+ * into a play through `roundToPlay`, and over a play with something drawn it
+ * asks once before replacing the steps.
  */
-export default function ReplayPicker({ currentMap, hasElements, onLoad }: ReplayPickerProps) {
+export default function ReplayPicker({ currentMap, hasElements, onLoad, onPlay }: ReplayPickerProps) {
   const { registry } = useGameContent()
   const matches = useResource(replayMatchesResource)
   const [matchId, setMatchId] = useState<string | null>(null)
@@ -148,6 +151,17 @@ export default function ReplayPicker({ currentMap, hasElements, onLoad }: Replay
 
         {bundle && (
           <>
+            <button
+              type="button"
+              onClick={() => onPlay(bundle, matchId)}
+              disabled={!registry}
+              title="Watch the match here, pause on a moment and capture it as a step"
+              className={`${smallButton} inline-flex items-center gap-1.5`}
+            >
+              <Play className="w-3 h-3" />
+              Play match
+            </button>
+
             <div role="group" aria-label="Rounds" className="grid grid-cols-6 gap-1">
               {bundle.rounds.map(r => (
                 <button

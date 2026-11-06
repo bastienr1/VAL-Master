@@ -1,5 +1,6 @@
 import type { GameContentRegistry } from './gameContent'
 import type { ReplayBundle } from './replayBundle'
+import type { MapTransform } from './replayScene'
 import { createResource } from './resourceStore'
 import { roundToPlay, type ReplayAgentLookup, type ReplayPlay } from './replayToPlay'
 import { scopeToUser, sessionUserId } from './sessionScope'
@@ -75,13 +76,19 @@ export async function listReplayMatches(): Promise<ReplayMatch[]> {
 
 export const replayMatchesResource = scopeToUser(createResource(listReplayMatches))
 
+/** What turns a bundle's players and positions into play elements: the agent lookup and the map transform. */
+export interface ReplayContext {
+  lookup: ReplayAgentLookup
+  transform: MapTransform
+}
+
 /**
- * One round of a bundle as a play, with the agent names, abilities and map
- * transform taken from the registry. Shared by the picker and the
- * `?replay=` deep link. Throws when the bundle's map has no minimap
- * transform: without one no position can be placed.
+ * The agent names, abilities and map transform for a bundle, from the
+ * registry. Shared by the round import and the replay mode's frames
+ * (docs/plays-editor-v2.md §2.8). Throws when the bundle's map has no
+ * minimap transform: without one no position can be placed.
  */
-export function replayRoundToPlay(bundle: ReplayBundle, roundNumber: number, registry: GameContentRegistry): ReplayPlay {
+export function replayContext(bundle: ReplayBundle, registry: GameContentRegistry): ReplayContext {
   const mapUuid = bundle.match.mapUuid
   const transform = mapUuid ? registry.maps.byId.get(mapUuid)?.transform : null
   if (!transform) throw new Error('This replay’s map has no minimap data right now, so its positions cannot be placed.')
@@ -90,5 +97,15 @@ export function replayRoundToPlay(bundle: ReplayBundle, roundNumber: number, reg
     const agent = uuid ? registry.agents.byId.get(uuid) : undefined
     return agent ? { name: agent.name, abilities: agent.abilities.map(({ slot, name }) => ({ slot, name })) } : null
   }
+  return { lookup, transform }
+}
+
+/**
+ * One round of a bundle as a play, with the agent names, abilities and map
+ * transform taken from the registry. Shared by the picker and the
+ * `?replay=…&mode=steps` deep link. Throws as `replayContext` does.
+ */
+export function replayRoundToPlay(bundle: ReplayBundle, roundNumber: number, registry: GameContentRegistry): ReplayPlay {
+  const { lookup, transform } = replayContext(bundle, registry)
   return roundToPlay(bundle, roundNumber, lookup, transform)
 }
