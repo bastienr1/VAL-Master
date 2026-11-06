@@ -226,6 +226,64 @@ focus is inside the panel (`data-playbook-panel` on its root; the key handler
 ignores targets inside it), so Space on the player's buttons does not also
 toggle the step playback.
 
+### 2.7 From a replay
+
+A round of one of the user's own matches, taken from the attached minimap
+bundle (`match_replays` + the `replays` bucket, see `src/lib/replayBundle.ts`),
+becomes the starting play: "I played this comp; load the round and edit it
+into the next strategy."
+
+**Conversion** (`src/lib/replayToPlay.ts`, pure, tested):
+`roundToPlay(bundle, roundNumber, lookup, transform)` where `lookup` maps an
+agent UUID to `{ name, abilities: { slot, name }[] } | null` (built from the
+registry by the caller) and `transform` is the map transform. It returns
+`{ doc: PlayDoc, side: PlaySide, mapUuid, title, brief }`:
+
+- Snapshot times, in replay ms, become the steps: barrier drop (`barrierMs`,
+  else `buyStartMs + 30 s`) → "Barrier drop"; the first kill of the round
+  after it → "First contact"; the plant → "Plant"; the round end (`endMs`,
+  else the last kill, else barrier + 100 s) → "End". Times closer than 4 s to
+  the previous one are dropped; at least barrier and end remain. Captions give
+  the time since the barrier ("0:12 after barrier").
+- Per step, every player present and alive at that time (`playerStateAt`,
+  `isPresentAt`, `isAliveAt` from `replayScene.ts`) is an `agent` element:
+  name from `lookup` (else "Agent"), `team` ally for `ALLY`, enemy for
+  `ENEMY`, `at` as image units (`worldToImage`, clamped to 0..1), `moveTo` the
+  position at the next step's time when alive then and moved more than 2 % of
+  the image, `spike: true` for the carrier at that time (`spike.carriers`).
+  Element ids are stable per player across steps (one id per subject) so the
+  editor animates them.
+- Casts (`bundle.casts`) with a position, between the previous step's time
+  and this one, become `ability` elements: `slot` from the key letter
+  (C → Grenade, Q → Ability1, E → Ability2, X → Ultimate; '?n' → null),
+  `shape` and `radius` from `abilityShape(agent, slot)`, `label` the ability
+  name from `lookup`. Area effects (`bundle.effects`) active at the step time
+  that no cast within 3 s and 300 cm explains become `ability` elements with
+  `slot: null`, shape by kind (`smoke`, `wall`, `trap`, `slow`,
+  `damage_zone` → molly, `recon`; else other) and the owner's agent name.
+  Both teams' abilities are kept: the enemy's utility is the intel.
+- A plant at or before the step time → a `spike` marker at its position with
+  the site letter as label.
+- `comp` = the ally agents' names in player order (max 5); `side` from the
+  round's `side` (`attacker` → attack), attack when unknown.
+- `title` "Round N · <Map> · <recorded date>", `summary` "Round N from the
+  replay: <winner> won by <how>", `brief` two lines describing the round so
+  a recompose has context.
+
+**Editor** (`src/components/play/ReplayPicker.tsx`, in the Brief drawer under
+the templates, also reachable when the play has elements through a "From a
+replay" link that confirms replacing): a list of the user's matches that have
+a replay (`match_replays` rows for the signed-in user joined client-side with
+`matches` by `match_id`: map, agent, result, score, date; newest first; the
+current map first), then after a pick the bundle loads (`getReplayBundle`)
+and a round grid appears (one button per round: number, ATK/DEF, a win or loss
+dot), then **Load round** applies: map and side set from the bundle, the doc
+replaced, title and brief filled, drawer stays open. Deep link
+`/plays/new?replay=<matchId>&round=<n>` does the same on arrival.
+
+**Review page**: the replay minimap's HUD on the VOD workstation gets an
+"Open in Plays" link to that deep link for the round it is showing.
+
 ## 3. Document v2 (`src/lib/playDoc.ts`)
 
 ```ts
@@ -367,6 +425,10 @@ narrow canvas. Checked in the signed-in app at 1400 px.
 Zoom and pan (2.2) checked in the signed-in app: a wheel over the map zoomed
 to 182% about the pointer without scrolling the page, a drag panned the view,
 the 0 key reset it; Space held to pan no longer toggles playback.
+
+The replay import (2.7) is built with 13 conversion tests on a hand-made
+bundle plus the picker, deep link and review-page link; not yet tried on a
+real bundle in the signed-in app.
 
 Not yet verified: the phone layout, touch input and pinch zoom on a real
 touch screen.

@@ -33,6 +33,9 @@ import { canRedo, canUndo, historyOf, pushHistory, redoHistory, undoHistory, typ
 import { sceneTurns, sceneViewport, viewToImage } from '../lib/playScene'
 import { PLAY_TEMPLATES, mapSites, templateById, templateDoc, templateScaffold, type PlayTemplate } from '../lib/playTemplates'
 import { createPlay, deletePlay, getPlay, updatePlay, type PlayInput } from '../lib/plays'
+import { replayRoundToPlay } from '../lib/replayMatches'
+import { getReplayBundle } from '../lib/replays'
+import type { ReplayPlay } from '../lib/replayToPlay'
 import type { PlaySide } from '../lib/types'
 
 /** A boolean kept per device; the fallback when storage is blocked or empty. */
@@ -206,9 +209,15 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
   const navigate = useNavigate()
   const { registry, status: registryStatus } = useGameContent()
   const { mapNames } = useGameContentNames()
-  // `/plays/new?template=retake&site=B`, read once: applied when the map is known, then cleared.
+  // `/plays/new?template=retake&site=B` or `?replay=<match id>&round=7`, read once: applied
+  // when the map (the registry, for a replay) is known, then cleared.
   const [searchParams, setSearchParams] = useSearchParams()
-  const [deepLink] = useState(() => ({ template: searchParams.get('template'), site: searchParams.get('site') }))
+  const [deepLink] = useState(() => ({
+    template: searchParams.get('template'),
+    site: searchParams.get('site'),
+    replay: searchParams.get('replay'),
+    round: searchParams.get('round'),
+  }))
   const deepLinked = useRef(false)
 
   const [load, setLoad] = useState<LoadState>(loadId ? 'loading' : 'ready')
@@ -574,8 +583,43 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
     if (brief.trim() === '') setBrief(templateScaffold(template, map, site))
   }
 
+  /**
+   * A round of a replay, converted (§2.7): its map when the registry knows it,
+   * its side, its steps as one undo step, its title and brief.
+   */
+  const loadReplayPlay = (play: ReplayPlay) => {
+    const mapName = play.mapUuid ? registry?.maps.byId.get(play.mapUuid)?.name : undefined
+    if (mapName) setMapPick(mapName)
+    setSide(play.side)
+    commit(ensureStep(play.doc, play.side))
+    resetView()
+    setComposedWith(null)
+    setComposeError(null)
+    setTitle(truncate(play.title, TITLE_MAX) || UNTITLED)
+    setBrief(play.brief)
+  }
+
   useEffect(() => {
-    if (deepLinked.current || loadId !== undefined || !gameMap || !empty) return
+    if (deepLinked.current || loadId !== undefined || !registry || !empty || !deepLink.replay) return
+    deepLinked.current = true
+    const matchId = deepLink.replay
+    const round = Number(deepLink.round)
+    // Cleared at once, so a reload does not load the round over the user's work.
+    setSearchParams({}, { replace: true })
+    const bundleLoad = Number.isInteger(round) && round >= 1
+      ? getReplayBundle(matchId)
+      : Promise.reject(new Error('The replay link names no round.'))
+    bundleLoad
+      .then(bundle => {
+        if (!bundle) throw new Error('That match has no replay attached.')
+        if (!bundle.rounds.some(r => r.n === round)) throw new Error(`The replay has no round ${round}.`)
+        loadReplayPlay(replayRoundToPlay(bundle, round, registry))
+      })
+      .catch((e: unknown) => setError(messageOf(e)))
+  })
+
+  useEffect(() => {
+    if (deepLinked.current || loadId !== undefined || !gameMap || !empty || deepLink.replay) return
     const template = templateById(deepLink.template ?? '')
     if (!template) return
     deepLinked.current = true
@@ -941,6 +985,8 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
               templates={PLAY_TEMPLATES}
               sites={sites}
               onApplyTemplate={applyTemplate}
+              map={map}
+              onLoadReplay={loadReplayPlay}
               brief={brief}
               onBrief={setBrief}
               canCompose={brief.trim().length > 0 && (gameMap?.callouts.length ?? 0) > 0}

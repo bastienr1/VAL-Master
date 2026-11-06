@@ -399,6 +399,9 @@ export default function VodReview() {
     const player = playerRef.current
     return typeof player?.getPlaybackRate === 'function' ? player.getPlaybackRate() : 1
   }, [])
+  // The minimap's "Open in Plays" link; stable, since the minimap is memoized.
+  const replayMatchId = match?.match_id
+  const playsHref = useCallback((n: number) => `/plays/new?replay=${replayMatchId}&round=${n}`, [replayMatchId])
 
   // Save YouTube URL
   const handleSaveUrl = async () => {
@@ -995,6 +998,7 @@ export default function VodReview() {
               isPlaying={isPlaying}
               onSeek={seekToTimestamp}
               onNudge={handleNudgeSync}
+              playsHref={playsHref}
             />
           )}
 
