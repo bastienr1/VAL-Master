@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useRef, useSyncExternalStore } from 'react'
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { Camera, Film, Pause, Play, X } from 'lucide-react'
 import { CONTROL_COLORS } from '../PlayCanvas'
-import { averageShare, controlTimeline, type ControlShare } from '../../lib/mapControl'
+import { averageShare, createTimelineRun, type ControlShare, type TimelineSample, type WallGrid } from '../../lib/mapControl'
 import type { ReplayBundle, ReplayRound } from '../../lib/replayBundle'
 import { formatRoundClock, roundSpan, roundTicks } from '../../lib/replayFrame'
 import type { MapTransform } from '../../lib/replayScene'
@@ -36,6 +36,8 @@ interface ReplayTransportProps {
    * and a line under the bar the round's average.
    */
   controlMask: Uint8Array | null
+  /** The map's walls, which the control influence does not pass; null while they load. */
+  walls: WallGrid | null
   /** The replay's map transform, for the control timeline. */
   transform: MapTransform
   /** False when the play already holds the most steps it can. */
@@ -75,6 +77,9 @@ const TRACK_COLORS = {
   even: rgba(TRACK_EVEN, TRACK_ALPHA),
 }
 
+/** Timeline samples per `setTimeout` slice: each is a second of simulation, well under a millisecond. */
+const TIMELINE_SLICE = 8
+
 /** A share as a whole percentage. */
 const percent = (fraction: number) => Math.round(fraction * 100)
 
@@ -83,10 +88,12 @@ const percent = (fraction: number) => Math.round(fraction * 100)
  * holds its colour until the next one (cyan where your team held more of the
  * claimed space, red where the enemy did, grey when close or nothing is
  * claimed), grey through the buy before the first
- * sample. Stops follow the thumb's centre, like the ticks, and a run of one
- * colour is a single stop.
+ * sample. A timeline still being computed colours a second past its last
+ * sample and leaves the rest grey, so the track fills in left to right. Stops
+ * follow the thumb's centre, like the ticks, and a run of one colour is a
+ * single stop.
  */
-function trackGradient(timeline: { t: number; share: ControlShare }[], span: { start: number; end: number }): string {
+function trackGradient(timeline: TimelineSample[], span: { start: number; end: number }, complete: boolean): string {
   const length = Math.max(1, span.end - span.start)
   const at = (t: number) => {
     const f = Math.max(0, Math.min(1, (t - span.start) / length))
@@ -102,14 +109,58 @@ function trackGradient(timeline: { t: number; share: ControlShare }[], span: { s
   timeline.forEach(({ t, share }, i) => {
     const lead = share.ally - share.enemy
     const color = lead > TRACK_LEAD ? TRACK_COLORS.ally : lead < -TRACK_LEAD ? TRACK_COLORS.enemy : TRACK_COLORS.even
-    push(color, t, timeline[i + 1]?.t ?? span.end)
+    const next = timeline[i + 1]?.t ?? (complete ? span.end : Math.min(span.end, t + 1000))
+    push(color, t, next)
   })
+  if (!complete) push(TRACK_COLORS.even, timeline[timeline.length - 1]?.t ?? span.end, span.end)
   return `linear-gradient(to right, ${runs.map(r => `${r.color} ${at(r.from)} ${at(r.to)}`).join(', ')})`
 }
 
 const button =
   'shrink-0 flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium border transition-colors disabled:opacity-40 disabled:pointer-events-none'
 const quiet = `${button} text-text-secondary border-transparent hover:text-text-primary hover:bg-bg-elevated/60`
+
+interface TimelineInputs {
+  bundle: ReplayBundle
+  round: ReplayRound
+  mask: Uint8Array
+  transform: MapTransform
+  walls: WallGrid | null
+}
+
+/**
+ * A round's control timeline (§2.9), computed off the render path: a run is
+ * started when the round, mask or walls change and advanced 8 samples per
+ * `setTimeout` slice, and its samples so far are kept, so the track fills in
+ * left to right; a change cancels the run. Null without a mask, or until the
+ * new run's first slice.
+ */
+function useControlTimeline(
+  bundle: ReplayBundle,
+  round: ReplayRound,
+  mask: Uint8Array | null,
+  transform: MapTransform,
+  walls: WallGrid | null,
+): { samples: TimelineSample[]; done: boolean } | null {
+  const [state, setState] = useState<{ of: TimelineInputs; samples: TimelineSample[]; done: boolean } | null>(null)
+  useEffect(() => {
+    if (!mask) return
+    const of: TimelineInputs = { bundle, round, mask, transform, walls }
+    const run = createTimelineRun(bundle, round, mask, transform, walls ?? undefined)
+    let timer = 0
+    const slice = () => {
+      const done = run.step(TIMELINE_SLICE)
+      setState({ of, samples: run.samples.slice(), done })
+      if (!done) timer = window.setTimeout(slice, 0)
+    }
+    timer = window.setTimeout(slice, 0)
+    return () => window.clearTimeout(timer)
+  }, [bundle, round, mask, transform, walls])
+  if (!state || !mask) return null
+  const { of } = state
+  const same = of.bundle === bundle && of.round === round && of.mask === mask && of.transform === transform && of.walls === walls
+  return same ? state : null
+}
 
 /**
  * The replay mode's 56 px bar (docs/plays-editor-v2.md §2.8), between the
@@ -125,7 +176,7 @@ const quiet = `${button} text-text-secondary border-transparent hover:text-text-
  * renders this bar a few times a second and leaves the rest of the editor alone.
  */
 export default function ReplayTransport(props: ReplayTransportProps) {
-  const { bundle, clock, nameOf, playing, speed, view, controlMask, transform } = props
+  const { bundle, clock, nameOf, playing, speed, view, controlMask, walls, transform } = props
   const shown = useSyncExternalStore(clock.subscribe, clock.get)
   const round = shown?.round ?? bundle.rounds[0]
   const ms = shown?.ms ?? round.buyStartMs
@@ -133,13 +184,13 @@ export default function ReplayTransport(props: ReplayTransportProps) {
   const span = useMemo(() => roundSpan(bundle, round), [bundle, round])
   const ticks = useMemo(() => roundTicks(bundle, round, nameOf), [bundle, round, nameOf])
   const length = Math.max(1, span.end - span.start)
-  // Once per round (a few ms: one 100 ms tick per tenth of a second of the round).
-  const timeline = useMemo(
-    () => (controlMask ? controlTimeline(bundle, round, controlMask, transform) : null),
-    [bundle, round, controlMask, transform],
+  // Once per round, in slices off the render path; the average once it is complete.
+  const timeline = useControlTimeline(bundle, round, controlMask, transform, walls)
+  const track = useMemo(() => (timeline ? trackGradient(timeline.samples, span, timeline.done) : null), [timeline, span])
+  const average = useMemo(
+    () => (timeline?.done && timeline.samples.length > 0 ? averageShare(timeline.samples) : null),
+    [timeline],
   )
-  const track = useMemo(() => (timeline ? trackGradient(timeline, span) : null), [timeline, span])
-  const average = useMemo(() => (timeline && timeline.length > 0 ? averageShare(timeline) : null), [timeline])
 
   // The round shown stays in sight in a long match's row of chips.
   const chips = useRef<HTMLDivElement>(null)

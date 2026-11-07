@@ -12,6 +12,7 @@ import {
   DEFAULT_CONTROL_SIGMA,
   controlShare,
   controlTimeline,
+  createTimelineRun,
   emptyGrid,
   influence,
   instantControl,
@@ -21,6 +22,7 @@ import {
   stepControl,
   type ControlGrid,
   type Presence,
+  type WallGrid,
 } from './mapControl.ts'
 import { REPLAY_BUNDLE_SCHEMA, type ReplayBundle, type ReplayTrackSample } from './replayBundle.ts'
 import type { MapCallout, PlayStep } from './playDoc.ts'
@@ -95,20 +97,20 @@ test('stepControl moves toward the target with a 2.5 s time constant', () => {
   assert.ok(Math.abs(at(once, u, u) - 1) < 1e-6)
 })
 
-test('stepControl decays toward zero with a 25 s time constant where nobody is near', () => {
+test('stepControl leaves a cell nobody reaches as it was, touched or not', () => {
   const grid = emptyGrid(fullMask())
-  grid.values.fill(1)
+  grid.values.fill(0.7)
   grid.touched.fill(1)
-  stepControl(grid, [ally(centre(0), centre(0))], 25000, SIGMA)
-  assert.ok(Math.abs(at(grid, 0.9, 0.9) - Math.exp(-1)) < 1e-6)
-  // Near the ally the cell was already at the target: it stays.
-  assert.ok(Math.abs(at(grid, 0.05, 0.05) - 1) < 1e-6)
+  stepControl(grid, [enemy(centre(0), centre(0))], 25000, SIGMA)
+  assert.equal(at(grid, 0.9, 0.9), grid.values[N * N - 1])
+  assert.ok(Math.abs(at(grid, 0.9, 0.9) - 0.7) < 1e-6, 'far from the enemy: unchanged')
+  assert.ok(at(grid, centre(0), centre(0)) < -0.9, 'under the enemy: taken')
 
   const negative = emptyGrid(fullMask())
   negative.values.fill(-0.8)
   negative.touched.fill(1)
-  stepControl(negative, [], 50000, SIGMA)
-  assert.ok(Math.abs(at(negative, 0.5, 0.5) + 0.8 * Math.exp(-2)) < 1e-6)
+  stepControl(negative, [], 600000, SIGMA)
+  assert.ok(Math.abs(at(negative, 0.5, 0.5) + 0.8) < 1e-6)
 })
 
 test('masked-out cells stay 0', () => {
@@ -170,7 +172,7 @@ test('a baseline grid starts every playable cell at the defenders’ value, noth
   assert.ok(emptyGrid(mask).values.every(v => v === 0))
 })
 
-test('an ally cuts a positive, touched region through a baseline; after it leaves the region fades and the rest stays', () => {
+test('an ally cuts a positive, touched region through a baseline; the vacated region keeps its value', () => {
   const grid = emptyGrid(fullMask(), -1)
   const u = centre(8)
   for (let k = 0; k < 100; k++) stepControl(grid, [ally(u, u)], 100, SIGMA)
@@ -179,13 +181,10 @@ test('an ally cuts a positive, touched region through a baseline; after it leave
   assert.equal(grid.touched[0], 0, 'a far corner was never reached')
   assert.equal(at(grid, 0.02, 0.02), -1)
 
-  const held = at(grid, u, u)
-  stepControl(grid, [], 25000, SIGMA)
-  assert.ok(Math.abs(at(grid, u, u) - held * Math.exp(-1)) < 1e-5, 'touched cells decay toward 0')
+  const before = grid.values.slice()
+  for (let k = 0; k < 600; k++) stepControl(grid, [], 100, SIGMA)
+  assert.deepEqual(grid.values, before, '60 s later every cell, touched or not, is as it was left')
   assert.equal(at(grid, 0.02, 0.02), -1, 'untouched cells keep the baseline')
-  stepControl(grid, [], 600000, SIGMA)
-  assert.ok(Math.abs(at(grid, u, u)) < 1e-6)
-  assert.equal(at(grid, 0.02, 0.02), -1)
 })
 
 test('instantControl with a baseline is the target near presences and the baseline elsewhere', () => {
@@ -197,6 +196,183 @@ test('instantControl with a baseline is the target near presences and the baseli
   assert.equal(at(grid, 0.02, 0.02), -1)
   assert.equal(grid.touched[0], 0)
   assert.equal(at(instantControl(fullMask(), [], SIGMA, 1), 0.5, 0.5), 1)
+})
+
+/** A wall grid of side n; `wall(i, j)` says whether wall cell (i, j) is a wall. */
+function wallGrid(n: number, wall: (i: number, j: number) => boolean): WallGrid {
+  const cells = new Uint8Array(n * n)
+  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) cells[j * n + i] = wall(i, j) ? 1 : 0
+  return { n, cells }
+}
+const WIDE = 0.4
+
+test('a wall stops influence: an ally on the left colours nothing on the right', () => {
+  const walls = wallGrid(64, i => i === 32)
+  const presences = [ally(0.25, 0.5)]
+  const open = instantControl(fullMask(), presences, WIDE)
+  const walled = instantControl(fullMask(), presences, WIDE, 0, walls)
+  let leaked = 0
+  for (let j = 0; j < N; j++) {
+    for (let i = 8; i < N; i++) {
+      assert.equal(walled.values[j * N + i], 0, `cell ${i},${j}`)
+      if (open.values[j * N + i] > 0) leaked++
+    }
+  }
+  assert.ok(leaked > 20, 'without the wall the influence reaches the right half')
+  assert.ok(at(walled, 0.25, 0.5) > 0.9)
+  assert.ok(at(walled, 0.4, 0.3) > 0.05)
+
+  // Stepped, the same: nothing crosses.
+  const grid = emptyGrid(fullMask(), -1)
+  for (let k = 0; k < 100; k++) stepControl(grid, presences, 100, WIDE, walls)
+  for (let j = 0; j < N; j++) for (let i = 8; i < N; i++) assert.equal(grid.values[j * N + i], -1)
+})
+
+test('a one-cell doorway lets influence through and around the corner, not far behind the wall', () => {
+  // Wall column 32 of 64, open at row 34. The ally stands in wall cell (26, 34), 6 cells from the door.
+  const walls = wallGrid(64, (i, j) => i === 32 && j !== 34)
+  const presences = [ally(26.5 / 64, 34.5 / 64)]
+  const sigma = 0.25
+  const open = instantControl(fullMask(), presences, sigma)
+  const walled = instantControl(fullMask(), presences, sigma, 0, walls)
+  const cell = (g: ControlGrid, i: number, j: number) => g.values[j * N + i]
+  // Through the doorway, straight on.
+  assert.ok(cell(walled, 10, 8) > 0.05)
+  // Around the corner: control cell (9, 7), centre at wall (38, 30). The straight
+  // line to it crosses the solid wall at row 31; the path goes through the door.
+  assert.ok(cell(walled, 9, 7) > 0.3, `around the corner ${cell(walled, 9, 7)}`)
+  assert.ok(cell(walled, 9, 7) < cell(open, 9, 7), 'the detour is longer than the straight line')
+  // Far behind the wall: control cell (8, 2), centre at wall (34, 10). Reached
+  // in the open, but the path through the door is beyond the influence floor.
+  assert.ok(cell(open, 8, 2) > 0.05)
+  assert.equal(cell(walled, 8, 2), 0)
+  // The ally's own side is untouched by the wall.
+  assert.ok(Math.abs(cell(walled, 5, 8) - cell(open, 5, 8)) < 0.1)
+})
+
+test('path distance is never shorter than the straight line', () => {
+  // An ally at a wall-cell centre, so both measure from the same point.
+  const presences = [ally(20.5 / 64, 24.5 / 64)]
+  const sigma = 0.2
+  const open = instantControl(fullMask(), presences, sigma)
+  for (const walls of [
+    wallGrid(64, () => false),
+    wallGrid(64, (i, j) => (i === 30 && j > 10) || (j === 40 && i < 50) || (i + j) % 23 === 0),
+  ]) {
+    const walled = instantControl(fullMask(), presences, sigma, 0, walls)
+    for (let k = 0; k < N * N; k++) assert.ok(walled.values[k] <= open.values[k] + 1e-6, `cell ${k}`)
+  }
+  // On open ground the two agree closely.
+  const free = instantControl(fullMask(), presences, sigma, 0, wallGrid(64, () => false))
+  for (let k = 0; k < N * N; k++) {
+    if (open.values[k] > 0.2) assert.ok(free.values[k] > 0.7 * open.values[k], `cell ${k}`)
+  }
+})
+
+test('a one-cell-thick diagonal wall blocks: no diagonal step past a wall corner', () => {
+  // Wall cells on the anti-diagonal i + j = 15 of a 16 grid; the ally at cell (3, 3).
+  const walls = wallGrid(16, (i, j) => i + j === 15)
+  const presences = [ally(centre(3), centre(3))]
+  const open = instantControl(fullMask(), presences, WIDE)
+  const walled = instantControl(fullMask(), presences, WIDE, 0, walls)
+  let leaked = 0
+  for (let j = 0; j < N; j++) {
+    for (let i = 0; i < N; i++) {
+      if (i + j < 16) continue
+      assert.equal(walled.values[j * N + i], 0, `cell ${i},${j}`)
+      if (open.values[j * N + i] > 0) leaked++
+    }
+  }
+  assert.ok(leaked > 10)
+  // The diagonal (3,3) → (10,10) would step from (7,7) to (8,8) between the walls (7,8) and (8,7).
+  assert.ok(open.values[10 * N + 10] > 0)
+  assert.equal(walled.values[10 * N + 10], 0)
+  assert.ok(walled.values[7 * N + 7] > 0, 'its own side is reached')
+})
+
+test('the reach cache gives what a fresh computation gives', () => {
+  // Scattered wall cells and two wall lines with gaps.
+  let seed = 7
+  const random = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648)
+  const cells = wallGrid(64, (i, j) => (i === 20 && j % 9 !== 0) || (j === 40 && i % 7 !== 0) || random() < 0.04).cells
+  const walls: WallGrid = { n: 64, cells }
+  const mask = fullMask()
+  mask.fill(0, 0, N * 2)
+  const grid = emptyGrid(mask)
+  // Warm the cache well past its 64 entries with players walking about.
+  for (let k = 0; k < 300; k++) {
+    const t = k / 300
+    stepControl(grid, [ally(0.1 + 0.8 * t, 0.5 + 0.3 * Math.sin(9 * t)), enemy(0.9 - 0.7 * t, 0.2 + 0.6 * t)], 100, 0.2, walls)
+  }
+  for (const ps of [
+    [ally(0.3, 0.5), enemy(0.7, 0.5)],
+    [ally(0.5, 0.45), ally(0.52, 0.47), enemy(0.1, 0.9)],
+    [enemy(0.33, 0.62)],
+  ]) {
+    const warm = instantControl(mask, ps, 0.2, -1, walls)
+    const again = instantControl(mask, ps, 0.2, -1, walls)
+    const fresh = instantControl(mask, ps, 0.2, -1, { n: 64, cells })
+    assert.deepEqual(warm.values, fresh.values)
+    assert.deepEqual(again.values, fresh.values)
+  }
+})
+
+test('simulateControl and controlTimeline take the walls', () => {
+  // A wall across the whole image at v ≈ 0.4, between the enemy spawn (v = 0.3) and the allies.
+  const walls = wallGrid(64, (_i, j) => j === 25)
+  const bundle = fixture()
+  const round = bundle.rounds[0]
+  const open = emptyGrid(fullMask())
+  const walled = emptyGrid(fullMask())
+  simulateControl(bundle, round, 0, 30000, open, T)
+  simulateControl(bundle, round, 0, 30000, walled, T, walls)
+  // Row 5 (v ≈ 0.34) is the enemy's side: in the open the allies push into it, behind the wall they cannot.
+  assert.ok(walled.values[5 * N + 8] < open.values[5 * N + 8] - 0.1)
+  assert.ok(walled.values[5 * N + 8] < -0.5)
+  assert.equal(controlTimeline(bundle, round, fullMask(), T, walls).length, 51)
+})
+
+test('simulateControl with maxTicks stops early, says where, and resumes to the same grid', () => {
+  const bundle = fixture()
+  const round = bundle.rounds[0]
+  const walls = wallGrid(64, (i, j) => i === 40 && j % 10 !== 0)
+  const whole = emptyGrid(fullMask(), -1)
+  assert.equal(simulateControl(bundle, round, 0, 50000, whole, T, walls), 50000)
+
+  const sliced = emptyGrid(fullMask(), -1)
+  assert.equal(simulateControl(bundle, round, 0, 50000, sliced, T, walls, 7), 700)
+  assert.equal(sliced.version, 7)
+  let at = 700
+  let calls = 1
+  while (at < 50000) {
+    at = simulateControl(bundle, round, at, 50000, sliced, T, walls, 37)
+    calls++
+  }
+  assert.equal(at, 50000)
+  assert.ok(calls > 10)
+  assert.equal(sliced.version, whole.version)
+  assert.deepEqual(sliced.values, whole.values)
+  // Nothing to do: done at once, nothing stepped.
+  assert.equal(simulateControl(bundle, round, 50000, 50000, sliced, T, walls, 5), 50000)
+  assert.equal(sliced.version, whole.version)
+})
+
+test('a timeline run in slices equals the one-shot timeline, with progress', () => {
+  const bundle = fixture()
+  const round = bundle.rounds[0]
+  const walls = wallGrid(64, (_i, j) => j === 25 || j === 50)
+  const progress: [number, number][] = []
+  const whole = controlTimeline(bundle, round, fullMask(), T, walls, (done, total) => progress.push([done, total]))
+  const run = createTimelineRun(bundle, round, fullMask(), T, walls)
+  assert.equal(run.total, 51)
+  let slices = 0
+  while (!run.step(4)) slices++
+  assert.ok(slices > 10)
+  assert.deepEqual(run.samples, whole)
+  assert.equal(run.step(4), true, 'a finished run stays finished')
+  assert.equal(run.samples.length, 51)
+  assert.deepEqual(progress[progress.length - 1], [51, 51])
+  assert.ok(progress.every(([done, total], i) => total === 51 && (i === 0 || done > progress[i - 1][0])))
 })
 
 test('baselineFor and baselineForSide give the defenders’ sign', () => {
@@ -324,7 +500,7 @@ test('simulateControl composes: (a, b] then (b, c] equals (a, c]', () => {
   assert.deepEqual(parts.values, whole.values)
 })
 
-test('after the enemy dies its ground fades and the ally takes the walked ground', () => {
+test('after the enemy dies its ground keeps its owner and the ally takes the walked ground', () => {
   const bundle = fixture()
   const round = bundle.rounds[0]
   const grid = emptyGrid(fullMask())
@@ -332,7 +508,7 @@ test('after the enemy dies its ground fades and the ally takes the walked ground
   const held = at(grid, 0.5, 0.3)
   simulateControl(bundle, round, 45000, 80000, grid, T)
   assert.ok(held < -0.5)
-  assert.ok(at(grid, 0.5, 0.3) > held, 'the dead enemy holds nothing new')
+  assert.equal(at(grid, 0.5, 0.3), held, 'nobody walked it since: still the enemy’s')
   assert.ok(at(grid, 0.5, 0.9) > 0.5, 'Omen stands at v = 0.9 after the plant')
   // Ticks past the round's end change nothing.
   const version = grid.version
@@ -394,4 +570,22 @@ test('one stepControl over 96 × 96 with 10 presences is fast', t => {
   const ms = (performance.now() - t0) / runs
   t.diagnostic(`stepControl 96x96, 10 presences: ${ms.toFixed(3)} ms`)
   assert.ok(ms < 20, `${ms} ms per step`)
+
+  // With wall grids of 128 (the loader's) and 256: rooms of 0.16, doors of 0.025 every 0.12.
+  for (const wn of [128, 256]) {
+    const room = wn * 0.16
+    const cells = wallGrid(wn, (i, j) => (i % room < 1 && (j / wn) % 0.12 > 0.025) || (j % room < 1 && (i / wn) % 0.12 > 0.025)).cells
+    const walls: WallGrid = { n: wn, cells }
+    for (let k = 0; k < 50; k++) stepControl(grid, presences, 100, sigma, walls)
+    const t1 = performance.now()
+    for (let k = 0; k < runs; k++) stepControl(grid, presences, 100, sigma, walls)
+    const warm = (performance.now() - t1) / runs
+    // Cold: a new wall grid object every step, so all 10 reaches are computed.
+    const coldRuns = 20
+    const t2 = performance.now()
+    for (let k = 0; k < coldRuns; k++) stepControl(grid, presences, 100, sigma, { n: wn, cells })
+    const cold = (performance.now() - t2) / coldRuns
+    t.diagnostic(`stepControl 96x96, 10 presences, ${wn} walls: warm ${warm.toFixed(3)} ms, cold ${cold.toFixed(3)} ms (${(cold / 10).toFixed(3)} ms per presence)`)
+    assert.ok(warm < 20 && cold < 200, `warm ${warm} ms, cold ${cold} ms`)
+  }
 })
