@@ -16,8 +16,6 @@ import { abilitiesForComp } from '../lib/composeAbilities'
 import { composePlay, ComposerNotConfiguredError } from '../lib/composePlay'
 import type { GameAgent } from '../lib/gameContent'
 import {
-  baselineFor,
-  baselineForSide,
   controlShare,
   emptyGrid,
   instantControl,
@@ -245,9 +243,7 @@ interface ReplayFrame {
 /**
  * The replay's map-control grid (§2.9): one per round, simulated up to
  * `simulatedTo`. A new match, round or mask, or a time before `simulatedTo`
- * (a backwards scrub, a jump), starts it over from the round's buy start, on
- * the round's baseline: the defending side owns the map until it is contested,
- * and the sides swap at half time.
+ * (a backwards scrub, a jump), starts it over from the round's buy start.
  */
 interface ReplayControl {
   bundle: ReplayBundle
@@ -271,12 +267,7 @@ function advanceControl(
   let at = held.current
   if (!at || at.bundle !== open.bundle || at.roundN !== round.n || at.grid.mask !== mask || t < at.simulatedTo) {
     // From the scrubber's start, like `controlTimeline`, so the readout and the track agree.
-    at = {
-      bundle: open.bundle,
-      roundN: round.n,
-      grid: emptyGrid(mask, baselineFor(round)),
-      simulatedTo: roundSpan(open.bundle, round).start,
-    }
+    at = { bundle: open.bundle, roundN: round.n, grid: emptyGrid(mask), simulatedTo: roundSpan(open.bundle, round).start }
     held.current = at
   }
   simulateControl(open.bundle, round, at.simulatedTo, t, at.grid, open.transform)
@@ -521,16 +512,12 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
 
   /** The map's playable cells, for the control overlay (§2.9); null while it loads. */
   const mask = useMapMask(gameMap)
-  /**
-   * On a designed or captured step, the overlay is the steady state of its
-   * agents over the play's side's baseline (the defenders own what nobody
-   * contests); the replay view's comes with its frame.
-   */
+  /** On a designed or captured step, the overlay is the steady state of its agents; the replay view's comes with its frame. */
   const stepControl = useMemo(() => {
     const transform = gameMap?.transform
     if (!showControl || inReplay || !mask || !step || !gameMap || !transform) return null
-    return instantControl(mask, presencesOf(step, gameMap.callouts, transform), sigmaFor(transform), baselineForSide(side))
-  }, [showControl, inReplay, mask, step, gameMap, side])
+    return instantControl(mask, presencesOf(step, gameMap.callouts, transform), sigmaFor(transform))
+  }, [showControl, inReplay, mask, step, gameMap])
   /**
    * The mask a replay's overlay runs on: the map's, with the overlay on, once
    * the map shown is the replay's own (opening a match switches the map, and

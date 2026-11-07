@@ -385,17 +385,6 @@ grid tick by tick (100 ms) using the alive, present players at each tick
 at 1 s steps from the barrier to the end, for the scrubber and a summary line
 ("Your team held 54 % of the map on average; the enemy 31 %").
 
-**Baseline.** The defending side owns the map until the attackers contest it:
-a grid starts with every playable cell at the defenders' value (`baseline`
-−1 when the enemy defends, +1 when your team does), and cells keep that value
-until a player's influence reaches them. A cell that has been contested
-(`touched`) follows the model above: it moves toward whoever is near and, when
-nobody is, decays toward neutral; an untouched cell never decays. `emptyGrid`
-and `instantControl` take the baseline; `simulateControl` and
-`controlTimeline` derive it from the round's side; the editor derives it from
-the play's side on a designed step. So an attack play starts all red and your
-agents cut cyan through it.
-
 **Mask** (`src/lib/mapMask.ts`, browser): the playable cells come from the
 Riot minimap image: draw it on a 96×96 offscreen canvas (`crossOrigin
 'anonymous'`), a cell is playable when its alpha is above 40. Cached per map
@@ -583,11 +572,6 @@ the readout gave "You 30 % · Enemy 70 % · 45 % of the map claimed" at R3 ·
 0:14, and the scrubber track showed the enemy's red stretch on that lost
 round. The toggle, the per-step overlay on designed steps and the average line
 were exercised in a harness by the worker.
-
-With the defender baseline (2026-11-07, Lotus round 3): the barrier frame is
-all red except the attacker spawn and lobby in cyan ("You 25 % · Enemy 75 % ·
-76 % of the map claimed"); by 0:14 the push through B Main had cut a cyan
-corridor into the middle ("You 27 % · Enemy 73 %").
 
 Not yet verified: the phone layout, touch input and pinch zoom on a real
 touch screen.
