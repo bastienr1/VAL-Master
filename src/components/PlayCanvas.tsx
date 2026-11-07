@@ -5,7 +5,8 @@
  * SVG in a 1000 x 1000 viewBox showing the square of the minimap image that
  * holds every callout, turned so the play's own spawn is at the bottom. The
  * map art goes through a colour matrix that draws its grey walls teal on a
- * navy backdrop. Bottom to top: map, callout labels, pen strokes, abilities,
+ * navy backdrop. Bottom to top: map, callout labels, the map-control overlay
+ * (§2.9, when a grid is given), pen strokes, abilities,
  * arrows, agent move paths, markers, text, ghosts of the previous step's
  * agents, agents, the selection, then hover labels and whatever is being
  * drawn. Every point comes from `sceneForStep`; this file only draws and
@@ -76,6 +77,7 @@ import {
   type PlacedMarker,
   type Point,
 } from '../lib/playScene'
+import type { ControlGrid } from '../lib/mapControl'
 import type { PlaySide } from '../lib/types'
 
 export type Tool = 'select' | 'pen' | 'arrow' | 'text' | 'eraser' | 'spike' | 'enemy' | 'pin'
@@ -103,6 +105,12 @@ export interface PlayCanvasProps {
   /** Pen/arrow/text/marker/ability placements call this with the new element appended. */
   onPendingDone(): void
   onUnresolved?(names: string[]): void
+  /**
+   * Who holds the space (§2.9), drawn over the map art and callouts, under
+   * every element. Repainted only when its `version` (or `n`) changes, so a
+   * grid stepped in place must bump `version`.
+   */
+  control?: ControlGrid | null
 }
 
 /** What the page can ask of the canvas: its `+` / `-` / `0` keys zoom about the centre. */
@@ -119,6 +127,41 @@ export interface PlayCanvasHandle {
 const BACKDROP = '#0B1220'
 const ALLY = '#53CADC'
 const ENEMY = '#FF4655'
+/** The map-control overlay's colours, for a legend chip in the toolbar or transport. */
+export const CONTROL_COLORS = { ally: ALLY, enemy: ENEMY } as const
+/** Overlay alpha at full control (|v| = 1). */
+const CONTROL_ALPHA = 0.42
+/** Below this |v| a cell is left clear. */
+const CONTROL_EPSILON = 0.02
+const CONTROL_RGB = { ally: [0x53, 0xca, 0xdc], enemy: [0xff, 0x46, 0x55] } as const
+
+let controlCanvas: HTMLCanvasElement | null = null
+
+/** The grid as a PNG data URL, one pixel per cell; masked-out and near-neutral cells stay clear. */
+function paintControl(grid: ControlGrid): string | null {
+  const { n, values, mask } = grid
+  if (typeof document === 'undefined' || n <= 0) return null
+  controlCanvas ??= document.createElement('canvas')
+  const canvas = controlCanvas
+  canvas.width = n
+  canvas.height = n
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return null
+  const image = ctx.createImageData(n, n)
+  const px = image.data
+  for (let i = 0; i < n * n; i++) {
+    const v = values[i]
+    if (!mask[i] || !(Math.abs(v) > CONTROL_EPSILON)) continue
+    const [r, g, b] = v > 0 ? CONTROL_RGB.ally : CONTROL_RGB.enemy
+    const o = i * 4
+    px[o] = r
+    px[o + 1] = g
+    px[o + 2] = b
+    px[o + 3] = Math.round(CONTROL_ALPHA * Math.min(1, Math.abs(v)) * 255)
+  }
+  ctx.putImageData(image, 0, 0)
+  return canvas.toDataURL('image/png')
+}
 const SPIKE = '#FFCA3A'
 const WHITE = '#FFFFFF'
 const TILE_FILL = '#1A1F2E'
@@ -363,6 +406,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
     onChange,
     onPendingDone,
     onUnresolved,
+    control,
   },
   ref,
 ) {
@@ -412,6 +456,16 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
   }, [map.uuid])
 
   const scene = useMemo(() => sceneForStep(step, map, side), [step, map, side])
+  // The grid may be stepped in place, so its version says when to repaint; a
+  // new grid object (another round, another step) repaints too.
+  const controlVersion = control?.version
+  const controlN = control?.n
+  const controlUrl = useMemo(
+    () => (control && controlN ? paintControl(control) : null),
+    // `controlVersion` is the point: the lint cannot see an in-place mutation.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [control, controlVersion, controlN],
+  )
   const previousScene = useMemo(() => (previous ? sceneForStep(previous, map, side) : null), [previous, map, side])
   const ghosts = useMemo(
     () => (previousScene ? ghostAgents(previous, step, map, side, previousScene) : []),
@@ -1689,6 +1743,21 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
                   {c.name}
                 </text>
               ))}
+            </g>
+          )}
+
+          {controlUrl && (
+            // Same placement and turn as the map art, so cells line up with it.
+            <g transform={`rotate(${scene.turns * 90} ${VIEW_SIZE / 2} ${VIEW_SIZE / 2})`} pointerEvents="none">
+              <image
+                href={controlUrl}
+                x={(-view.u / view.size) * VIEW_SIZE}
+                y={(-view.v / view.size) * VIEW_SIZE}
+                width={imageSize}
+                height={imageSize}
+                preserveAspectRatio="none"
+                style={{ imageRendering: 'auto' }}
+              />
             </g>
           )}
 

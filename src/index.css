@@ -71,3 +71,50 @@ body.vm-resizing {
 body.vm-resizing iframe {
   pointer-events: none;
 }
+
+/**
+ * The Plays replay scrubber with the map-control timeline (docs/plays-editor-v2.md
+ * §2.9): the input itself is the track, its background the gradient set inline
+ * and drawn as a 6 px band through the middle (the input stays 16 px tall, so it
+ * is as easy to grab as the native one), so the native track is reset and the
+ * 16 px thumb the ticks align to drawn again.
+ */
+.vm-control-track {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 16px;
+  background-color: transparent;
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 100% 6px;
+  cursor: pointer;
+}
+
+.vm-control-track::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  box-sizing: border-box;
+  width: 16px;
+  height: 16px;
+  border-radius: 9999px;
+  background: var(--color-val-cyan);
+  border: 2px solid var(--color-bg-secondary);
+}
+
+.vm-control-track::-moz-range-thumb {
+  box-sizing: border-box;
+  width: 16px;
+  height: 16px;
+  border-radius: 9999px;
+  background: var(--color-val-cyan);
+  border: 2px solid var(--color-bg-secondary);
+}
+
+.vm-control-track::-moz-range-track {
+  background: transparent;
+}
+
+.vm-control-track:focus-visible {
+  outline: 2px solid var(--color-val-cyan);
+  outline-offset: 3px;
+}

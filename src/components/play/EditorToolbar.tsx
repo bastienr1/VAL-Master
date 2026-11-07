@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ArrowLeft, BookOpen, Check, Ellipsis, Film, Loader2, PanelRight, Redo2, Tag, Trash2, Undo2 } from 'lucide-react'
+import { ArrowLeft, BookOpen, Check, Ellipsis, Film, Layers, Loader2, PanelRight, Redo2, Tag, Trash2, Undo2 } from 'lucide-react'
 import type { PlaySide } from '../../lib/types'
 
 interface EditorToolbarProps {
@@ -14,6 +14,9 @@ interface EditorToolbarProps {
   onRedo(): void
   showCallouts: boolean
   onToggleCallouts(): void
+  /** The map-control overlay (§2.9): who holds which part of the map. */
+  showControl: boolean
+  onToggleControl(): void
   playbookOpen: boolean
   onTogglePlaybook(): void
   drawerOpen: boolean
@@ -53,8 +56,8 @@ const toggle = (on: boolean) =>
 /**
  * The editor's one 44 px bar (docs/plays-editor-v2.md §2.5): back link, the
  * editable title, map and side at a glance, undo / redo, Open replay for a
- * play built from a match replay (§2.8), the Callouts, Playbook (§2.6) and
- * Brief toggles, Save, and Delete behind an overflow menu for a saved play.
+ * play built from a match replay (§2.8), the Callouts, Control (§2.9),
+ * Playbook (§2.6) and Brief toggles, Save, and Delete behind an overflow menu for a saved play.
  */
 export default function EditorToolbar(props: EditorToolbarProps) {
   const { title, map, side, saving, savedFlash, onDelete, drawerOpen } = props
@@ -111,6 +114,16 @@ export default function EditorToolbar(props: EditorToolbarProps) {
         >
           <Tag className="w-3.5 h-3.5" />
           <span className="hidden md:inline">Callouts</span>
+        </button>
+        <button
+          type="button"
+          onClick={props.onToggleControl}
+          aria-pressed={props.showControl}
+          title="Show who holds which part of the map"
+          className={toggle(props.showControl)}
+        >
+          <Layers className="w-3.5 h-3.5" />
+          <span className="hidden md:inline">Control</span>
         </button>
         <button
           type="button"

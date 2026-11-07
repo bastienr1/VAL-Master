@@ -353,6 +353,61 @@ opens replay mode at round 1; with `&round=<n>` at that round's barrier drop,
 paused; `&mode=steps` keeps the 2.7 snapshot import. The review page's "Open
 in Plays" link uses the replay form.
 
+### 2.9 Map control
+
+The map colours by who holds the space: your team's ground in cyan, the
+enemy's in red, contested ground neutral. In replay mode it follows the match
+live with memory, so space taken stays yours until the enemy walks it;
+on a designed step it is computed from the agents on the map. A readout gives
+each team's share of the playable map, and the replay scrubber's track is
+coloured by who held more space at each second of the round.
+
+**Grid** (`src/lib/mapControl.ts`, pure, tested):
+
+```ts
+export const CONTROL_N = 96                      // cells per side over the whole minimap image
+export interface ControlGrid { n: number; values: Float32Array; mask: Uint8Array }   // values −1 (enemy) … +1 (ally), row-major [v][u]; mask 1 = playable
+export interface ControlShare { ally: number; enemy: number; claimed: number; contested: number }  // ally/enemy are fractions of the claimed cells (|v| ≥ 0.25); claimed and contested are fractions of the playable cells
+export interface Presence { u: number; v: number; team: 'ally' | 'enemy' }
+export function emptyGrid(mask: Uint8Array): ControlGrid
+export function influence(presences: Presence[], cellU: number, cellV: number, sigma: number): number   // Σ team × exp(−(d/σ)²), d in image units
+export function stepControl(grid: ControlGrid, presences: Presence[], dtMs: number): void   // in place: each playable cell moves toward sign(influence)·min(1,|influence|) with time constant 2.5 s when the influence is stronger than 0.05, else decays toward 0 with time constant 25 s
+export function instantControl(mask: Uint8Array, presences: Presence[]): ControlGrid     // no memory: the steady state of one frame, for designed steps
+export function controlShare(grid: ControlGrid): ControlShare
+export function sigmaFor(transform: MapTransform): number     // 1400 world cm in image units: 1400 · |xMultiplier|
+export function presencesOf(step: PlayStep, callouts, transform): Presence[]   // the alive agent elements of a step, through resolvePos
+```
+
+Replay use: `simulateControl(bundle, round, fromMs, toMs, grid, transform)` advances a
+grid tick by tick (100 ms) using the alive, present players at each tick
+(`playerStateAt` / `isPresentAt` / `isAliveAt`); a control timeline per round,
+`controlTimeline(bundle, round, mask, transform): { t: number; share: ControlShare }[]`
+at 1 s steps from the barrier to the end, for the scrubber and a summary line
+("Your team held 54 % of the map on average; the enemy 31 %").
+
+**Mask** (`src/lib/mapMask.ts`, browser): the playable cells come from the
+Riot minimap image: draw it on a 96×96 offscreen canvas (`crossOrigin
+'anonymous'`), a cell is playable when its alpha is above 40. Cached per map
+UUID. When the image taints the canvas (no CORS), every cell is playable and a
+console warning says so.
+
+**Rendering** (`PlayCanvas`): an optional prop `control?: ControlGrid | null`.
+The grid is painted to a 96×96 canvas (cyan `#53CADC` for positive, red
+`#FF4655` for negative, alpha `0.42·|v|`, nothing for masked-out cells) and
+shown as an `<image>` over the map square, under the elements and above the
+map art, with smooth scaling so cells read as soft regions; it is re-painted
+only when the grid's `version` counter changes (add `version: number` to
+`ControlGrid`, bumped by `stepControl` / `instantControl`).
+
+**Editor**: a "Control" toggle next to "Callouts" in the toolbar (remembered,
+default on). In replay mode the loop keeps one grid per round: on each
+animation frame it advances the simulation to `replayMs` (and from the round
+start again after a backwards scrub); the transport shows the share readout
+("You 54 % · Enemy 31 %") and the scrubber track is a gradient from the
+timeline (cyan where you held more, red where they did, grey when even). On a
+designed or captured step the overlay is `instantControl` of that step's
+agents. Captured steps carry no control data; it is recomputed.
+
 ## 3. Document v2 (`src/lib/playDoc.ts`)
 
 ```ts
@@ -509,6 +564,14 @@ teams on the map and the 26 round chips; Play advanced the clock, Pause froze
 it, a dragged agent and Capture step made "R3 · 0:02" (caption "R3 · 0:02 ·
 attack, lost by elimination"), a second capture at 0:06, Save created the
 strat, and reopening it offered Open replay.
+
+Map control (2.9) was checked on the same Lotus match (2026-11-07): the mask
+came from the image pixels (3487 playable cells), the overlay painted your
+team's ground cyan around B and the enemy's red across A with memory trails,
+the readout gave "You 30 % · Enemy 70 % · 45 % of the map claimed" at R3 ·
+0:14, and the scrubber track showed the enemy's red stretch on that lost
+round. The toggle, the per-step overlay on designed steps and the average line
+were exercised in a harness by the worker.
 
 Not yet verified: the phone layout, touch input and pinch zoom on a real
 touch screen.

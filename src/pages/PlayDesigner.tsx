@@ -16,6 +16,17 @@ import { abilitiesForComp } from '../lib/composeAbilities'
 import { composePlay, ComposerNotConfiguredError } from '../lib/composePlay'
 import type { GameAgent } from '../lib/gameContent'
 import {
+  controlShare,
+  emptyGrid,
+  instantControl,
+  presencesOf,
+  sigmaFor,
+  simulateControl,
+  type ControlGrid,
+  type ControlShare,
+} from '../lib/mapControl'
+import { useMapMask } from '../lib/mapMask'
+import {
   copyStep,
   elementAt,
   emptyPlayDoc,
@@ -223,6 +234,47 @@ interface LiveFrame {
   captured: boolean
 }
 
+/** What the frame store holds: the replay's frame and its map-control grid (§2.9), null with the overlay off. */
+interface ReplayFrame {
+  step: PlayStep
+  control: ControlGrid | null
+}
+
+/**
+ * The replay's map-control grid (§2.9): one per round, simulated up to
+ * `simulatedTo`. A new match, round or mask, or a time before `simulatedTo`
+ * (a backwards scrub, a jump), starts it over from the round's buy start.
+ */
+interface ReplayControl {
+  bundle: ReplayBundle
+  roundN: number
+  grid: ControlGrid
+  simulatedTo: number
+}
+
+/**
+ * The replay's grid at `t` inside `round`, advanced in place from where it was
+ * left (or started over, see `ReplayControl`). Started over from the buy start,
+ * it is a few hundred 0.03 ms ticks at most: cheap enough for one frame.
+ */
+function advanceControl(
+  held: { current: ReplayControl | null },
+  open: OpenReplay,
+  round: ReplayRound,
+  t: number,
+  mask: Uint8Array,
+): ControlGrid {
+  let at = held.current
+  if (!at || at.bundle !== open.bundle || at.roundN !== round.n || at.grid.mask !== mask || t < at.simulatedTo) {
+    // From the scrubber's start, like `controlTimeline`, so the readout and the track agree.
+    at = { bundle: open.bundle, roundN: round.n, grid: emptyGrid(mask), simulatedTo: roundSpan(open.bundle, round).start }
+    held.current = at
+  }
+  simulateControl(open.bundle, round, at.simulatedTo, t, at.grid, open.transform)
+  at.simulatedTo = t
+  return at.grid
+}
+
 /** Round 1, where a match opens. */
 const firstRound = (bundle: ReplayBundle): ReplayRound => bundle.rounds.find(r => r.n === 1) ?? bundle.rounds[0]
 
@@ -257,18 +309,27 @@ const noSubscribe = () => () => {}
 /**
  * The canvas, fed from the frame store when one is given: a playing replay
  * renders this and the canvas each animation frame and leaves the rest of the
- * editor alone (§2.8). Without a store, or before its first frame, it draws
- * the step it is given. The page keeps one of these mounted in both views, so
- * the canvas keeps its zoom across them.
+ * editor alone (§2.8). The store's map-control grid goes with its frame
+ * (§2.9). `edited`, the paused frame once changed, is drawn over the store's
+ * frame, which still lends it the grid: the edits are what-ifs over the
+ * space really held. Without a store, or before its first frame, it draws the
+ * step and the grid it is given. The page keeps one of these mounted in both
+ * views, so the canvas keeps its zoom across them.
  */
 function FrameCanvas({
   frames,
+  edited,
   step,
+  control,
   ref,
   ...props
-}: PlayCanvasProps & { frames: ValueStore<PlayStep | null> | null; ref?: Ref<PlayCanvasHandle> }) {
+}: PlayCanvasProps & {
+  frames: ValueStore<ReplayFrame | null> | null
+  edited?: PlayStep | null
+  ref?: Ref<PlayCanvasHandle>
+}) {
   const frame = useSyncExternalStore(frames?.subscribe ?? noSubscribe, () => frames?.get() ?? null)
-  return <PlayCanvas ref={ref} {...props} step={frame ?? step} />
+  return <PlayCanvas ref={ref} {...props} step={edited ?? frame?.step ?? step} control={frame ? frame.control : control} />
 }
 
 /**
@@ -339,6 +400,13 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
       writeFlag('plays.showCallouts', value)
       return value
     })
+  // The map-control overlay (§2.9), on by default and remembered per device like the callouts.
+  const [showControl, setShowControlState] = useState(() => readFlag('plays.showControl', true))
+  const toggleControl = () =>
+    setShowControlState(prev => {
+      writeFlag('plays.showControl', !prev)
+      return !prev
+    })
   const [playing, setPlaying] = useState(false)
   const [speedMs, setSpeedMs] = useState(DEFAULT_SPEED_MS)
   /** False while an arrow key is held down: the steps flick by without the walk animation. */
@@ -380,10 +448,12 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
   const replayRoundRef = useRef<ReplayRound | null>(null)
   /** Bumped by every jump of the replay time: a frame loop started before it stops. */
   const replayEpoch = useRef(0)
-  /** The replay's frame, each animation frame while it plays: only the canvas reads it. */
-  const [frames] = useState(() => createValueStore<PlayStep | null>(null))
-  /** The replay time and round a few times a second while it plays, and on every jump: only the transport reads it. */
+  /** The replay's frame and its control grid, each animation frame while it plays: only the canvas reads it. */
+  const [frames] = useState(() => createValueStore<ReplayFrame | null>(null))
+  /** The replay time, round and control share a few times a second while it plays, and on every jump: only the transport reads it. */
   const [clock] = useState(() => createValueStore<ReplayClock | null>(null))
+  /** The replay's map-control grid, advanced by the frame loop and every jump (§2.9). */
+  const replayControl = useRef<ReplayControl | null>(null)
 
   // Resizable side panels (lg and up). Each panel's room is the grid less the rail and the
   // other panel when it is open: the grid has no flex-grow for the hook to read, and its
@@ -439,6 +509,26 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
   const empty = !hasElements(doc)
   /** The canvas shows the replay rather than a step of the play. */
   const inReplay = replay !== null && view === 'replay'
+
+  /** The map's playable cells, for the control overlay (§2.9); null while it loads. */
+  const mask = useMapMask(gameMap)
+  /** On a designed or captured step, the overlay is the steady state of its agents; the replay view's comes with its frame. */
+  const stepControl = useMemo(() => {
+    const transform = gameMap?.transform
+    if (!showControl || inReplay || !mask || !step || !gameMap || !transform) return null
+    return instantControl(mask, presencesOf(step, gameMap.callouts, transform), sigmaFor(transform))
+  }, [showControl, inReplay, mask, step, gameMap])
+  /**
+   * The mask a replay's overlay runs on: the map's, with the overlay on, once
+   * the map shown is the replay's own (opening a match switches the map, and
+   * its mask loads after).
+   */
+  const controlMaskFor = (open: OpenReplay | null): Uint8Array | null => {
+    if (!showControl || !mask || !open) return null
+    const own = open.bundle.match.mapUuid ? registry?.maps.byId.get(open.bundle.match.mapUuid) : undefined
+    return own && own !== gameMap ? null : mask
+  }
+  const replayMask = controlMaskFor(replay)
 
   /** What Save writes: the doc, with the match it was built from. */
   const savedDoc: PlayDoc = replayLink ? { ...doc, replay: { matchId: replayLink } } : doc
@@ -543,8 +633,9 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
     return () => clearTimeout(timer)
   }, [toast])
 
-  // The replay plays: wall time × speed, a frame per animation frame into the canvas' store,
-  // the clock every 50 ms, until the end of the round shown, where it pauses.
+  // The replay plays: wall time × speed, a frame per animation frame into the canvas' store
+  // with the control grid advanced to it (§2.9), the clock and the share every 50 ms, until
+  // the end of the round shown, where it pauses.
   useEffect(() => {
     if (!replay || !replayPlaying) return
     const { bundle, lookup, transform, ids } = replay
@@ -554,15 +645,18 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
     let raf = 0
     let last: number | null = null
     let clockAt = Number.NEGATIVE_INFINITY
+    let share: ControlShare | null = clock.get()?.share ?? null
     const tick = (now: number) => {
       if (replayEpoch.current !== epoch) return
       const t = Math.min(end, replayMsRef.current + (last === null ? 0 : (now - last) * replaySpeed))
       last = now
       replayMsRef.current = t
-      frames.set(frameStep(bundle, t, lookup, transform, ids, round))
+      const control = replayMask ? advanceControl(replayControl, replay, round, t, replayMask) : null
+      frames.set({ step: frameStep(bundle, t, lookup, transform, ids, round), control })
       const over = t >= end
       if (over || now - clockAt >= CLOCK_MS) {
-        clock.set({ ms: t, round })
+        share = control ? controlShare(control) : null
+        clock.set({ ms: t, round, share })
         clockAt = now
       }
       if (over) setReplayPlaying(false)
@@ -572,9 +666,23 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
     return () => {
       cancelAnimationFrame(raf)
       // Paused: the clock shows the very frame the canvas holds.
-      if (replayEpoch.current === epoch) clock.set({ ms: replayMsRef.current, round })
+      if (replayEpoch.current === epoch) clock.set({ ms: replayMsRef.current, round, share })
     }
-  }, [replay, replayPlaying, replaySpeed, frames, clock])
+  }, [replay, replayPlaying, replaySpeed, replayMask, frames, clock])
+
+  // Paused, the overlay follows the toggle and the mask (which loads after the replay opens)
+  // on the frame shown; an edited frame keeps it, drawn as of the replay time.
+  useEffect(() => {
+    if (!replay || replayPlaying) return
+    const shown = frames.get()
+    if (!shown) return
+    const t = replayMsRef.current
+    const round = replayRoundRef.current ?? roundAt(replay.bundle, t)
+    const control = replayMask ? advanceControl(replayControl, replay, round, t, replayMask) : null
+    if (control === shown.control) return
+    frames.set({ step: shown.step, control })
+    clock.set({ ms: t, round, share: control ? controlShare(control) : null })
+  }, [replay, replayPlaying, replayMask, frames, clock])
 
   // ── Steps ─────────────────────────────────────────────────────────────────
 
@@ -630,7 +738,7 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
   }
 
   /** What the canvas shows: the active step, or in the replay view the edited frame, else the frame. */
-  const shownStep = (): PlayStep | undefined => (inReplay ? (live?.step ?? frames.get() ?? undefined) : step)
+  const shownStep = (): PlayStep | undefined => (inReplay ? (live?.step ?? frames.get()?.step) : step)
 
   /**
    * An edit of the paused replay frame. The first copies the frame into the
@@ -820,8 +928,10 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
     replayEpoch.current += 1
     replayMsRef.current = at
     replayRoundRef.current = round
-    frames.set(frameStep(open.bundle, at, open.lookup, open.transform, open.ids, round))
-    clock.set({ ms: at, round })
+    const openMask = controlMaskFor(open)
+    const control = openMask ? advanceControl(replayControl, open, round, at, openMask) : null
+    frames.set({ step: frameStep(open.bundle, at, open.lookup, open.transform, open.ids, round), control })
+    clock.set({ ms: at, round, share: control ? controlShare(control) : null })
     changeSide(roundSide(round))
   }
 
@@ -832,7 +942,7 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
    * selected in the rail. Into an untouched blank play it replaces the blank
    * steps instead of landing among them. False when the play is full.
    */
-  const capture = (source: PlayStep | null = live?.step ?? frames.get()): boolean => {
+  const capture = (source: PlayStep | null = live?.step ?? frames.get()?.step ?? null): boolean => {
     if (!replay || !source) return false
     const pristine = isPristine(doc, side)
     if (!pristine && stepCount >= MAX_STEPS) return false
@@ -920,6 +1030,7 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
   const exitReplay = () => {
     replayEpoch.current += 1
     replayRoundRef.current = null
+    replayControl.current = null
     clock.set(null)
     setReplay(null)
     setReplayPlaying(false)
@@ -1222,6 +1333,8 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
         onRedo={redo}
         showCallouts={showCallouts}
         onToggleCallouts={() => setShowCallouts(s => !s)}
+        showControl={showControl}
+        onToggleControl={toggleControl}
         playbookOpen={playbookOpen}
         onTogglePlaybook={() => {
           persistPlaybookOpen(!playbookOpen)
@@ -1254,6 +1367,8 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
           onSpeed={setReplaySpeed}
           onSeek={ms => seekReplay(ms, currentRound(replay))}
           onRound={jumpToRound}
+          controlMask={replayMask}
+          transform={replay.transform}
           canCapture={isPristine(doc, side) || stepCount < MAX_STEPS}
           onCapture={() => capture()}
           view={view}
@@ -1322,10 +1437,12 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
                   changed), no ghosts, no walk, read-only while the match plays. */}
               <FrameCanvas
                 ref={canvas}
-                frames={inReplay && !live ? frames : null}
+                frames={inReplay ? frames : null}
+                edited={inReplay ? live?.step : null}
+                control={stepControl}
                 map={gameMap}
                 side={side}
-                step={inReplay ? (live?.step ?? step) : step}
+                step={step}
                 previous={inReplay ? null : previous}
                 tool={tool}
                 pending={pending}
