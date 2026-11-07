@@ -26,9 +26,8 @@ import {
   simulateControl,
   type ControlGrid,
   type ControlShare,
-  type WallGrid,
 } from '../lib/mapControl'
-import { useMapMask, useMapWalls } from '../lib/mapMask'
+import { useMapMask } from '../lib/mapMask'
 import {
   copyStep,
   elementAt,
@@ -101,8 +100,6 @@ const SPACE_TAP_MS = 300
 
 /** How often the replay's clock and scrubber follow the playing frame (§2.8). */
 const CLOCK_MS = 50
-/** The most 100 ms control ticks one animation frame runs (§2.9): a grid behind the replay time catches up over a few frames. */
-const CONTROL_TICKS_PER_FRAME = 40
 /** What `,` and `.` move the replay by. */
 const NUDGE_MS = 1000
 /** A tick this close to a captured moment names it in the step's caption. */
@@ -247,7 +244,7 @@ interface ReplayFrame {
 
 /**
  * The replay's map-control grid (§2.9): one per round, simulated up to
- * `simulatedTo`. A new match, round, mask or walls grid, or a time before `simulatedTo`
+ * `simulatedTo`. A new match, round or mask, or a time before `simulatedTo`
  * (a backwards scrub, a jump), starts it over from the round's buy start, on
  * the round's baseline: the defending side owns the map until it is contested,
  * and the sides swap at half time.
@@ -256,35 +253,13 @@ interface ReplayControl {
   bundle: ReplayBundle
   roundN: number
   grid: ControlGrid
-  walls: WallGrid | null
   simulatedTo: number
 }
 
-/** Whether `held` is the grid for this match, round, mask and walls, and has not run past `t`. */
-function controlFits(
-  held: ReplayControl | null,
-  open: OpenReplay,
-  round: ReplayRound,
-  t: number,
-  mask: Uint8Array,
-  walls: WallGrid | null,
-): held is ReplayControl {
-  return (
-    held !== null &&
-    held.bundle === open.bundle &&
-    held.roundN === round.n &&
-    held.grid.mask === mask &&
-    held.walls === walls &&
-    t >= held.simulatedTo
-  )
-}
-
 /**
- * The replay's grid toward `t` inside `round`, advanced in place from where it
- * was left (or started over, see `ReplayControl`) by at most `maxTicks` 100 ms
- * ticks, so no frame waits on a whole re-simulation: `simulatedTo` says how
- * far it got, and a grid still behind `t` goes on from there next frame. With
- * `walls`, influence stops at the map's walls.
+ * The replay's grid at `t` inside `round`, advanced in place from where it was
+ * left (or started over, see `ReplayControl`). Started over from the buy start,
+ * it is a few hundred 0.03 ms ticks at most: cheap enough for one frame.
  */
 function advanceControl(
   held: { current: ReplayControl | null },
@@ -292,22 +267,20 @@ function advanceControl(
   round: ReplayRound,
   t: number,
   mask: Uint8Array,
-  walls: WallGrid | null,
-  maxTicks = CONTROL_TICKS_PER_FRAME,
 ): ControlGrid {
   let at = held.current
-  if (!controlFits(at, open, round, t, mask, walls)) {
+  if (!at || at.bundle !== open.bundle || at.roundN !== round.n || at.grid.mask !== mask || t < at.simulatedTo) {
     // From the scrubber's start, like `controlTimeline`, so the readout and the track agree.
     at = {
       bundle: open.bundle,
       roundN: round.n,
       grid: emptyGrid(mask, baselineFor(round)),
-      walls,
       simulatedTo: roundSpan(open.bundle, round).start,
     }
     held.current = at
   }
-  at.simulatedTo = simulateControl(open.bundle, round, at.simulatedTo, t, at.grid, open.transform, walls ?? undefined, maxTicks)
+  simulateControl(open.bundle, round, at.simulatedTo, t, at.grid, open.transform)
+  at.simulatedTo = t
   return at.grid
 }
 
@@ -548,8 +521,6 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
 
   /** The map's playable cells, for the control overlay (§2.9); null while it loads. */
   const mask = useMapMask(gameMap)
-  /** The map's walls, which the control influence does not pass (§2.9); null while they load, like the mask. */
-  const walls = useMapWalls(gameMap)
   /**
    * On a designed or captured step, the overlay is the steady state of its
    * agents over the play's side's baseline (the defenders own what nobody
@@ -558,9 +529,8 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
   const stepControl = useMemo(() => {
     const transform = gameMap?.transform
     if (!showControl || inReplay || !mask || !step || !gameMap || !transform) return null
-    const presences = presencesOf(step, gameMap.callouts, transform)
-    return instantControl(mask, presences, sigmaFor(transform), baselineForSide(side), walls ?? undefined)
-  }, [showControl, inReplay, mask, walls, step, gameMap, side])
+    return instantControl(mask, presencesOf(step, gameMap.callouts, transform), sigmaFor(transform), baselineForSide(side))
+  }, [showControl, inReplay, mask, step, gameMap, side])
   /**
    * The mask a replay's overlay runs on: the map's, with the overlay on, once
    * the map shown is the replay's own (opening a match switches the map, and
@@ -677,9 +647,8 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
   }, [toast])
 
   // The replay plays: wall time × speed, a frame per animation frame into the canvas' store
-  // with the control grid advanced toward it (§2.9; a slice per frame, so after a jump it
-  // catches up over a few frames), the clock and the share every 50 ms, until the end of
-  // the round shown, where it pauses.
+  // with the control grid advanced to it (§2.9), the clock and the share every 50 ms, until
+  // the end of the round shown, where it pauses.
   useEffect(() => {
     if (!replay || !replayPlaying) return
     const { bundle, lookup, transform, ids } = replay
@@ -695,7 +664,7 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
       const t = Math.min(end, replayMsRef.current + (last === null ? 0 : (now - last) * replaySpeed))
       last = now
       replayMsRef.current = t
-      const control = replayMask ? advanceControl(replayControl, replay, round, t, replayMask, walls) : null
+      const control = replayMask ? advanceControl(replayControl, replay, round, t, replayMask) : null
       frames.set({ step: frameStep(bundle, t, lookup, transform, ids, round), control })
       const over = t >= end
       if (over || now - clockAt >= CLOCK_MS) {
@@ -712,50 +681,21 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
       // Paused: the clock shows the very frame the canvas holds.
       if (replayEpoch.current === epoch) clock.set({ ms: replayMsRef.current, round, share })
     }
-  }, [replay, replayPlaying, replaySpeed, replayMask, walls, frames, clock])
+  }, [replay, replayPlaying, replaySpeed, replayMask, frames, clock])
 
-  // Paused, the overlay follows the toggle, the mask and walls (which load after the replay
-  // opens) and every jump: whenever the frame store changes and the grid is behind the replay
-  // time, the next animation frame advances it a slice and draws it as it is, until it has
-  // caught up. An edited frame keeps it, drawn as of the replay time.
+  // Paused, the overlay follows the toggle and the mask (which loads after the replay opens)
+  // on the frame shown; an edited frame keeps it, drawn as of the replay time.
   useEffect(() => {
     if (!replay || replayPlaying) return
-    const roundShown = () => replayRoundRef.current ?? roundAt(replay.bundle, replayMsRef.current)
-    if (!replayMask) {
-      const shown = frames.get()
-      if (shown?.control) {
-        frames.set({ step: shown.step, control: null })
-        clock.set({ ms: replayMsRef.current, round: roundShown(), share: null })
-      }
-      return
-    }
-    let raf = 0
-    const advance = () => {
-      raf = 0
-      const shown = frames.get()
-      if (!shown) return
-      const t = replayMsRef.current
-      const round = roundShown()
-      const control = advanceControl(replayControl, replay, round, t, replayMask, walls)
-      frames.set({ step: shown.step, control })
-      clock.set({ ms: t, round, share: controlShare(control) })
-    }
-    const schedule = () => {
-      if (raf) return
-      const shown = frames.get()
-      if (!shown) return
-      const t = replayMsRef.current
-      const held = replayControl.current
-      const current = controlFits(held, replay, roundShown(), t, replayMask, walls) && held.simulatedTo === t && shown.control === held.grid
-      if (!current) raf = requestAnimationFrame(advance)
-    }
-    const unsubscribe = frames.subscribe(schedule)
-    schedule()
-    return () => {
-      unsubscribe()
-      cancelAnimationFrame(raf)
-    }
-  }, [replay, replayPlaying, replayMask, walls, frames, clock])
+    const shown = frames.get()
+    if (!shown) return
+    const t = replayMsRef.current
+    const round = replayRoundRef.current ?? roundAt(replay.bundle, t)
+    const control = replayMask ? advanceControl(replayControl, replay, round, t, replayMask) : null
+    if (control === shown.control) return
+    frames.set({ step: shown.step, control })
+    clock.set({ ms: t, round, share: control ? controlShare(control) : null })
+  }, [replay, replayPlaying, replayMask, frames, clock])
 
   // ── Steps ─────────────────────────────────────────────────────────────────
 
@@ -1002,7 +942,7 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
     replayMsRef.current = at
     replayRoundRef.current = round
     const openMask = controlMaskFor(open)
-    const control = openMask ? advanceControl(replayControl, open, round, at, openMask, walls) : null
+    const control = openMask ? advanceControl(replayControl, open, round, at, openMask) : null
     frames.set({ step: frameStep(open.bundle, at, open.lookup, open.transform, open.ids, round), control })
     clock.set({ ms: at, round, share: control ? controlShare(control) : null })
     changeSide(roundSide(round))
@@ -1441,7 +1381,6 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
           onSeek={ms => seekReplay(ms, currentRound(replay))}
           onRound={jumpToRound}
           controlMask={replayMask}
-          walls={walls}
           transform={replay.transform}
           canCapture={isPristine(doc, side) || stepCount < MAX_STEPS}
           onCapture={() => capture()}

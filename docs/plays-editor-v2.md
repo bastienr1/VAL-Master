@@ -396,23 +396,6 @@ and `instantControl` take the baseline; `simulateControl` and
 the play's side on a designed step. So an attack play starts all red and your
 agents cut cyan through it.
 
-**Walls and memory.** Influence does not pass through walls: the Riot minimap
-draws the floor in one grey (118,118,118), walls as white lines (luminance
-≥ 200) and the outside transparent, so the mask loader also builds a
-`walls` grid (`WALL_N = 128`, a cell is wall when any of its source pixels is
-an opaque white) and a presence's influence spreads along walkable paths: a
-bounded Dijkstra over the wall grid from the presence's cell (8-connected,
-diagonal cost √2, walls impassable, stopping at 3σ) gives each reachable cell
-its path distance, which replaces the straight-line distance in the gaussian,
-so influence turns corners through doorways and never crosses a wall. The
-reach is cached per presence cell while the player stays in it. Simulation
-is budgeted: `simulateControl` advances at most `maxTicks` per call and
-reports how far it got, so a backwards scrub catches up over a few frames
-instead of freezing; the round timeline is computed off the render path in
-slices. Ground
-keeps its last owner: a touched cell no longer decays toward neutral, it
-moves only when someone's influence reaches it again.
-
 **Mask** (`src/lib/mapMask.ts`, browser): the playable cells come from the
 Riot minimap image: draw it on a 96×96 offscreen canvas (`crossOrigin
 'anonymous'`), a cell is playable when its alpha is above 40. Cached per map
@@ -605,13 +588,6 @@ With the defender baseline (2026-11-07, Lotus round 3): the barrier frame is
 all red except the attacker spawn and lobby in cyan ("You 25 % · Enemy 75 % ·
 76 % of the map claimed"); by 0:14 the push through B Main had cut a cyan
 corridor into the middle ("You 27 % · Enemy 73 %").
-
-Walls and memory (2026-11-07, Lotus round 3): influence now follows the
-corridors; a scrub back to the barrier costs 16 ms and the grid catches up
-over the next frames; the mask counts the outside as wall (Lotus: 3043
-playable cells, 11835 wall cells at 128), so paths cannot leave the map.
-Timings: a warm step 0.022 ms, a cold player 0.15 ms, a 100 s round timeline
-0.68 s computed in slices off the render path.
 
 Not yet verified: the phone layout, touch input and pinch zoom on a real
 touch screen.
