@@ -1,9 +1,13 @@
+import { useState } from 'react'
 import { Loader2, Sparkles, X } from 'lucide-react'
 import type { AbilityElement, AbilitySlot, AgentElement, PlayStep } from '../../lib/playDoc'
 import { UTILITY_STYLE } from '../../lib/playScene'
 import type { PlayTemplate } from '../../lib/playTemplates'
+import type { ReplayBundle } from '../../lib/replayBundle'
+import type { ReplayPlay } from '../../lib/replayToPlay'
 import type { PlaySide } from '../../lib/types'
 import AgentIcon from './AgentIcon'
+import ReplayPicker from './ReplayPicker'
 import TemplateStrip from './TemplateStrip'
 
 export interface ComposeFailure {
@@ -19,6 +23,12 @@ interface BriefDrawerProps {
   /** The map's sites, for the templates played around one. */
   sites: string[]
   onApplyTemplate(template: PlayTemplate, site: string | null): void
+  /** The editor's map: the replay picker lists its matches first. */
+  map: string
+  /** A round of one of the user's replays, converted: replaces the play. */
+  onLoadReplay(play: ReplayPlay): void
+  /** A whole match of the user's replays, opened in the replay mode (§2.8). */
+  onPlayReplay(bundle: ReplayBundle, matchId: string): void
 
   brief: string
   onBrief(brief: string): void
@@ -54,13 +64,17 @@ const field = 'bg-bg-primary border border-bg-elevated rounded-lg text-sm focus:
 const sectionClass = 'p-4 space-y-3 border-b border-bg-elevated'
 
 /**
- * The right-hand drawer (docs/plays-editor-v2.md §2.4): templates while the
- * play is empty, the brief and Compose, what is on the map in this step (the
+ * The right-hand drawer (docs/plays-editor-v2.md §2.4): templates and the
+ * replay picker while the play is empty (the picker behind a "From a replay"
+ * link once something is drawn), the brief and Compose, what is on the map in this step (the
  * caption, each ally's note and the spike, the abilities placed), and the
  * composer's assumptions. Map and side live in the rail.
  */
 export default function BriefDrawer(props: BriefDrawerProps) {
   const { brief, composing, error, step, stepIndex, selectedId, side } = props
+  /** The replay picker, opened from its link over a play with something drawn. */
+  const [replayOpen, setReplayOpen] = useState(false)
+  const showReplay = props.showTemplates || replayOpen
   const allies = (step?.elements ?? []).filter((e): e is AgentElement => e.kind === 'agent' && e.team === 'ally')
   const abilities = (step?.elements ?? []).filter((e): e is AbilityElement => e.kind === 'ability')
 
@@ -72,6 +86,37 @@ export default function BriefDrawer(props: BriefDrawerProps) {
       {props.showTemplates && (
         <section className={sectionClass}>
           <TemplateStrip templates={props.templates} sites={props.sites} onApply={props.onApplyTemplate} />
+        </section>
+      )}
+
+      {showReplay && (
+        <section className={sectionClass}>
+          <div className="flex items-center justify-between gap-2">
+            <div className={label}>From a replay</div>
+            {!props.showTemplates && (
+              <button
+                type="button"
+                onClick={() => setReplayOpen(false)}
+                aria-label="Close the replay picker"
+                title="Close"
+                className="p-0.5 rounded text-text-muted hover:text-text-primary"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+          <ReplayPicker
+            currentMap={props.map}
+            hasElements={!props.showTemplates}
+            onLoad={play => {
+              setReplayOpen(false)
+              props.onLoadReplay(play)
+            }}
+            onPlay={(bundle, matchId) => {
+              setReplayOpen(false)
+              props.onPlayReplay(bundle, matchId)
+            }}
+          />
         </section>
       )}
 
@@ -103,6 +148,16 @@ export default function BriefDrawer(props: BriefDrawerProps) {
               className="text-xs text-text-secondary hover:text-val-cyan underline transition-colors"
             >
               Start blank
+            </button>
+          )}
+          {!showReplay && (
+            <button
+              type="button"
+              onClick={() => setReplayOpen(true)}
+              title="Replace the steps with a round of one of your replays"
+              className="text-xs text-text-secondary hover:text-val-cyan underline transition-colors"
+            >
+              From a replay
             </button>
           )}
         </div>

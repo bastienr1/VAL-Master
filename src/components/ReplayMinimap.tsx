@@ -1,4 +1,5 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { agentIconUrl, loadGameContent, type GameMap } from '../lib/gameContent'
 import type { ReplayBundle, ReplayKill, ReplayPlayer } from '../lib/replayBundle'
 import {
@@ -36,6 +37,11 @@ interface ReplayMinimapProps {
   onSeek: (videoSeconds: number) => void
   /** Moves the sync anchor by a fraction of a second. Rejects with a message to show. */
   onNudge: (deltaSeconds: number) => Promise<void>
+  /**
+   * Where the Plays editor opens a round of this replay. When given, the HUD
+   * links the round it shows there. Keep it stable: this component is memoized.
+   */
+  playsHref?: (round: number) => string
 }
 
 const TEAM_COLOR = { ALLY: '#53CADC', ENEMY: '#FF4655' } as const
@@ -334,6 +340,7 @@ function ReplayMinimap({
   isPlaying,
   onSeek,
   onNudge,
+  playsHref,
 }: ReplayMinimapProps) {
   const frameRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -551,6 +558,15 @@ function ReplayMinimap({
           <span className="text-text-muted">{round.side ?? ''}</span>
           <span className="font-stats text-text-secondary">{wonBefore}–{lostBefore}</span>
           <span ref={phaseRef} className="font-stats text-text-muted" />
+          {playsHref && (
+            <Link
+              to={playsHref(round.n)}
+              title={`Load round ${round.n} into the Plays editor`}
+              className="text-[10px] text-text-muted hover:text-val-cyan transition-colors whitespace-nowrap"
+            >
+              Open in Plays ↗
+            </Link>
+          )}
           <span className="ml-auto flex items-center gap-2 text-[10px]">
             {LAYERS.map(({ key, label: text, title }) => (
               <button

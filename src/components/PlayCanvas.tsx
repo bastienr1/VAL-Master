@@ -5,7 +5,8 @@
  * SVG in a 1000 x 1000 viewBox showing the square of the minimap image that
  * holds every callout, turned so the play's own spawn is at the bottom. The
  * map art goes through a colour matrix that draws its grey walls teal on a
- * navy backdrop. Bottom to top: map, callout labels, pen strokes, abilities,
+ * navy backdrop. Bottom to top: map, callout labels, the map-control overlay
+ * (§2.9, when a grid is given), pen strokes, abilities,
  * arrows, agent move paths, markers, text, ghosts of the previous step's
  * agents, agents, the selection, then hover labels and whatever is being
  * drawn. Every point comes from `sceneForStep`; this file only draws and
@@ -76,6 +77,7 @@ import {
   type PlacedMarker,
   type Point,
 } from '../lib/playScene'
+import type { ControlGrid } from '../lib/mapControl'
 import type { PlaySide } from '../lib/types'
 
 export type Tool = 'select' | 'pen' | 'arrow' | 'text' | 'eraser' | 'spike' | 'enemy' | 'pin'
@@ -91,14 +93,24 @@ export interface PlayCanvasProps {
   pending: { agent: string; slot: AbilitySlot } | null
   selectedId: string | null
   showCallouts: boolean
-  /** False while scrubbing fast. */
+  /** False while scrubbing fast, and for a replay's frames. */
   animate: boolean
   onSelect(id: string | null): void
-  /** Every edit of the step goes through here, as a new step object. */
-  onChange(step: PlayStep): void
+  /**
+   * Every edit of the step goes through here, as a new step object. Absent,
+   * the canvas is read-only (a replay playing, §2.8): a press selects, the map
+   * zooms and pans, and nothing is moved, drawn or placed.
+   */
+  onChange?(step: PlayStep): void
   /** Pen/arrow/text/marker/ability placements call this with the new element appended. */
   onPendingDone(): void
   onUnresolved?(names: string[]): void
+  /**
+   * Who holds the space (§2.9), drawn over the map art and callouts, under
+   * every element. Repainted only when its `version` (or `n`) changes, so a
+   * grid stepped in place must bump `version`.
+   */
+  control?: ControlGrid | null
 }
 
 /** What the page can ask of the canvas: its `+` / `-` / `0` keys zoom about the centre. */
@@ -115,6 +127,41 @@ export interface PlayCanvasHandle {
 const BACKDROP = '#0B1220'
 const ALLY = '#53CADC'
 const ENEMY = '#FF4655'
+/** The map-control overlay's colours, for a legend chip in the toolbar or transport. */
+export const CONTROL_COLORS = { ally: ALLY, enemy: ENEMY } as const
+/** Overlay alpha at full control (|v| = 1). */
+const CONTROL_ALPHA = 0.42
+/** Below this |v| a cell is left clear. */
+const CONTROL_EPSILON = 0.02
+const CONTROL_RGB = { ally: [0x53, 0xca, 0xdc], enemy: [0xff, 0x46, 0x55] } as const
+
+let controlCanvas: HTMLCanvasElement | null = null
+
+/** The grid as a PNG data URL, one pixel per cell; masked-out and near-neutral cells stay clear. */
+function paintControl(grid: ControlGrid): string | null {
+  const { n, values, mask } = grid
+  if (typeof document === 'undefined' || n <= 0) return null
+  controlCanvas ??= document.createElement('canvas')
+  const canvas = controlCanvas
+  canvas.width = n
+  canvas.height = n
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return null
+  const image = ctx.createImageData(n, n)
+  const px = image.data
+  for (let i = 0; i < n * n; i++) {
+    const v = values[i]
+    if (!mask[i] || !(Math.abs(v) > CONTROL_EPSILON)) continue
+    const [r, g, b] = v > 0 ? CONTROL_RGB.ally : CONTROL_RGB.enemy
+    const o = i * 4
+    px[o] = r
+    px[o + 1] = g
+    px[o + 2] = b
+    px[o + 3] = Math.round(CONTROL_ALPHA * Math.min(1, Math.abs(v)) * 255)
+  }
+  ctx.putImageData(image, 0, 0)
+  return canvas.toDataURL('image/png')
+}
 const SPIKE = '#FFCA3A'
 const WHITE = '#FFFFFF'
 const TILE_FILL = '#1A1F2E'
@@ -359,6 +406,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
     onChange,
     onPendingDone,
     onUnresolved,
+    control,
   },
   ref,
 ) {
@@ -408,6 +456,16 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
   }, [map.uuid])
 
   const scene = useMemo(() => sceneForStep(step, map, side), [step, map, side])
+  // The grid may be stepped in place, so its version says when to repaint; a
+  // new grid object (another round, another step) repaints too.
+  const controlVersion = control?.version
+  const controlN = control?.n
+  const controlUrl = useMemo(
+    () => (control && controlN ? paintControl(control) : null),
+    // `controlVersion` is the point: the lint cannot see an in-place mutation.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [control, controlVersion, controlN],
+  )
   const previousScene = useMemo(() => (previous ? sceneForStep(previous, map, side) : null), [previous, map, side])
   const ghosts = useMemo(
     () => (previousScene ? ghostAgents(previous, step, map, side, previousScene) : []),
@@ -498,8 +556,9 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
   // 22 → 19 and 20 → 17 viewBox units on a compact canvas.
   const calloutLabel = Math.round(CALLOUT_LABEL * labelScale)
   const utilityLabel = Math.round(UTILITY_LABEL * labelScale)
-  const drawing = pending !== null || DRAW_TOOLS.has(tool)
-  const selecting = tool === 'select' && pending === null
+  const readOnly = onChange === undefined
+  const drawing = !readOnly && (pending !== null || DRAW_TOOLS.has(tool))
+  const selecting = !readOnly && tool === 'select' && pending === null
   const dragging = live !== null
   /** A pan in progress holds the map and Space held offers to: either outranks the tool's cursor. */
   const panCursor = panning ? 'grabbing' : spaceHeld ? 'grab' : undefined
@@ -657,7 +716,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
     if (el?.kind !== 'text') return
     // A blank text would leave nothing to see or click: keep the old one.
     const text = said.value.trim() ? said.value : el.text
-    if (text !== el.text) onChange(withElement(step, { ...el, text }))
+    if (text !== el.text) onChange?.(withElement(step, { ...el, text }))
   }
 
   const startEditing = (id: string) => {
@@ -667,6 +726,10 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
 
   /** A press that ended where it started, for every tool that acts on a click. */
   const click = (press: ClickPress) => {
+    if (readOnly) {
+      onSelect(press.id)
+      return
+    }
     if (pending) {
       if (!inSquare(press.at)) return
       const { shape, radius } = abilityShape(pending.agent, pending.slot)
@@ -679,7 +742,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
         radius,
         at: toPos(press.at),
       }
-      onChange(withElement(step, el))
+      onChange?.(withElement(step, el))
       onSelect(el.id)
       onPendingDone()
       return
@@ -690,7 +753,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
         return
       case 'eraser':
         if (!press.id) return
-        onChange(withoutElement(step, press.id))
+        onChange?.(withoutElement(step, press.id))
         if (press.id === selectedId) onSelect(null)
         return
       case 'text': {
@@ -702,7 +765,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
         }
         if (!inSquare(press.at)) return
         const el: TextElement = { kind: 'text', id: newId(), text: 'Text', color: WHITE, at: toPos(press.at) }
-        onChange(withElement(step, el))
+        onChange?.(withElement(step, el))
         onSelect(el.id)
         startEditing(el.id)
         return
@@ -712,7 +775,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
       case 'pin': {
         if (!inSquare(press.at)) return
         const el: MarkerElement = { kind: 'marker', id: newId(), type: tool, at: toPos(press.at) }
-        onChange(withElement(step, el))
+        onChange?.(withElement(step, el))
         onSelect(el.id)
         return
       }
@@ -747,6 +810,11 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
       // A middle-button drag, or a drag with Space held, pans under any tool.
       press = { mode: 'pan', pointerId, client, grab: at, dragging: true, click: null }
       setPanning(true)
+    } else if (readOnly) {
+      // Nothing to move or draw: a press selects, and zoomed in the map pans.
+      const select: ClickPress = { mode: 'click', pointerId, at, id }
+      press =
+        cameraRef.current.zoom > MIN_ZOOM ? { mode: 'pan', pointerId, client, grab: at, dragging: false, click: select } : select
     } else if (pending) {
       press = { mode: 'click', pointerId, at, id }
     } else if (tool === 'select') {
@@ -831,7 +899,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
             : [live?.dx ?? 0, live?.dy ?? 0]
           setLive(null)
           const el = moved(press.id, press.part, dx, dy)
-          if (el) onChange(withElement(step, el))
+          if (el) onChange?.(withElement(step, el))
           if (press.id !== selectedId) onSelect(press.id)
         } else if (press.wasSelected && elementAt(step, press.id)?.kind === 'text') {
           // A second click on a selected text opens it for typing.
@@ -848,7 +916,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
           points = [...points, clampPoint(at)]
         }
         if (points.length < 2) return
-        onChange(
+        onChange?.(
           withElement(step, {
             kind: 'pen',
             id: newId(),
@@ -865,7 +933,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
         setDraft(null)
         if (Math.hypot(e.clientX - press.client[0], e.clientY - press.client[1]) < ARROW_MIN_PX) return
         const to = at ? clampPoint(at) : press.to
-        onChange(withElement(step, { kind: 'arrow', id: newId(), from: toPos(press.from), to: toPos(to), color: WHITE }))
+        onChange?.(withElement(step, { kind: 'arrow', id: newId(), from: toPos(press.from), to: toPos(to), color: WHITE }))
         return
       }
       case 'pan':
@@ -1595,7 +1663,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
           // Zoomed in, the select tool's empty map pans, and says so.
           cursor:
             panCursor ??
-            (drawing ? 'crosshair' : dragging ? 'grabbing' : selecting && camera.zoom > MIN_ZOOM ? 'grab' : 'default'),
+            (drawing ? 'crosshair' : dragging ? 'grabbing' : (selecting || readOnly) && camera.zoom > MIN_ZOOM ? 'grab' : 'default'),
         }}
         // A middle press would otherwise start the browser's autoscroll.
         onMouseDown={e => {
@@ -1675,6 +1743,21 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
                   {c.name}
                 </text>
               ))}
+            </g>
+          )}
+
+          {controlUrl && (
+            // Same placement and turn as the map art, so cells line up with it.
+            <g transform={`rotate(${scene.turns * 90} ${VIEW_SIZE / 2} ${VIEW_SIZE / 2})`} pointerEvents="none">
+              <image
+                href={controlUrl}
+                x={(-view.u / view.size) * VIEW_SIZE}
+                y={(-view.v / view.size) * VIEW_SIZE}
+                width={imageSize}
+                height={imageSize}
+                preserveAspectRatio="none"
+                style={{ imageRendering: 'auto' }}
+              />
             </g>
           )}
 

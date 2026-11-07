@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ArrowLeft, BookOpen, Check, Ellipsis, PanelRight, Redo2, Tag, Trash2, Undo2 } from 'lucide-react'
+import { ArrowLeft, BookOpen, Check, Ellipsis, Film, Layers, Loader2, PanelRight, Redo2, Tag, Trash2, Undo2 } from 'lucide-react'
 import type { PlaySide } from '../../lib/types'
 
 interface EditorToolbarProps {
@@ -14,12 +14,19 @@ interface EditorToolbarProps {
   onRedo(): void
   showCallouts: boolean
   onToggleCallouts(): void
+  /** The map-control overlay (§2.9): who holds which part of the map. */
+  showControl: boolean
+  onToggleControl(): void
   playbookOpen: boolean
   onTogglePlaybook(): void
   drawerOpen: boolean
   onToggleDrawer(): void
   /** The play has never been composed: the Brief button carries a dot while the drawer is closed. */
   briefHint: boolean
+  /** Given for a play built from a match replay while its replay is not open: **Open replay** (§2.8). */
+  onOpenReplay?: () => void
+  /** The replay's bundle is loading. */
+  openingReplay?: boolean
   canSave: boolean
   saving: boolean
   /** True for the moment after a save, to show "Saved". */
@@ -48,9 +55,9 @@ const toggle = (on: boolean) =>
 
 /**
  * The editor's one 44 px bar (docs/plays-editor-v2.md §2.5): back link, the
- * editable title, map and side at a glance, undo / redo, the Callouts,
- * Playbook (§2.6) and Brief toggles, Save, and Delete behind an overflow menu
- * for a saved play.
+ * editable title, map and side at a glance, undo / redo, Open replay for a
+ * play built from a match replay (§2.8), the Callouts, Control (§2.9),
+ * Playbook (§2.6) and Brief toggles, Save, and Delete behind an overflow menu for a saved play.
  */
 export default function EditorToolbar(props: EditorToolbarProps) {
   const { title, map, side, saving, savedFlash, onDelete, drawerOpen } = props
@@ -86,6 +93,18 @@ export default function EditorToolbar(props: EditorToolbarProps) {
           <Redo2 className="w-4 h-4" />
         </button>
         <span aria-hidden="true" className="w-px h-5 bg-bg-elevated mx-1" />
+        {props.onOpenReplay && (
+          <button
+            type="button"
+            onClick={props.onOpenReplay}
+            disabled={props.openingReplay}
+            title="Open the match this play was captured from"
+            className={`${toggle(false)} disabled:opacity-50 disabled:pointer-events-none`}
+          >
+            {props.openingReplay ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Film className="w-3.5 h-3.5" />}
+            <span className="hidden md:inline">Open replay</span>
+          </button>
+        )}
         <button
           type="button"
           onClick={props.onToggleCallouts}
@@ -95,6 +114,16 @@ export default function EditorToolbar(props: EditorToolbarProps) {
         >
           <Tag className="w-3.5 h-3.5" />
           <span className="hidden md:inline">Callouts</span>
+        </button>
+        <button
+          type="button"
+          onClick={props.onToggleControl}
+          aria-pressed={props.showControl}
+          title="Show who holds which part of the map"
+          className={toggle(props.showControl)}
+        >
+          <Layers className="w-3.5 h-3.5" />
+          <span className="hidden md:inline">Control</span>
         </button>
         <button
           type="button"

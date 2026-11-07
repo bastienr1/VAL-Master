@@ -226,6 +226,188 @@ focus is inside the panel (`data-playbook-panel` on its root; the key handler
 ignores targets inside it), so Space on the player's buttons does not also
 toggle the step playback.
 
+### 2.7 From a replay
+
+A round of one of the user's own matches, taken from the attached minimap
+bundle (`match_replays` + the `replays` bucket, see `src/lib/replayBundle.ts`),
+becomes the starting play: "I played this comp; load the round and edit it
+into the next strategy."
+
+**Conversion** (`src/lib/replayToPlay.ts`, pure, tested):
+`roundToPlay(bundle, roundNumber, lookup, transform)` where `lookup` maps an
+agent UUID to `{ name, abilities: { slot, name }[] } | null` (built from the
+registry by the caller) and `transform` is the map transform. It returns
+`{ doc: PlayDoc, side: PlaySide, mapUuid, title, brief }`:
+
+- Snapshot times, in replay ms, become the steps: barrier drop (`barrierMs`,
+  else `buyStartMs + 30 s`) → "Barrier drop"; the first kill of the round
+  after it → "First contact"; the plant → "Plant"; the round end (`endMs`,
+  else the last kill, else barrier + 100 s) → "End". Times closer than 4 s to
+  the previous one are dropped; at least barrier and end remain. Captions give
+  the time since the barrier ("0:12 after barrier").
+- Per step, every player present and alive at that time (`playerStateAt`,
+  `isPresentAt`, `isAliveAt` from `replayScene.ts`) is an `agent` element:
+  name from `lookup` (else "Agent"), `team` ally for `ALLY`, enemy for
+  `ENEMY`, `at` as image units (`worldToImage`, clamped to 0..1), `moveTo` the
+  position at the next step's time when alive then and moved more than 2 % of
+  the image, `spike: true` for the carrier at that time (`spike.carriers`).
+  Element ids are stable per player across steps (one id per subject) so the
+  editor animates them.
+- Casts (`bundle.casts`) with a position, between the previous step's time
+  and this one, become `ability` elements: `slot` from the key letter
+  (C → Grenade, Q → Ability1, E → Ability2, X → Ultimate; '?n' → null),
+  `shape` and `radius` from `abilityShape(agent, slot)`, `label` the ability
+  name from `lookup`. Area effects (`bundle.effects`) active at the step time
+  that no cast within 3 s and 300 cm explains become `ability` elements with
+  `slot: null`, shape by kind (`smoke`, `wall`, `trap`, `slow`,
+  `damage_zone` → molly, `recon`; else other) and the owner's agent name.
+  Both teams' abilities are kept: the enemy's utility is the intel.
+- A plant at or before the step time → a `spike` marker at its position with
+  the site letter as label.
+- `comp` = the ally agents' names in player order (max 5); `side` from the
+  round's `side` (`attacker` → attack), attack when unknown.
+- `title` "Round N · <Map> · <recorded date>", `summary` "Round N from the
+  replay: <winner> won by <how>", `brief` two lines describing the round so
+  a recompose has context.
+
+**Editor** (`src/components/play/ReplayPicker.tsx`, in the Brief drawer under
+the templates, also reachable when the play has elements through a "From a
+replay" link that confirms replacing): a list of the user's matches that have
+a replay (`match_replays` rows for the signed-in user joined client-side with
+`matches` by `match_id`: map, agent, result, score, date; newest first; the
+current map first), then after a pick the bundle loads (`getReplayBundle`)
+and a round grid appears (one button per round: number, ATK/DEF, a win or loss
+dot), then **Load round** applies: map and side set from the bundle, the doc
+replaced, title and brief filled, drawer stays open. Deep link
+`/plays/new?replay=<matchId>&round=<n>` does the same on arrival.
+
+**Review page**: the replay minimap's HUD on the VOD workstation gets an
+"Open in Plays" link to that deep link for the round it is showing.
+
+### 2.8 Replay mode
+
+Loading a whole match and watching it in the editor, pausing to change what
+the agents do, and keeping the moments that matter as the steps of a strat.
+The per-round snapshot import (2.7) stays as "Load round"; this is "Play
+match".
+
+**Frame** (`src/lib/replayFrame.ts`, pure, tested; `replayToPlay.ts` is
+refactored to build its snapshots from it):
+`frameStep(bundle, t, lookup, transform, ids): PlayStep` is the state of the
+match at replay time `t` as a step: every present, alive player as an `agent`
+element (ally / enemy, image units, spike carrier flagged), no `moveTo`;
+area effects active at `t` as `ability` elements (`slot` from a cast of the
+same owner within 3 s and 300 cm, else null), casts of the last 2.5 s with a
+position as `ability` elements too (flashes and the like have no lasting
+effect); the plant of the current round at or before `t` as a `spike` marker.
+`ids` is a stable id table per subject, effect and plant, so the canvas can
+key markers across frames. Also `roundSpan(round): { start, end }` (buy start
+to `endMs`, else the next round's buy start, else `barrierMs + 120 s`),
+`roundSide(round): PlaySide` and `formatRoundClock(round, t)` ("R3 · 0:13",
+seconds since the barrier, negative during the buy).
+
+**Document**: `PlayStep` gains optional `replayMs?: number` (kept by
+`parsePlayDoc` when finite and ≥ 0) and `PlayDoc` gains optional
+`replay?: { matchId: string }`, so a saved strat can reopen its match.
+
+**Editor state**: `replay: { matchId, bundle } | null`, `replayMs`,
+`replayPlaying`, `replaySpeed` (0.25–4, default 1), `liveStep: PlayStep | null`
+(the paused frame once edited), `view: 'replay' | 'steps'`.
+
+**Transport** (`src/components/play/ReplayTransport.tsx`), a 56 px bar between
+the toolbar and the canvas while a replay is loaded: round chips (number,
+ATK/DEF, win dot; click = jump to that round's barrier drop, paused), a
+scrubber spanning the current round (`roundSpan`) with the barrier, kills and
+the plant as ticks, play/pause, speed menu, the clock from `formatRoundClock`,
+**Capture step**, and **Exit replay**.
+
+**Behaviour**:
+- Playing: a `requestAnimationFrame` loop advances `replayMs` by wall time ×
+  speed, computes `frameStep` and hands it to the canvas with `animate=false`
+  and no `onChange` (read-only while moving). Crossing into the next round
+  updates `side` (and so the map's orientation) from `roundSide`.
+- Paused: the frame is editable. The first `onChange` copies it into
+  `liveStep` with a fresh step id and `replayMs`; further edits go there.
+  **Capture step** appends `liveStep` (or the untouched frame) to `doc.steps`
+  after the active step, named `formatRoundClock`, caption from the round's
+  facts ("R3 · 0:13 · first contact"), and selects it in the rail. Pressing
+  play with an uncaptured edited `liveStep` captures it first (a one-line
+  toast "Step captured"). Scrubbing or jumping discards an unedited frame
+  silently.
+- The rail's steps are the captured moments; clicking one pauses the replay
+  and shows that step (`view: 'steps'`); a "Back to replay" button in the
+  transport (shown in that view) returns to `view: 'replay'` at the step's
+  `replayMs` when it has one.
+- Save writes the doc as usual with `replay: { matchId }`; a saved strat
+  whose doc has `replay` shows an **Open replay** button in the toolbar that
+  loads the bundle and enters replay mode at the active step's `replayMs`
+  (else round 1's barrier), paused.
+- Exit replay keeps the captured steps and drops the live frame.
+- Space in replay mode toggles the replay, not the step walk; ← → step
+  through captured steps as before, `,` / `.` nudge the replay by 1 s.
+
+**Picker and links**: `ReplayPicker` gets a **Play match** button at the
+match level (loads the bundle, enters replay mode at round 1's barrier,
+paused) beside the round grid's Load round. `/plays/new?replay=<matchId>`
+opens replay mode at round 1; with `&round=<n>` at that round's barrier drop,
+paused; `&mode=steps` keeps the 2.7 snapshot import. The review page's "Open
+in Plays" link uses the replay form.
+
+### 2.9 Map control
+
+The map colours by who holds the space: your team's ground in cyan, the
+enemy's in red, contested ground neutral. In replay mode it follows the match
+live with memory, so space taken stays yours until the enemy walks it;
+on a designed step it is computed from the agents on the map. A readout gives
+each team's share of the playable map, and the replay scrubber's track is
+coloured by who held more space at each second of the round.
+
+**Grid** (`src/lib/mapControl.ts`, pure, tested):
+
+```ts
+export const CONTROL_N = 96                      // cells per side over the whole minimap image
+export interface ControlGrid { n: number; values: Float32Array; mask: Uint8Array }   // values −1 (enemy) … +1 (ally), row-major [v][u]; mask 1 = playable
+export interface ControlShare { ally: number; enemy: number; claimed: number; contested: number }  // ally/enemy are fractions of the claimed cells (|v| ≥ 0.25); claimed and contested are fractions of the playable cells
+export interface Presence { u: number; v: number; team: 'ally' | 'enemy' }
+export function emptyGrid(mask: Uint8Array): ControlGrid
+export function influence(presences: Presence[], cellU: number, cellV: number, sigma: number): number   // Σ team × exp(−(d/σ)²), d in image units
+export function stepControl(grid: ControlGrid, presences: Presence[], dtMs: number): void   // in place: each playable cell moves toward sign(influence)·min(1,|influence|) with time constant 2.5 s when the influence is stronger than 0.05, else decays toward 0 with time constant 25 s
+export function instantControl(mask: Uint8Array, presences: Presence[]): ControlGrid     // no memory: the steady state of one frame, for designed steps
+export function controlShare(grid: ControlGrid): ControlShare
+export function sigmaFor(transform: MapTransform): number     // 1400 world cm in image units: 1400 · |xMultiplier|
+export function presencesOf(step: PlayStep, callouts, transform): Presence[]   // the alive agent elements of a step, through resolvePos
+```
+
+Replay use: `simulateControl(bundle, round, fromMs, toMs, grid, transform)` advances a
+grid tick by tick (100 ms) using the alive, present players at each tick
+(`playerStateAt` / `isPresentAt` / `isAliveAt`); a control timeline per round,
+`controlTimeline(bundle, round, mask, transform): { t: number; share: ControlShare }[]`
+at 1 s steps from the barrier to the end, for the scrubber and a summary line
+("Your team held 54 % of the map on average; the enemy 31 %").
+
+**Mask** (`src/lib/mapMask.ts`, browser): the playable cells come from the
+Riot minimap image: draw it on a 96×96 offscreen canvas (`crossOrigin
+'anonymous'`), a cell is playable when its alpha is above 40. Cached per map
+UUID. When the image taints the canvas (no CORS), every cell is playable and a
+console warning says so.
+
+**Rendering** (`PlayCanvas`): an optional prop `control?: ControlGrid | null`.
+The grid is painted to a 96×96 canvas (cyan `#53CADC` for positive, red
+`#FF4655` for negative, alpha `0.42·|v|`, nothing for masked-out cells) and
+shown as an `<image>` over the map square, under the elements and above the
+map art, with smooth scaling so cells read as soft regions; it is re-painted
+only when the grid's `version` counter changes (add `version: number` to
+`ControlGrid`, bumped by `stepControl` / `instantControl`).
+
+**Editor**: a "Control" toggle next to "Callouts" in the toolbar (remembered,
+default on). In replay mode the loop keeps one grid per round: on each
+animation frame it advances the simulation to `replayMs` (and from the round
+start again after a backwards scrub); the transport shows the share readout
+("You 54 % · Enemy 31 %") and the scrubber track is a gradient from the
+timeline (cyan where you held more, red where they did, grey when even). On a
+designed or captured step the overlay is `instantControl` of that step's
+agents. Captured steps carry no control data; it is recomputed.
+
 ## 3. Document v2 (`src/lib/playDoc.ts`)
 
 ```ts
@@ -367,6 +549,29 @@ narrow canvas. Checked in the signed-in app at 1400 px.
 Zoom and pan (2.2) checked in the signed-in app: a wheel over the map zoomed
 to 182% about the pointer without scrolling the page, a drag panned the view,
 the 0 key reset it; Space held to pan no longer toggles playback.
+
+The replay import (2.7) was tried on a real bundle in the signed-in app
+(2026-11-06): the picker listed the 27 matches with a replay, Abyss first; the
+Lotus match loaded its 26 rounds with sides; round 3 became "Round 3 · Lotus ·
+2026-11-06" with Barrier drop, First contact ("0:13 after barrier. Chamber
+killed Killjoy.") and End ("0:58 … The enemy won by elimination"), the map
+switched to Lotus attack, allies at the bottom with their moves, enemies in
+red, abilities drawn.
+
+Replay mode (2.8) was tried on the same Lotus match in the signed-in app
+(2026-11-06): the deep link opened round 3 paused at the barrier with both
+teams on the map and the 26 round chips; Play advanced the clock, Pause froze
+it, a dragged agent and Capture step made "R3 · 0:02" (caption "R3 · 0:02 ·
+attack, lost by elimination"), a second capture at 0:06, Save created the
+strat, and reopening it offered Open replay.
+
+Map control (2.9) was checked on the same Lotus match (2026-11-07): the mask
+came from the image pixels (3487 playable cells), the overlay painted your
+team's ground cyan around B and the enemy's red across A with memory trails,
+the readout gave "You 30 % · Enemy 70 % · 45 % of the map claimed" at R3 ·
+0:14, and the scrubber track showed the enemy's red stretch on that lost
+round. The toggle, the per-step overlay on designed steps and the average line
+were exercised in a harness by the worker.
 
 Not yet verified: the phone layout, touch input and pinch zoom on a real
 touch screen.

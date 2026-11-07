@@ -502,6 +502,34 @@ test('copyStep keeps the element ids under a new step id and name', () => {
   assert.equal((setup.elements[0] as AgentElement).at.callout, 'Mid Top')
 })
 
+test('a step keeps its replay time when it is a finite number of at least 0', () => {
+  const at = (replayMs: unknown) => parsePlayDoc({ ...VALID, steps: [{ ...VALID.steps[0], replayMs }] }).steps[0].replayMs
+  assert.equal(at(45250), 45250)
+  assert.equal(at(0), 0)
+  for (const bad of [-1, Number.NaN, Infinity, '45000', null, undefined]) assert.equal(at(bad), undefined, String(bad))
+  // Absent stays absent: a plain play still parses to itself.
+  assert.equal('replayMs' in parsePlayDoc(VALID).steps[0], false)
+  const withTime: PlayDoc = { ...VALID, steps: [{ ...VALID.steps[0], replayMs: 61000 }] }
+  assert.deepEqual(parsePlayDoc(JSON.parse(JSON.stringify(withTime))), withTime)
+})
+
+test('a play keeps the match of its replay when the match id is a non-empty string', () => {
+  const replayOf = (replay: unknown) => parsePlayDoc({ ...VALID, replay }).replay
+  assert.deepEqual(replayOf({ matchId: 'm-1' }), { matchId: 'm-1' })
+  assert.deepEqual(replayOf({ matchId: ' m-1 ', extra: 1 }), { matchId: 'm-1' })
+  for (const bad of [{ matchId: '' }, { matchId: '  ' }, { matchId: 7 }, {}, 'm-1', null, undefined]) {
+    assert.equal(replayOf(bad), undefined, JSON.stringify(bad))
+  }
+  assert.equal('replay' in parsePlayDoc(VALID), false)
+  const linked: PlayDoc = { ...VALID, replay: { matchId: 'm-1' } }
+  assert.deepEqual(parsePlayDoc(JSON.stringify(linked)), linked)
+})
+
+test('copyStep keeps the replay time', () => {
+  assert.equal(copyStep({ ...VALID.steps[0], replayMs: 61000 }, 'Copy').replayMs, 61000)
+  assert.equal('replayMs' in copyStep(VALID.steps[0], 'Copy'), false)
+})
+
 test('elementAt, withElement and withoutElement work by id without touching the step', () => {
   const step = structuredClone(VALID.steps[1])
   const before = structuredClone(step)

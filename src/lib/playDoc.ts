@@ -153,6 +153,8 @@ export interface PlayStep {
   caption: string
   /** Drawn in kind order by the canvas, not in this order. */
   elements: PlayElement[]
+  /** Replay time (ms) this step was captured at, when it came from a replay (§2.8). */
+  replayMs?: number
 }
 
 export interface PlayDoc {
@@ -165,6 +167,8 @@ export interface PlayDoc {
   steps: PlayStep[]
   /** What the composer guessed because the brief did not say it. Shown to the user. */
   assumptions: string[]
+  /** The match whose replay this play was built from, so a saved strat can reopen it (§2.8). */
+  replay?: { matchId: string }
 }
 
 // ── Version 1, read only ────────────────────────────────────────────────────
@@ -369,16 +373,22 @@ function validate(raw: Raw): PlayDoc {
       let id = base
       for (let n = 2; usedStepIds.has(id); n++) id = `${base}-${n}`
       usedStepIds.add(id)
-      return { id, name, caption: text(s.caption), elements: parseElements(list(s.elements), name, comp, compByKey) }
+      const step: PlayStep = { id, name, caption: text(s.caption), elements: parseElements(list(s.elements), name, comp, compByKey) }
+      const replayMs = finite(s.replayMs)
+      if (replayMs !== null && replayMs >= 0) step.replayMs = replayMs
+      return step
     })
 
-  return {
+  const doc: PlayDoc = {
     version: PLAY_DOC_VERSION,
     summary: text(raw.summary),
     comp,
     steps,
     assumptions: list(raw.assumptions).map(text).filter(Boolean),
   }
+  const matchId = isObject(raw.replay) ? text(raw.replay.matchId) : ''
+  if (matchId) doc.replay = { matchId }
+  return doc
 }
 
 /** The elements of one step, in order, each with an id unique within the step. */
@@ -740,10 +750,13 @@ export function emptyPlayDoc(comp: string[], side: 'attack' | 'defense' = 'attac
  * A new step that starts where `step` ends: the same elements with the same
  * ids (so agents animate from one to the next), a new step id, the given
  * name and an empty caption (the old one described the old step). The
- * elements are deep copies; nothing is shared with `step`.
+ * elements are deep copies; nothing is shared with `step`. A replay time is
+ * kept, so the copy still points at the moment of the match it came from.
  */
 export function copyStep(step: PlayStep, name: string): PlayStep {
-  return { id: newId(), name: name.trim(), caption: '', elements: structuredClone(step.elements) }
+  const copy: PlayStep = { id: newId(), name: name.trim(), caption: '', elements: structuredClone(step.elements) }
+  if (step.replayMs !== undefined) copy.replayMs = step.replayMs
+  return copy
 }
 
 /** The element with this id in the step, or null. */
