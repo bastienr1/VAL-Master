@@ -6,7 +6,9 @@
  * does). Players push the cells around them toward their team's sign with a
  * Gaussian falloff of width σ (1400 world cm, about a room); a cell nobody is
  * near slowly forgets who held it (25 s), so taken space stays coloured until
- * the other team walks it. In replay mode the grid is stepped through the round
+ * the other team walks it. A grid starts at the defenders' value (`baseline`):
+ * the defending side owns the map until the attackers contest it, and a cell
+ * nobody has reached yet (`touched` 0) keeps that value and never decays. In replay mode the grid is stepped through the round
  * with that memory (`simulateControl`); on a designed step it is the steady
  * state of the agents on the map (`instantControl`).
  *
@@ -37,6 +39,10 @@ export interface ControlGrid {
   mask: Uint8Array
   /** Bumped by every mutation, so a renderer repaints only when it changes. Starts at 0. */
   version: number
+  /** 1 once a presence's influence at the cell has exceeded 0.05; only touched cells decay. Same layout as `values`. */
+  touched: Uint8Array
+  /** The value every playable cell starts at: the defenders' sign (−1 the enemy defends, +1 your team does), or 0. */
+  baseline: -1 | 0 | 1
 }
 
 /**
@@ -70,10 +76,25 @@ const SAMPLE_MS = 1000
 
 const WORLD_SIGMA_CM = 1400
 
-export function emptyGrid(mask: Uint8Array): ControlGrid {
+/** A grid with every playable cell at `baseline`, nothing touched, version 0. */
+export function emptyGrid(mask: Uint8Array, baseline: -1 | 0 | 1 = 0): ControlGrid {
   const n = Math.round(Math.sqrt(mask.length))
   if (n * n !== mask.length) throw new Error(`A control mask must be square; got ${mask.length} cells.`)
-  return { n, values: new Float32Array(n * n), mask, version: 0 }
+  const values = new Float32Array(n * n)
+  if (baseline !== 0) {
+    for (let k = 0; k < values.length; k++) if (mask[k]) values[k] = baseline
+  }
+  return { n, values, mask, version: 0, touched: new Uint8Array(n * n), baseline }
+}
+
+/** The defenders' sign for a replay round: −1 when the bundle owner attacks (the enemy defends), +1 when they defend, 0 when unknown. */
+export function baselineFor(round: ReplayRound): -1 | 0 | 1 {
+  return round.side === 'attacker' ? -1 : round.side === 'defender' ? 1 : 0
+}
+
+/** The defenders' sign for a designed play: an attack play starts all enemy, a defense play all ally. */
+export function baselineForSide(side: 'attack' | 'defense'): -1 | 1 {
+  return side === 'attack' ? -1 : 1
 }
 
 /** Σ team × exp(−(d/σ)²) at the image point (cellU, cellV), d in image units. No cutoff. */
@@ -145,14 +166,16 @@ function influenceField(n: number, mask: Uint8Array, presences: Presence[], sigm
 }
 
 /**
- * Advances the grid by `dtMs`, in place. Each playable cell moves toward
- * sign(I)·min(1, |I|) with a 2.5 s time constant where the influence I is
- * stronger than 0.05, and otherwise decays toward 0 with a 25 s time constant.
+ * Advances the grid by `dtMs`, in place. Where the influence I of a playable
+ * cell is stronger than 0.05, the cell becomes touched and moves toward
+ * sign(I)·min(1, |I|) with a 2.5 s time constant. Elsewhere a touched cell
+ * decays toward 0 with a 25 s time constant and an untouched one keeps its
+ * (baseline) value.
  * `sigma` defaults to a typical map's; pass `sigmaFor(transform)`.
  */
 export function stepControl(grid: ControlGrid, presences: Presence[], dtMs: number, sigma = DEFAULT_CONTROL_SIGMA): void {
   if (!(dtMs > 0)) return
-  const { n, values, mask } = grid
+  const { n, values, mask, touched } = grid
   const field = influenceField(n, mask, presences, sigma)
   const take = 1 - Math.exp(-dtMs / TAKE_MS)
   const keep = Math.exp(-dtMs / FORGET_MS)
@@ -163,23 +186,35 @@ export function stepControl(grid: ControlGrid, presences: Presence[], dtMs: numb
     if (I > INFLUENCE_FLOOR || I < -INFLUENCE_FLOOR) {
       const target = I > 1 ? 1 : I < -1 ? -1 : I
       values[k] += (target - values[k]) * take
-    } else {
+      touched[k] = 1
+    } else if (touched[k]) {
       values[k] *= keep
     }
   }
   grid.version++
 }
 
-/** No memory: each playable cell is its target, 0 where the influence is 0.05 or weaker. For designed steps. */
-export function instantControl(mask: Uint8Array, presences: Presence[], sigma = DEFAULT_CONTROL_SIGMA): ControlGrid {
-  const grid = emptyGrid(mask)
-  const { n, values } = grid
+/**
+ * No memory, for designed steps: a playable cell whose influence is stronger
+ * than 0.05 is its target (and touched); every other one is `baseline`.
+ */
+export function instantControl(
+  mask: Uint8Array,
+  presences: Presence[],
+  sigma = DEFAULT_CONTROL_SIGMA,
+  baseline: -1 | 0 | 1 = 0,
+): ControlGrid {
+  const grid = emptyGrid(mask, baseline)
+  const { n, values, touched } = grid
   const field = influenceField(n, mask, presences, sigma)
   const cells = n * n
   for (let k = 0; k < cells; k++) {
     if (!mask[k]) continue
     const I = field[k]
-    if (I > INFLUENCE_FLOOR || I < -INFLUENCE_FLOOR) values[k] = I > 1 ? 1 : I < -1 ? -1 : I
+    if (I > INFLUENCE_FLOOR || I < -INFLUENCE_FLOOR) {
+      values[k] = I > 1 ? 1 : I < -1 ? -1 : I
+      touched[k] = 1
+    }
   }
   grid.version = 1
   return grid
@@ -242,7 +277,8 @@ function deathsOf(bundle: ReplayBundle): Map<string, number[]> {
  * plus multiples of 100 ms, so consecutive calls (a, b] then (b, c] give the
  * same grid as one call (a, c]. Ticks outside the round's span are skipped.
  * Each tick uses the players present and alive at it. Going backwards is the
- * caller's job: start again from a fresh grid at the round start.
+ * caller's job: start again from a fresh grid at the round start, made with
+ * `emptyGrid(mask, baselineFor(round))`.
  */
 export function simulateControl(
   bundle: ReplayBundle,
@@ -288,8 +324,8 @@ export function simulateControl(
 
 /**
  * Each team's share of the map once a second from the barrier to the round's
- * end, simulated from a fresh grid at buy start. For the scrubber's track and
- * the summary line.
+ * end, simulated from a fresh grid at buy start that starts at the round's
+ * baseline (`baselineFor`). For the scrubber's track and the summary line.
  */
 export function controlTimeline(
   bundle: ReplayBundle,
@@ -297,7 +333,7 @@ export function controlTimeline(
   mask: Uint8Array,
   transform: MapTransform,
 ): { t: number; share: ControlShare }[] {
-  const grid = emptyGrid(mask)
+  const grid = emptyGrid(mask, baselineFor(round))
   const span = roundSpan(bundle, round)
   const out: { t: number; share: ControlShare }[] = []
   let at = span.start

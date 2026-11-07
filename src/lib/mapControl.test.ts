@@ -6,6 +6,8 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
   averageShare,
+  baselineFor,
+  baselineForSide,
   CONTROL_N,
   DEFAULT_CONTROL_SIGMA,
   controlShare,
@@ -96,6 +98,7 @@ test('stepControl moves toward the target with a 2.5 s time constant', () => {
 test('stepControl decays toward zero with a 25 s time constant where nobody is near', () => {
   const grid = emptyGrid(fullMask())
   grid.values.fill(1)
+  grid.touched.fill(1)
   stepControl(grid, [ally(centre(0), centre(0))], 25000, SIGMA)
   assert.ok(Math.abs(at(grid, 0.9, 0.9) - Math.exp(-1)) < 1e-6)
   // Near the ally the cell was already at the target: it stays.
@@ -103,6 +106,7 @@ test('stepControl decays toward zero with a 25 s time constant where nobody is n
 
   const negative = emptyGrid(fullMask())
   negative.values.fill(-0.8)
+  negative.touched.fill(1)
   stepControl(negative, [], 50000, SIGMA)
   assert.ok(Math.abs(at(negative, 0.5, 0.5) + 0.8 * Math.exp(-2)) < 1e-6)
 })
@@ -150,6 +154,58 @@ test('controlShare: claimed + contested cover the playable cells, ally + enemy t
   assert.deepEqual(controlShare(emptyGrid(mask)), { ally: 0, enemy: 0, contested: 1, claimed: 0 })
   // Nothing playable: all zero.
   assert.deepEqual(controlShare(emptyGrid(new Uint8Array(N * N))), { ally: 0, enemy: 0, contested: 0, claimed: 0 })
+})
+
+test('a baseline grid starts every playable cell at the defenders’ value, nothing touched', () => {
+  const mask = fullMask()
+  mask[3] = 0
+  const grid = emptyGrid(mask, -1)
+  assert.equal(grid.baseline, -1)
+  for (let k = 0; k < N * N; k++) {
+    assert.equal(grid.values[k], mask[k] ? -1 : 0)
+    assert.equal(grid.touched[k], 0)
+  }
+  assert.deepEqual(controlShare(grid), { ally: 0, enemy: 1, contested: 0, claimed: 1 })
+  assert.equal(emptyGrid(mask).baseline, 0)
+  assert.ok(emptyGrid(mask).values.every(v => v === 0))
+})
+
+test('an ally cuts a positive, touched region through a baseline; after it leaves the region fades and the rest stays', () => {
+  const grid = emptyGrid(fullMask(), -1)
+  const u = centre(8)
+  for (let k = 0; k < 100; k++) stepControl(grid, [ally(u, u)], 100, SIGMA)
+  assert.ok(at(grid, u, u) > 0.9)
+  assert.equal(grid.touched[8 * N + 8], 1)
+  assert.equal(grid.touched[0], 0, 'a far corner was never reached')
+  assert.equal(at(grid, 0.02, 0.02), -1)
+
+  const held = at(grid, u, u)
+  stepControl(grid, [], 25000, SIGMA)
+  assert.ok(Math.abs(at(grid, u, u) - held * Math.exp(-1)) < 1e-5, 'touched cells decay toward 0')
+  assert.equal(at(grid, 0.02, 0.02), -1, 'untouched cells keep the baseline')
+  stepControl(grid, [], 600000, SIGMA)
+  assert.ok(Math.abs(at(grid, u, u)) < 1e-6)
+  assert.equal(at(grid, 0.02, 0.02), -1)
+})
+
+test('instantControl with a baseline is the target near presences and the baseline elsewhere', () => {
+  const u = centre(8)
+  const grid = instantControl(fullMask(), [ally(u, u)], SIGMA, -1)
+  assert.equal(grid.baseline, -1)
+  assert.equal(at(grid, u, u), 1)
+  assert.equal(grid.touched[8 * N + 8], 1)
+  assert.equal(at(grid, 0.02, 0.02), -1)
+  assert.equal(grid.touched[0], 0)
+  assert.equal(at(instantControl(fullMask(), [], SIGMA, 1), 0.5, 0.5), 1)
+})
+
+test('baselineFor and baselineForSide give the defenders’ sign', () => {
+  const round = fixture().rounds[0]
+  assert.equal(baselineFor({ ...round, side: 'attacker' }), -1)
+  assert.equal(baselineFor({ ...round, side: 'defender' }), 1)
+  assert.equal(baselineFor({ ...round, side: null }), 0)
+  assert.equal(baselineForSide('attack'), -1)
+  assert.equal(baselineForSide('defense'), 1)
 })
 
 test('version starts at 0 and every mutation bumps it', () => {
@@ -297,10 +353,18 @@ test('controlTimeline samples once a second from the barrier to the end', () => 
     assert.ok(Math.abs(share.claimed + share.contested - 1) < 1e-9)
     if (share.claimed > 0) assert.ok(Math.abs(share.ally + share.enemy - 1) < 1e-9)
   }
-  const grid = emptyGrid(fullMask())
+  const grid = emptyGrid(fullMask(), -1)
   simulateControl(bundle, round, round.buyStartMs, 30000, grid, T)
   assert.deepEqual(timeline[0].share, controlShare(grid))
-  assert.ok(timeline[0].share.ally > 0 && timeline[0].share.enemy > 0)
+  // The owner attacks round 1: the enemy defends and holds all but what the allies stand in.
+  // (In this 16-cell fixture σ is a seventh of the map, so the allies' ground and its contested rim are large.)
+  const first = timeline[0].share
+  assert.ok(first.ally > 0)
+  assert.ok(first.enemy > 0.8, `enemy ${first.enemy}`)
+  assert.ok(first.claimed > 0.8, `claimed ${first.claimed}`)
+  const neutral = emptyGrid(fullMask(), 0)
+  simulateControl(bundle, round, round.buyStartMs, 30000, neutral, T)
+  assert.ok(controlShare(neutral).enemy < first.enemy - 0.3, 'without a baseline the enemy holds only its spawn')
   // Round 2 has no measured barrier or end: buy + 30 s, then 120 s past it.
   const second = controlTimeline(bundle, bundle.rounds[1], fullMask(), T)
   assert.equal(second[0].t, 130000)
