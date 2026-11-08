@@ -1,4 +1,4 @@
-import { Layers, Minimize2, Tag, UserRound } from 'lucide-react'
+import { Layers, Minimize2, Sparkles, Tag, UserRound } from 'lucide-react'
 import type { Tool } from '../PlayCanvas'
 import type { CanvasSizes } from '../../lib/canvasSizes'
 import type { CanvasSkinId } from '../../lib/canvasSkins'
@@ -13,6 +13,9 @@ interface TheatreChromeProps {
   onToggleCallouts(): void
   showNames: boolean
   onToggleNames(): void
+  /** What each agent has left: given while a replay is open. */
+  showKit?: boolean
+  onToggleKit?(): void
   showControl: boolean
   onToggleControl(): void
   sizes: CanvasSizes
@@ -59,6 +62,12 @@ export default function TheatreChrome(props: TheatreChromeProps) {
           <UserRound className="w-3.5 h-3.5" />
           Names
         </button>
+        {props.onToggleKit && (
+          <button type="button" onClick={props.onToggleKit} aria-pressed={props.showKit === true} className={toggle(props.showKit === true)}>
+            <Sparkles className="w-3.5 h-3.5" />
+            Abilities
+          </button>
+        )}
         <button type="button" onClick={props.onToggleControl} aria-pressed={props.showControl} className={toggle(props.showControl)}>
           <Layers className="w-3.5 h-3.5" />
           Control

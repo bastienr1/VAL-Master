@@ -35,11 +35,12 @@ import duckdb
 import _env
 
 SCHEMA = 1
-REDUCER_VERSION = "0.3.0"
+REDUCER_VERSION = "0.4.0"
 # 0.2.0: effects also hold the ability actors vrfkit's keyword filter leaves out (Sova's bolts,
 #        Raze's grenades, KAY/O's knife, Fade's prowlers...), with `kind` "other".
 # 0.3.0: effects may carry `points` (a wall's shape, point by point, timed) and `track` (a
 #        projectile's or a pawn's movement), both as [t, x, y] rows.
+# 0.4.0: `kits`: by player, each ability's charges over time and their ultimate points.
 
 # Leaf prefixes of the actors an ability puts in the world; `Ability_` controllers and `Gun_` weapons
 # are not among them.
@@ -55,6 +56,52 @@ MAPS_URL = "https://valorant-api.com/v1/maps"
 # up with characterUltimateUsed events (9) and with the Ability_4 / Ability_Q / Ability_E class
 # path segment of the actor each cast spawns. gate2_check.py re-measures the agreement.
 SLOT_KEYS = {3: "C", 4: "Q", 5: "E", 9: "X"}
+
+# Which key each ability controller is on. The folder and the `_4_` / `_Q_` / `_E_` in a class name
+# do not say (Raze's Boom Bot is `Ability_E` and on C). From the casts that line up with each
+# controller's charges going down, over the 68 replays of 2026-11-08, checked against the game.
+ABILITY_KEYS = {
+    "Aggrobot_C_ExplodeyPatch": "C", "Q_Aggrobot_SeekerNade": "Q", "E_Aggrobot_DiscTurret": "E",
+    "BountyHunter_4_WolfHoundBendable": "C", "Q_BountyHunter_TetherDivebomb": "Q", "E_BountyHunter_ReconDivebomb": "E",
+    "Breach_4_FusionBlast": "C", "Breach_Q_Flash": "Q", "Breach_E_Fissure": "E",
+    "Cable_E_CableJam": "C", "Cable_Q_SoundSensor": "Q", "Cable_4_NetToss": "E",
+    "Cashew_4_Spider_LockOn": "C", "Cashew_Q_ShellShockGrenade": "Q", "Cashew_E_Airstrike": "E",
+    "Clay_E_Boomba": "C", "Clay_Q_Satchel": "Q", "Clay_4_ClusterGrenade": "E",
+    "Deadeye_4_Trap": "C", "Deadeye_Q_Pistol": "Q", "Deadeye_E_Teleporter_Tethers": "E",
+    "Grenadier_Q_BasicSemtex": "C", "Grenadier_C_Flash": "Q", "E_Grenadier_EMPKnife": "E",
+    "Guide_4_Heal": "C", "Guide_Q_PossessableScout": "Q", "Guide_E_HawkFlash": "E",
+    "Gumshoe_4_TripWire": "C", "Gumshoe_E_TripWire": "C", "Gumshoe_4_CageTrap": "Q", "Gumshoe_Q_CageTrap": "Q",
+    "Gumshoe_E_Camera": "E", "Gumshoe_Q_Camera": "E",
+    "Hunter_E_DeployDrone": "C", "Hunter_4_BoltExplosive": "Q", "Hunter_Q_RevealBolt_Signature": "E",
+    "Iris_Thumper": "C", "Iris_Harmonize": "Q", "Iris_E_MT_Smoke_Production": "E",
+    "Killjoy_4_RemoteBees_MultiDetonate": "C", "Killjoy_Q_Alarmbot": "Q", "Killjoy_E_Turret": "E",
+    "Mage_4_SplashGrenade": "C", "Mage_Q_Wall": "Q", "Mage_E_WorldSmoke": "E",
+    "Nox_BarbedWire": "C", "Nox_FlashTrap": "E",
+    "Pandemic_Q_AcidGrenade": "C", "Pandemic_4_SmokeGrenade": "Q", "Pandemic_E_SmokeScreen": "E",
+    "Paprika_4_PullBlast": "C", "Paprika_Q_RedirectFlash": "Q", "Paprika_E_RedirectPull": "E",
+    "Phoenix_Q_FireballWall_Production": "C", "Phoenix_4_Molotov_Production": "Q", "Phoenix_E_FlareCurve_Production": "E",
+    "Pine_4_UsableTP": "C", "Pine_Q_SeizeTrap": "Q", "Pine_E_RadEater": "E",
+    "Rift_4_BlackHole": "C", "Rift_Q_FlashBurst": "Q", "Rift_E_TransformRift_Smoke": "E",
+    "Sarge_E_SpeedStim": "C", "Sarge_Q_Molotov_Production": "Q", "Sarge_4_MapTargetSmoke_Production": "E",
+    "Sequoia_4_Wave": "C", "Sequoia_Q_FragileMissilePrototypeEquipped": "Q", "Sequoia_E_WreckingBall": "E",
+    "Smonk_BFArmor_Reactive": "C", "Q_Smonk_DebuffKnife": "Q", "Smonk_E_MapTargetSmokeV2": "E",
+    "Sprinter_4_Tunnel_Production": "C", "Sprinter_Q_GroundStrike_Production": "Q", "Sprinter_E_Sprint_Production": "E",
+    "Stealth_4_Decoy": "C", "Stealth_Q_BounceFlash": "Q", "Stealth_E_Teleport": "E",
+    "Terra_C_TimeSlowGrenade": "C", "Terra_Q_DoubleDash": "Q", "Terra_E_RewindTime": "E",
+    "Thorne_E_Wall_Fortifying": "C", "Thorne_4_SlowField_Production": "Q", "Thorne_Q_Heal_Production_New": "E",
+    # Soul orbs: one resource for Devour (Q) and Dismiss (E).
+    "Vampire_4_NearsightAoE": "C", "Vampire_Q_Heal": "QE",
+    "Wraith_E_ShortTeleport": "C", "Wraith_Q_NearsightMissile": "Q", "Wraith_4_Smoke": "E",
+    "Wushu_4_Smoke": "C", "Wushu_Q_CycloneBoost": "Q", "Wushu_E_Dash": "E", "Wushu_E_Dash_Production": "E",
+}
+# Ultimate points, by the agent's codename, for a player who never used theirs in the match: the
+# most any player of that agent held in those replays. Otherwise the points they had when it reset.
+ULT_POINTS = {
+    "aggrobot": 8, "bountyhunter": 8, "breach": 8, "cable": 7, "cashew": 9, "clay": 8, "deadeye": 8, "grenadier": 8,
+    "guide": 8, "gumshoe": 7, "hunter": 8, "iris": 8, "killjoy": 9, "mage": 7, "nox": 8, "pandemic": 9, "paprika": 8,
+    "phoenix": 7, "pine": 7, "rift": 7, "sarge": 8, "sequoia": 7, "smonk": 8, "sprinter": 8, "stealth": 8, "terra": 8,
+    "thorne": 7, "vampire": 7, "wraith": 7, "wushu": 8,
+}
 
 CAST_FIELD = re.compile(r"^AbilityCastsThisRound\[(\d+)\]\.([A-Za-z]+)_\d+_[0-9A-F]{32}$")
 
@@ -581,6 +628,57 @@ def main():
     flush()
     casts.sort(key=lambda c: c["t"])
 
+    # ---- kits -----------------------------------------------------------------------------
+    # What each player has left: the game's own count of each ability's charges, by key, and their
+    # ultimate points. Three components hold the count (Equipment Charge, Signature Ability Resource
+    # for kill resets, Ammo for Headhunter), guns use the last: only `Ability_` controllers count.
+    # A controller the table does not know is left out and named in the warnings.
+    kits, unkeyed = {}, set()
+    for guid, t, value in con.execute("""
+            select actor_net_guid, time_ms, value_i64 from fields
+            where field_name = 'AuthResourceAmount' and value_i64 is not null
+            order by time_ms, packet_id""").fetchall():
+        cls = (actor_class.get(guid) or "").removeprefix("Default__")
+        if not cls.startswith("Ability_"):
+            continue
+        name = cls.removeprefix("Ability_").removesuffix("_C")
+        keys = ABILITY_KEYS.get(name)
+        if keys is None:
+            if not name.startswith("Rift_Passive"):
+                unkeyed.add(name)
+            continue
+        subject = subject_of.get(instigator.get(guid))
+        if subject:
+            for key in keys:
+                kits.setdefault(subject, {}).setdefault(key, []).append([t, value])
+    if unkeyed:
+        warnings.append(f"ability controllers with no key: {', '.join(sorted(unkeyed))}")
+    for state, t, value in con.execute("""
+            select actor_net_guid, time_ms, value_i64 from fields
+            where field_name = 'NumUltimatePoints' and value_i64 is not null
+            order by time_ms, packet_id""").fetchall():
+        subject = state_subject.get(state)
+        if subject:
+            kits.setdefault(subject, {}).setdefault("X", []).append([t, value])
+    code_of = {}
+    for body, subject in subject_of.items():
+        code = (actor_class.get(body) or "").removeprefix("Default__").split("_")[0].lower()
+        if code:
+            code_of[subject] = code
+    for subject, kit in kits.items():
+        for key, rows in list(kit.items()):
+            rows.sort(key=lambda row: row[0])
+            kit[key] = [row for i, row in enumerate(rows) if i == 0 or rows[i - 1][1] != row[1]]
+        points = kit.get("X")
+        if points:
+            # The points held when a cast of the ultimate took them to zero.
+            used = [c["t"] for c in casts if c["player"] == subject and c["slot"] == "X"]
+            spent = [a[1] for a, b in zip(points, points[1:])
+                     if b[1] == 0 and a[1] > 0 and any(abs(t - b[0]) <= 3000 for t in used)]
+            cost = max(spent) if spent else ULT_POINTS.get(code_of.get(subject, ""))
+            if cost:
+                kit["cost"] = cost
+
     # ---- effects and carriers (from vrfkit's derived tables) --------------------------------
     effects, carriers = [], []
     taken = set()  # (actor guid, open ms) of every effect row already in
@@ -720,6 +818,7 @@ def main():
         "effects": effects,
         "spike": {"carriers": carriers, "plants": spike_plants, "defuses": spike_defuses},
         "pawns": {"fields": ["t", "x", "y", "yaw"], "items": pawns},
+        "kits": kits,
     }
     raw = json.dumps(bundle, separators=(",", ":")).encode("utf-8")
     bundle_path = out_dir / f"minimap.v{SCHEMA}.json.gz"

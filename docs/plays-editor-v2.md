@@ -666,6 +666,25 @@ place (3,345 of 3,346). Bundles from before reducer 0.3.0 hold area effects only
 their casts ride on the agent until the bundle is re-attached. Curveball and
 Flashbulb have neither a landing actor nor a track, so they ride on the agent too.
 
+### 2.15 What each agent has left
+
+During a replay a strip above each agent's tile shows their abilities, C Q E X
+(`kitOf` in `PlayCanvas.tsx`, the **Abilities** toggle, `plays.showKit`). White
+with a charge left, dim when spent, pips for more than one charge. When a charge
+comes back during a round (a cooldown, a kill reset, a picked-up device) or the
+ultimate is ready, it glows in the agent's colour for 1.5 s. Buying in the buy
+phase does not glow.
+
+The numbers are the game's own (reducer 0.4.0, `bundle.kits`, read by
+`replayKit.ts`): `AuthResourceAmount` on each `Ability_` controller, through three
+components (Equipment Charge, Signature Ability Resource for kill resets, Ammo for
+Headhunter), and `NumUltimatePoints`. The key of each controller is a table in
+the reducer, `ABILITY_KEYS`, because neither its folder nor its name says (Raze's
+Boom Bot is `Ability_E` and on C). The ultimate's cost is the points held when a
+cast of it took them to zero, else `ULT_POINTS`, the most any player of that agent
+held. Soul orbs show on both of Reyna's Q and E. Vyse's Shear has no record, so
+it has no icon. Bundles from before 0.4.0 have no strip.
+
 ## 3. Document v2 (`src/lib/playDoc.ts`)
 
 ```ts

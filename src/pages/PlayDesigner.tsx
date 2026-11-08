@@ -484,6 +484,13 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
     })
   // Names under the agent tiles, on by default and remembered per device like the callouts.
   const [showNames, setShowNamesState] = useState(() => readFlag('plays.showNames', true))
+  // What each agent has left, on a replay: on by default, remembered per device.
+  const [showKit, setShowKitState] = useState(() => readFlag('plays.showKit', true))
+  const toggleKit = () =>
+    setShowKitState(prev => {
+      writeFlag('plays.showKit', !prev)
+      return !prev
+    })
   const toggleNames = () =>
     setShowNamesState(prev => {
       writeFlag('plays.showNames', !prev)
@@ -1061,6 +1068,11 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
       // A throw caught mid-air is kept as thrown: the strat shows where it lands, not the frame.
       // A strat shows intent, not a frame: a throw in flight is kept landed, and no time-left ring.
       elements: source.elements.map(el => {
+        if (el.kind === 'agent') {
+          const agent = { ...el }
+          delete agent.kit
+          return agent
+        }
         if (el.kind !== 'ability') return el
         const landed = { ...el }
         delete landed.progress
@@ -1486,6 +1498,8 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
         onToggleCallouts={() => setShowCallouts(s => !s)}
         showNames={showNames}
         onToggleNames={toggleNames}
+        showKit={showKit}
+        onToggleKit={inReplay ? toggleKit : undefined}
         showControl={showControl}
         onToggleControl={toggleControl}
         sizes={sizes}
@@ -1596,6 +1610,7 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
                 selectedId={selectedId}
                 showCallouts={showCallouts}
                 showNames={showNames}
+                showKit={inReplay && showKit}
                 sizes={sizes}
                 skin={skinId}
                 animate={inReplay ? false : animate}
@@ -1654,6 +1669,8 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
               onToggleCallouts={() => setShowCallouts(s => !s)}
               showNames={showNames}
               onToggleNames={toggleNames}
+              showKit={showKit}
+              onToggleKit={inReplay ? toggleKit : undefined}
               showControl={showControl}
               onToggleControl={toggleControl}
               sizes={sizes}

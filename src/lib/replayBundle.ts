@@ -116,6 +116,15 @@ export interface ReplayPawn {
   samples: ReplayPawnSample[]
 }
 
+/** `[t, n]` rows in time order: charges held, or (key X) ultimate points. */
+export type ReplayCharges = Array<[number, number]>
+
+/** Reducer 0.4.0: one player's abilities over the match, by in-game key. */
+export type ReplayKit = Partial<Record<'C' | 'Q' | 'E' | 'X', ReplayCharges>> & {
+  /** The points this player's ultimate cost in this match, when known. */
+  cost?: number
+}
+
 export interface ReplayBundle {
   schema: typeof REPLAY_BUNDLE_SCHEMA
   parser: { vrfkit: string | null; reducer: string }
@@ -140,6 +149,8 @@ export interface ReplayBundle {
   effects: ReplayEffect[]
   spike: ReplaySpike
   pawns: { fields: string[]; items: ReplayPawn[] }
+  /** Reducer 0.4.0, by subject. Absent on older bundles. */
+  kits?: Record<string, ReplayKit>
 }
 
 /** A file that is not a usable bundle. The message is written for the person who picked it. */

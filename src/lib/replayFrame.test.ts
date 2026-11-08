@@ -468,7 +468,7 @@ test('a smoke put down far from the agent leaves nothing at the agent', () => {
 
 test('what acts on the agent alone rides on them, and only that', () => {
   const bundle = utilityFixture()
-  bundle.effects = [{ start: 1000, end: 1500, kind: 'other', agent: null, cls: 'Projectile_Wraith_4_Smoke_C', x: 0, y: 0, owner: OMEN }]
+  bundle.effects = [{ start: 1000, end: 1500, kind: 'other', agent: null, cls: 'Projectile_Wraith_4_Smoke_C', x: 0, y: 0, owner: OMEN, track: [[1000, 0, 0], [1500, 100, 0]] }]
   bundle.casts = [
     { t: 40000, round: 1, player: SOVA, slot: 'X', x: 0, y: 0 },
     { t: 40000, round: 1, player: SOVA, slot: 'E', x: 0, y: 0 },
@@ -478,6 +478,26 @@ test('what acts on the agent alone rides on them, and only that', () => {
   assert.equal(shown[0].slot, 'Ultimate')
   assert.equal(shown[0].family, 'self')
   nearPos(shown[0].at, 0.6, 0.6, 'on the agent, not where it was cast')
+})
+
+test('a throw with neither a landing nor a track rides on its agent', () => {
+  const bundle = utilityFixture()
+  bundle.effects = [
+    { start: 40000, end: 42000, kind: 'other', agent: null, cls: 'Projectile_Phoenix_E_FlareCurve_Synced_C', x: 1000, y: 1000, owner: SOVA },
+    { start: 1000, end: 1500, kind: 'other', agent: null, cls: 'Projectile_Wraith_4_Smoke_C', x: 0, y: 0, owner: OMEN, track: [[1000, 0, 0], [1500, 100, 0]] },
+  ]
+  bundle.casts = [{ t: 40000, round: 1, player: SOVA, slot: 'E', x: 1000, y: 1000 }]
+  const shown = abilities(frameStep(bundle, 40500, lookup, T, createFrameIds())).filter(a => a.agent === 'Sova')
+  assert.equal(shown.length, 1)
+  assert.equal(shown[0].family, 'self')
+})
+
+test('an agent carries what they have left', () => {
+  const bundle = utilityFixture()
+  bundle.kits = { [SOVA]: { Q: [[10000, 2], [40000, 1]], X: [[5000, 8]], cost: 8 } }
+  const sova = frameStep(bundle, 45000, lookup, T, createFrameIds()).elements.find(e => e.kind === 'agent' && e.agent === 'Sova')
+  assert.ok(sova && sova.kind === 'agent')
+  assert.deepEqual(sova.kit?.map(k => [k.slot, k.n]), [['Ability1', 1], ['Ultimate', 1]])
 })
 
 test('a burst is over by its own clock while its actor stays', () => {

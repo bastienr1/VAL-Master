@@ -52,6 +52,7 @@ import {
   type AbilityFamily,
   type AbilityLook,
 } from './agentAbilities.ts'
+import { kitAt } from './replayKit.ts'
 import { classInfo, type EffectClassInfo } from './utilityClasses.ts'
 
 export interface ReplayAgentInfo { name: string; abilities: { slot: AbilitySlot; name: string }[] }
@@ -79,6 +80,8 @@ const ROUND_SPAN_AFTER_BARRIER_MS = 120_000
 const CAST_EFFECT_MS = 3_000
 /** …and this distance (world cm). */
 const CAST_EFFECT_CM = 300
+/** An effect may open this long before the cast the game records for it. */
+const CAST_LEAD_MS = 500
 /** An ability that acts on the agent alone is shown on the agent this long. */
 const SELF_SHOWN_MS = 1_500
 /** A landing pairs with a projectile of its owner when it starts this long before… */
@@ -249,8 +252,8 @@ interface EffectPlan {
   pawnOf: Map<number, [number, number, number][]>
   /** A wire anchor's index → its far end's. */
   wireEnd: Map<number, number>
-  /** Older bundles hold area effects only: a flash there has no actor of its own. */
-  hasActors: boolean
+  /** Whether the bundle knows where thrown things went: older ones hold area effects only. */
+  hasTracks: boolean
 }
 
 // Built once per bundle, like the deaths.
@@ -387,8 +390,8 @@ function buildPlan(effects: ReplayEffect[], pawns: ReplayBundle['pawns']['items'
     const anchor = effects.findIndex((a, j) => info[j].shape === 'trap' && !info[j].wireEnd && a.owner === e.owner && a.cls.includes('TripWire') && !wireEnd.has(j) && Math.abs(a.start - e.start) <= WALL_GROUP_MS)
     if (anchor >= 0) wireEnd.set(anchor, i)
   })
-  const hasActors = effects.some(e => e.cls.startsWith('Projectile_'))
-  return { info, landingOf, throwOf, walls, wallOf, tracerOf, pawnOf, wireEnd, hasActors }
+  const hasTracks = effects.some(e => e.track !== undefined && e.track.length > 0)
+  return { info, landingOf, throwOf, walls, wallOf, tracerOf, pawnOf, wireEnd, hasTracks }
 }
 
 /** When a tracked projectile reached the point its track ends at. */
@@ -506,6 +509,8 @@ export function frameStep(
     if (bundle.spike.carriers.some(c => c.player === player.subject && c.from <= t && t < c.to)) el.spike = true
     const name = playerName?.(player.subject)
     if (name) el.player = name
+    const kit = bundle.kits?.[player.subject]
+    if (kit) el.kit = kitAt(kit, t, roundBarrier(round))
     elements.push(el)
   }
 
@@ -676,7 +681,8 @@ export function frameStep(
     elements.push(el)
   })
 
-  // What acts on the agent alone rides on the agent. So does any cast on an older bundle, which has no actor to show where it went.
+  // What acts on the agent alone rides on the agent. So does what the replay cannot place: a cast on an
+  // older bundle with no effect of its own, and a throw with neither a landing nor a track (Curveball).
   const usedCastIds = new Set<string>()
   for (const cast of casts) {
     if (cast.t <= t - SELF_SHOWN_MS || cast.t > t || cast.t < round.buyStartMs) continue
@@ -686,7 +692,11 @@ export function frameStep(
     if (!info) continue
     const agent = info.name.trim() || UNKNOWN_AGENT
     const { shape, radius } = abilityShape(agent, slot)
-    if (abilityLook(agent, slot, shape).family !== 'self' && plan.hasActors) continue
+    if (abilityLook(agent, slot, shape).family !== 'self') {
+      const ownNear = (i: number, e: ReplayEffect) => e.owner === cast.player && plan.info[i].role !== 'ignore' && e.start >= cast.t - CAST_LEAD_MS && e.start <= cast.t + CAST_EFFECT_MS
+      const unplaced = effects.some((e, i) => ownNear(i, e) && plan.info[i].role === 'projectile' && !plan.landingOf.has(i) && !(e.track && e.track.length >= 2) && (!plan.info[i].slot || plan.info[i].slot === slot))
+      if (!unplaced && (plan.hasTracks || effects.some((e, i) => ownNear(i, e)))) continue
+    }
     const state = playerStateAt(bundle.tracks.byPlayer[cast.player] ?? [], t)
     if (!state || !isAliveAt(state, deaths.get(cast.player), t)) continue
     const id = ids.forCast(cast)

@@ -78,6 +78,14 @@ export type MarkerType = 'spike' | 'enemy' | 'pin'
 
 const MARKER_TYPES: readonly MarkerType[] = ['spike', 'enemy', 'pin']
 
+/** One ability of an agent at a replay's instant: charges left (for the ultimate, 1 when ready), and how bright its recharge glow is, 1…0. */
+export interface KitSlot {
+  slot: AbilitySlot
+  n: number
+  max: number
+  glow: number
+}
+
 export interface AgentElement {
   kind: 'agent'
   id: string
@@ -94,6 +102,8 @@ export interface AgentElement {
   spike?: boolean
   /** Who played the agent: the Riot name, without the tag, on agents taken from a match replay. */
   player?: string
+  /** A replay frame's: what the agent has left. Not kept in a strat. */
+  kit?: KitSlot[]
 }
 
 export interface AbilityElement {
@@ -467,6 +477,14 @@ function parseElements(
         if (e.spike === true) el.spike = true
         const player = text(e.player)
         if (player) el.player = player
+        const kit = list(e.kit).flatMap((raw): KitSlot[] => {
+          if (typeof raw !== 'object' || raw === null) return []
+          const k = raw as Record<string, unknown>
+          const slot = oneOf(k.slot, ABILITY_SLOTS)
+          const [n, max, glow] = [finite(k.n), finite(k.max), finite(k.glow)]
+          return slot && n !== null && max !== null && glow !== null ? [{ slot, n, max, glow }] : []
+        })
+        if (kit.length > 0) el.kit = kit
         elements.push(el)
         break
       }
