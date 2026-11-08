@@ -48,7 +48,7 @@ import {
 import { Maximize2 } from 'lucide-react'
 import { useGameContent } from '../hooks/useGameContent'
 import { type GameAgent, type GameMap } from '../lib/gameContent'
-import { SLOT_KEYS, abilityShape } from '../lib/agentAbilities'
+import { abilityShape, agentInk } from '../lib/agentAbilities'
 import {
   elementAt,
   newId,
@@ -180,8 +180,8 @@ function paintControl(grid: ControlGrid, skin: CanvasSkin): string | null {
   return canvas.toDataURL('image/png')
 }
 const WHITE = '#FFFFFF'
-/** The little key tag on a badge stays dark on every skin: it sits on the badge's colour. */
-const KEY_TAG_FILL = '#0B1220'
+/** The ability token's disc is dark on every skin, so the white glyph reads on every agent's colour. */
+const TOKEN_FILL = '#0B1220'
 const FONT = 'Inter, sans-serif'
 
 /**
@@ -201,52 +201,64 @@ const TILE_RX = 6
 const TILE_RING = 3
 const GHOST_OPACITY = 0.25
 
-/** Areas are drawn in their shape's colour (`UTILITY_COLORS`), not the agent's. */
-const ABILITY_FILL = 0.3
-/** Smokes block vision, so they read a little denser. */
-const SMOKE_FILL = 0.38
-/** Above this radius an area is drawn as an outline with a faint fill. */
+/** Above this radius an area is an outline with a faint fill, so a map-wide ultimate buries nothing. */
 const HUGE_AREA_CM = 1500
 const HUGE_FILL = 0.06
-const ABILITY_RING = 0.85
-/** Ring of a filled shape. */
+/** How dense each kind of area reads: what blocks sight the most. */
+const CLOUD_FILL = 0.42
+const ZONE_FILL = 0.2
+const WAVE_FILL = 0.24
+const AREA_RING = 0.85
 const RING_WIDTH = 1.5
-/** Stroke of a shape that is only a ring (recon, ult, other). */
-const OUTLINE_WIDTH = 4
-/** The ability badge (§2.10): a disc in the shape's colour, a ring in the thrower's team colour, the white glyph inside. */
-const BADGE_R = 13
-const BADGE_RING = 2
+/** A burst: the shock ring's width, the wash of its reach. */
+const BURST_RING = 4
+const BURST_WASH = 0.14
+/** Where the ability is going, drawn while it flies. */
+const GHOST_DASH = '4 5'
+const GHOST_OPACITY_AREA = 0.7
+/** A reveal pulses this many times over its life. */
+const REVEAL_PULSES = 2
 /** A view cone runs across the map until a wall stops it, so it stays faint. */
 const CONE_FILL = 0.12
-/** The time-left ring around a replay frame's badge: its radius, width and length. */
-const LIFE_R = BADGE_R + BADGE_RING + 3.5
+/** The token (§2.14): a dark disc, the thrower's team as its ring, the white glyph. */
+const BADGE_R = 15
+const BADGE_RING = 2
+/** A device's token is square: it sits and waits. */
+const DEVICE_RX = 6
+/** What acts on the agent alone is a small token beside them. */
+const CHIP_SCALE = 0.68
+const CHIP_OFFSET = 21
+/** The time-left ring around the token: its radius and width. */
+const LIFE_R = BADGE_R + BADGE_RING + 3
 const LIFE_WIDTH = 3
 const LIFE_LENGTH = 2 * Math.PI * LIFE_R
-const BADGE_GLYPH = 18
+const BADGE_GLYPH = 22
 /** The letter drawn instead when the registry has no glyph. */
 const BADGE_LETTER = 14
-/** The key tag at the badge's top-right: an 11-unit rounded square with the C / Q / E / X letter. */
-const KEY_TAG = 11
-const KEY_TAG_RX = 2.5
-const KEY_LETTER = 8
-/** The tag's centre, on the badge's rim at 45°. */
-const KEY_TAG_AT = BADGE_R * Math.SQRT1_2
-/** The throw arc: dashed, in the agent's colour; fainter while the ability is still in flight. */
+/** Seconds left, under the token. */
+const SECONDS_SIZE = 12
+const SECONDS_Y = LIFE_R + LIFE_WIDTH + 9
+/** A token whose ability has not arrived yet. */
+const INBOUND_OPACITY = 0.6
+/** The thrown thing, and the way it came. */
+const COMET_R = 5
+const COMET_HALO = 1.5
+const TRAIL_WIDTH = 2
+const TRAIL_DASH = '5 4'
+const TRAIL_OPACITY = 0.75
+const TRAIL_LANDED_OPACITY = 0.35
+/** A designed throw's arc. */
 const ARC_WIDTH = 2
 const ARC_DASH = '5 4'
 const ARC_OPACITY = 0.9
-const ARC_FLIGHT_OPACITY = 0.55
-/** The arc stops this short of a badge at the landing, so its arrowhead shows. */
+/** The arc stops this short of a token at the landing, so its arrowhead shows. */
 const ARC_END_GAP = BADGE_R + 2
-/** A wall's line through its path. */
+/** A wall's line through its path, a wire's. */
 const WALL_LINE = 7
 const WALL_LINE_OPACITY = 0.9
+const WIRE_LINE = 2
 /** The handle at a selected ability's `from`. */
 const FROM_HANDLE_R = 10
-/** Shapes too small to read around the icon get at least this size. */
-const BURST_MIN = 28
-const TRAP_MIN = 22
-const DRONE_MIN = 16
 const WALL_WIDTH = 14
 const WALL_BAR_MIN = 48
 /** Hit radius around anything small. */
@@ -382,19 +394,6 @@ const pointsAttr = (points: Point[], dx = 0, dy = 0) =>
 /** No text measuring in SVG without a layout pass: an average glyph width of Inter. */
 const textWidth = (s: string, size: number) => Math.max(size, s.length * size * 0.56) + 16
 
-/** An eight-point star, outer radius `r`: the flash burst. */
-function burst(r: number): string {
-  const points: string[] = []
-  for (let i = 0; i < 16; i++) {
-    const a = (i * Math.PI) / 8 - Math.PI / 2
-    const k = i % 2 === 0 ? r : r * 0.5
-    points.push(`${(Math.cos(a) * k).toFixed(1)},${(Math.sin(a) * k).toFixed(1)}`)
-  }
-  return points.join(' ')
-}
-
-const diamond = (r: number) => `0,${-r} ${r},0 0,${r} ${-r},0`
-
 const spikeTriangle = (r: number) => `M0,${-r}L${r * 0.85},${r * 0.6}L${-r * 0.85},${r * 0.6}Z`
 
 /** A map pin whose point is the origin: a round head on a tapering stem. */
@@ -405,30 +404,26 @@ const PIN_PATH =
 /** A marker id for an arrowhead in this colour, unique to the canvas instance. */
 const colorKey = (color: string) => color.replace(/[^a-zA-Z0-9]/g, '').toLowerCase() || 'none'
 
-/** In flight (§2.10): thrown, with a progress; the badge rides the arc and no area is drawn yet. */
+/** In flight (§2.14): thrown, with a progress. The token is already where it lands; only the flyer travels. */
 const inFlight = (item: PlacedAbility): item is PlacedAbility & { from: Point; progress: number } =>
   item.from !== null && item.progress !== null
 
 /**
  * Where an ability is drawn to, from its centre: its selection ring sits
- * outside it. `k` is the marker scale (1 / zoom): the badge and the smallest
- * shapes keep their size on screen, real areas do not.
+ * outside it. `k` is the marker scale (1 / zoom): the token keeps its size on
+ * screen, real areas do not.
  */
 function abilityExtent(item: PlacedAbility, k: number): number {
-  // Only the badge stands at the centre of a throw in flight or of a wall drawn along its path.
-  if (inFlight(item) || item.path) return BADGE_R * k
-  switch (item.shape) {
-    case 'flash':
-      return Math.max(item.r, BURST_MIN * k)
-    case 'trap':
-      return Math.max(item.r, TRAP_MIN * k)
-    case 'drone':
-      return Math.max(item.r * 0.8, DRONE_MIN * k) * Math.SQRT2
-    case 'wall':
-      return Math.max(item.r * 2, WALL_BAR_MIN * k) / 2
-    default:
-      return item.r
-  }
+  if (item.path || item.family === 'device' || item.family === 'scout' || item.family === 'self') return BADGE_R * k
+  if (item.family === 'wall') return Math.max(item.r * 2, WALL_BAR_MIN * k) / 2
+  return item.r
+}
+
+/** A colour darkened for a light map, where the pale ones (Jett, Cypher) would vanish. */
+function darken(color: string): string {
+  const [r, g, b] = hexChannels(color)
+  const channel = (n: number) => Math.round(n * 0.6).toString(16).padStart(2, '0')
+  return `#${channel(r)}${channel(g)}${channel(b)}`
 }
 
 /** The registry's name for the slot, else the element's label, else the shape's. */
@@ -1218,10 +1213,19 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
   /** The drag offset of an ability's hand: only while its `from` handle is dragged. */
   const handOffsetOf = (id: string): Point => (live && live.id === id && live.part === 'from' ? [live.dx, live.dy] : [0, 0])
 
+  /** An ability's colour: its agent's, darkened on a light map; the shape's for an agent the table does not know. */
+  const inkOf = (item: PlacedAbility) => {
+    const ink = agentInk(item.agent) ?? skin.utility[item.shape]
+    const [r, g, b] = hexChannels(skin.back)
+    return 0.3 * r + 0.59 * g + 0.11 * b > 128 ? darken(ink) : ink
+  }
+
   /**
    * An ability as drawn now, the drag in progress included: its landing, its
-   * hand, its wall line, its throw arc and where the badge stands (on the arc
-   * in flight, at the middle of a wall's path, else at the landing).
+   * hand, its line, its throw arc and where the token stands. The token is at
+   * the point the ability takes effect: where it will land even while it
+   * flies, the front of a wave, the middle of a wall, beside an agent for what
+   * acts on them alone.
    */
   const abilityLayout = (item: PlacedAbility) => {
     const [dx, dy] = offsetOf(item.id)
@@ -1230,28 +1234,42 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
     const from: Point | null = item.from ? [item.from[0] + hx, item.from[1] + hy] : null
     const path = item.path ? item.path.map(([x, y]): Point => [x + dx, y + dy]) : null
     const flying = inFlight(item)
-    // Landed, the badge covers the landing: the arc stops at its rim so the arrowhead shows.
     const arc = from ? throwArc(from, at, flying ? 0 : ARC_END_GAP * k) : null
-    const badge: Point = flying && arc ? arc.pointAt(item.progress ?? 0) : path ? (polylineMidpoint(path) ?? at) : at
-    // A throw shorter than the badge has nothing to show between hand and landing.
-    const showArc = from !== null && Math.hypot(at[0] - from[0], at[1] - from[1]) > BADGE_R * 2 * k
+    const self = item.family === 'self'
+    const wire = item.family === 'device' && path
+    const badge: Point = self
+      ? [at[0] + CHIP_OFFSET * k, at[1] - CHIP_OFFSET * k]
+      : item.reach && !flying
+        ? [item.reach[0] + dx, item.reach[1] + dy]
+        : path && !wire
+          ? (polylineMidpoint(path) ?? at)
+          : at
+    // The real way it went wins over a drawn arc; a throw shorter than the token has nothing to show.
+    const showArc = from !== null && !item.trail && Math.hypot(at[0] - from[0], at[1] - from[1]) > BADGE_R * 2 * k
     return { at, from, path, flying, arc: showArc ? arc : null, badge }
   }
 
-  /** The badge (§2.10) about the origin: a disc in the shape's colour ringed in the thrower's team colour, the glyph, the key tag. */
-  const badgeOf = (item: PlacedAbility, color: string, icon: string | null) => {
-    const key = item.slot ? SLOT_KEYS[item.slot] : null
+  /** The token (§2.14) about the origin: every ability, one object. Square for a device; the clock, when it has one, always in the same place. */
+  const tokenOf = (item: PlacedAbility, ink: string, icon: string | null, flying: boolean) => {
+    const ring = throwerRing(item.agent)
+    // A burst's and a wave's area is its own clock.
+    const clocked = item.life !== null && !flying && item.family !== 'burst' && item.family !== 'wave'
+    const scale = item.family === 'self' ? `scale(${k * CHIP_SCALE})` : sized
     return (
-      <g pointerEvents="none" transform={sized}>
-        <circle r={BADGE_R} fill={color} stroke={throwerRing(item.agent)} strokeWidth={BADGE_RING} />
-        {item.life !== null && (
-          // Time left on a replay frame: a ring outside the badge, full when it starts, emptying clockwise from the top.
+      <g pointerEvents="none" transform={scale} opacity={flying ? INBOUND_OPACITY : 1}>
+        {item.family === 'device' ? (
+          <rect x={-BADGE_R} y={-BADGE_R} width={BADGE_R * 2} height={BADGE_R * 2} rx={DEVICE_RX} fill={TOKEN_FILL} stroke={ring} strokeWidth={BADGE_RING} />
+        ) : (
+          <circle r={BADGE_R} fill={TOKEN_FILL} stroke={ring} strokeWidth={BADGE_RING} />
+        )}
+        {clocked && item.life !== null && (
+          // Time left: full when it starts, emptying clockwise from the top.
           <g transform="rotate(-90)">
-            <circle r={LIFE_R} fill="none" stroke={skin.back} strokeOpacity={0.7} strokeWidth={LIFE_WIDTH + 2} />
+            <circle r={LIFE_R} fill="none" stroke={TOKEN_FILL} strokeOpacity={0.7} strokeWidth={LIFE_WIDTH + 2} />
             <circle
               r={LIFE_R}
               fill="none"
-              stroke={color}
+              stroke={ink}
               strokeWidth={LIFE_WIDTH}
               strokeLinecap="round"
               strokeDasharray={`${(LIFE_LENGTH * item.life).toFixed(2)} ${LIFE_LENGTH.toFixed(2)}`}
@@ -1273,106 +1291,146 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
             {UTILITY_STYLE[item.shape].label.slice(0, 1)}
           </text>
         )}
-        {key && (
-          <g transform={`translate(${KEY_TAG_AT.toFixed(2)} ${(-KEY_TAG_AT).toFixed(2)})`}>
-            <rect x={-KEY_TAG / 2} y={-KEY_TAG / 2} width={KEY_TAG} height={KEY_TAG} rx={KEY_TAG_RX} fill={KEY_TAG_FILL} />
-            <text textAnchor="middle" dominantBaseline="central" fontFamily={FONT} fontWeight="bold" fontSize={KEY_LETTER} fill={WHITE}>
-              {key}
-            </text>
-          </g>
+        {item.seconds !== null && !flying && (
+          <text
+            y={SECONDS_Y}
+            textAnchor="middle"
+            dominantBaseline="central"
+            fontFamily={FONT}
+            fontWeight="bold"
+            fontSize={SECONDS_SIZE}
+            fill={WHITE}
+            stroke={TOKEN_FILL}
+            strokeWidth={3}
+            paintOrder="stroke"
+          >
+            {item.seconds}
+          </text>
         )}
       </g>
     )
   }
 
+  /** The area of a landed ability about its centre: one drawing per family, so alike abilities look alike. */
+  const areaOf = (item: PlacedAbility, ink: string): ReactNode => {
+    const { r, life } = item
+    const huge = r > cmToView(HUGE_AREA_CM, map.transform, scene.view)
+    const wash = (fillOpacity: number) => ({ fill: ink, fillOpacity: huge ? HUGE_FILL : fillOpacity, stroke: ink, strokeOpacity: AREA_RING, strokeWidth: RING_WIDTH * k })
+    const hollow = { fill: 'none', stroke: ink, strokeOpacity: AREA_RING, strokeWidth: RING_WIDTH * k, strokeDasharray: dashes(GHOST_DASH) }
+    switch (item.family) {
+      case 'cloud':
+        return <circle r={r} {...wash(CLOUD_FILL)} />
+      case 'burst': {
+        if (life === null) return <circle r={r} {...wash(BURST_WASH)} strokeDasharray={dashes(GHOST_DASH)} />
+        // A shock ring that runs out to the ability's reach and is gone.
+        const out = 1 - life ** 3
+        return (
+          <>
+            <circle r={r} fill={ink} fillOpacity={BURST_WASH * life} />
+            <circle r={r * (0.2 + 0.8 * out)} fill="none" stroke={ink} strokeOpacity={0.35 + 0.65 * life} strokeWidth={BURST_RING * k} />
+          </>
+        )
+      }
+      case 'reveal': {
+        if (life === null) return <circle r={r} {...hollow} />
+        const phase = ((1 - life) * REVEAL_PULSES) % 1
+        return (
+          <>
+            <circle r={r} {...hollow} />
+            <circle r={r * phase} fill="none" stroke={ink} strokeOpacity={1 - phase} strokeWidth={BURST_RING * k * 0.6} />
+          </>
+        )
+      }
+      case 'wall': {
+        // A wall the replay gives no line for: real length, its thickness a line width.
+        const length = Math.max(r * 2, WALL_BAR_MIN * k)
+        const thick = WALL_WIDTH * k
+        return <rect x={-length / 2} y={-thick / 2} width={length} height={thick} rx={thick / 2} {...wash(CLOUD_FILL)} />
+      }
+      case 'device':
+      case 'scout':
+      case 'self':
+        return null
+      default:
+        return <circle r={r} {...wash(ZONE_FILL)} />
+    }
+  }
+
   const renderAbility = (item: PlacedAbility) => {
     const agent = agentOf(item.agent)
-    const color = skin.utility[item.shape]
+    const ink = inkOf(item)
     const icon = item.slot ? (agent?.abilities.find(a => a.slot === item.slot)?.icon ?? null) : null
     const { at, path, flying, arc, badge } = abilityLayout(item)
     const { r } = item
-    // Map-wide ultimates (KAY/O's NULL/cmd, Killjoy's Lockdown) keep their true
-    // size but only a faint wash, so they do not bury everything under them.
-    const huge = r > cmToView(HUGE_AREA_CM, map.transform, scene.view)
-    const fillOpacity = huge ? HUGE_FILL : item.shape === 'smoke' ? SMOKE_FILL : ABILITY_FILL
-    // The area is real size; its outline is a line and keeps its width on screen.
-    const filled = { fill: color, fillOpacity, stroke: color, strokeOpacity: ABILITY_RING, strokeWidth: RING_WIDTH * k }
-    const ring = { fill: 'none', stroke: color, strokeOpacity: ABILITY_RING, strokeWidth: OUTLINE_WIDTH * k }
+    const isWire = item.family === 'device' && path !== null
+    const comet: Point | null = flying ? (item.flyer ?? (arc ? arc.pointAt(item.progress ?? 0) : null)) : null
+    // While it flies, only where it is going; a wall with a line is its line.
+    const area = flying
+      ? item.family === 'device' || item.family === 'scout' || path
+        ? null
+        : <circle r={r} fill="none" stroke={ink} strokeOpacity={GHOST_OPACITY_AREA} strokeWidth={RING_WIDTH * k} strokeDasharray={dashes(GHOST_DASH)} />
+      : path || (item.family === 'wave' && item.reach)
+        ? null
+        : areaOf(item, ink)
 
-    // No area while in flight; a wall with a path is its line instead.
-    let shape: ReactNode = null
-    if (!flying && !path) {
-      switch (item.shape) {
-        case 'smoke':
-        case 'molly':
-        case 'slow':
-        case 'stun':
-          shape = <circle r={r} {...filled} />
-          break
-        case 'flash':
-          shape = <polygon points={burst(Math.max(r, BURST_MIN * k))} strokeLinejoin="round" {...filled} />
-          break
-        case 'wall': {
-          // Real length; the bar's thickness is a line width.
-          const length = Math.max(r * 2, WALL_BAR_MIN * k)
-          const thick = WALL_WIDTH * k
-          shape = <rect x={-length / 2} y={-thick / 2} width={length} height={thick} rx={thick / 2} {...filled} />
-          break
-        }
-        case 'trap':
-          shape = <polygon points={diamond(Math.max(r, TRAP_MIN * k))} strokeLinejoin="round" {...filled} />
-          break
-        case 'drone': {
-          const h = Math.max(r * 0.8, DRONE_MIN * k)
-          shape = <rect x={-h} y={-h} width={h * 2} height={h * 2} rx={4 * k} {...filled} />
-          break
-        }
-        case 'recon':
-          shape = <circle r={r} {...ring} />
-          break
-        case 'ult':
-          shape = (
-            <>
-              <circle r={r} {...filled} strokeWidth={OUTLINE_WIDTH * k} />
-              <circle r={r * 0.7} {...ring} />
-            </>
-          )
-          break
-        default:
-          shape = <circle r={r} {...ring} strokeDasharray={`${k} ${9 * k}`} strokeLinecap="round" />
+    // A wave: the strip swept so far, its own width across.
+    let sweep: ReactNode = null
+    if (!flying && item.family === 'wave' && item.reach) {
+      const [ex, ey] = [item.reach[0] - item.x, item.reach[1] - item.y]
+      const length = Math.hypot(ex, ey)
+      if (length > 0) {
+        const [nx, ny] = [(-ey / length) * r, (ex / length) * r]
+        const [fx, fy] = [at[0] + ex, at[1] + ey]
+        const corners: Point[] = [[at[0] + nx, at[1] + ny], [fx + nx, fy + ny], [fx - nx, fy - ny], [at[0] - nx, at[1] - ny]]
+        sweep = <polygon points={pointsAttr(corners)} fill={ink} fillOpacity={WAVE_FILL * (item.life ?? 1)} stroke={ink} strokeOpacity={AREA_RING * (item.life ?? 1)} strokeWidth={RING_WIDTH * k} pointerEvents="none" />
       }
     }
 
     const name = abilityName(item, agent)
     const note = item.label && item.label !== name ? `: ${item.label}` : ''
+    const way = item.trail ? (comet ? [...item.trail, comet] : item.trail) : null
     return (
       <g
         key={item.id}
         {...interactive(item.id, `${name}${item.agent ? ` (${item.agent})` : ''}${note}`)}
         style={{ cursor: elementCursor }}
       >
-        {shape && (
+        {sweep}
+        {area && (
           <g style={placement(at[0], at[1])}>
             {/* Hit area: rings and small shapes are hard to grab. */}
-            <circle r={Math.max(item.shape === 'wall' ? 0 : abilityExtent(item, k), HIT_R * k)} fill="transparent" />
-            {shape}
+            <circle r={Math.max(abilityExtent(item, k), HIT_R * k)} fill="transparent" />
+            {area}
           </g>
+        )}
+        {way && way.length >= 2 && (
+          <polyline
+            points={pointsAttr(way)}
+            fill="none"
+            stroke={ink}
+            strokeWidth={TRAIL_WIDTH * k}
+            strokeDasharray={dashes(TRAIL_DASH)}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            opacity={flying || item.family === 'scout' ? TRAIL_OPACITY : TRAIL_LANDED_OPACITY}
+            pointerEvents="none"
+          />
         )}
         {arc && (
           <path
             d={arc.d}
             fill="none"
-            stroke={color}
+            stroke={ink}
             strokeWidth={ARC_WIDTH * k}
             strokeDasharray={dashes(ARC_DASH)}
-            opacity={flying ? ARC_FLIGHT_OPACITY : ARC_OPACITY}
-            markerEnd={`url(#${throwHead(color)})`}
+            opacity={ARC_OPACITY}
+            markerEnd={`url(#${throwHead(ink)})`}
             pointerEvents="none"
           />
         )}
         {path && (
           <>
-            {/* Hit area: the whole wall grabs, not only its badge. */}
+            {/* Hit area: the whole wall grabs, not only its token. */}
             <polyline
               points={pointsAttr(path)}
               fill="none"
@@ -1384,18 +1442,19 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
             <polyline
               points={pointsAttr(path)}
               fill="none"
-              stroke={color}
+              stroke={ink}
               strokeOpacity={WALL_LINE_OPACITY}
-              strokeWidth={WALL_LINE * k}
+              strokeWidth={(isWire ? WIRE_LINE : WALL_LINE) * k}
               strokeLinecap="round"
               strokeLinejoin="round"
               pointerEvents="none"
             />
           </>
         )}
+        {comet && <circle cx={comet[0]} cy={comet[1]} r={COMET_R * k} fill={ink} stroke={TOKEN_FILL} strokeWidth={COMET_HALO * k} pointerEvents="none" />}
         <g style={placement(badge[0], badge[1])}>
-          {!shape && <circle r={HIT_R * k} fill="transparent" />}
-          {badgeOf(item, color, icon)}
+          {!area && <circle r={HIT_R * k} fill="transparent" />}
+          {tokenOf(item, ink, icon, flying)}
         </g>
       </g>
     )
@@ -1895,7 +1954,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
 
   const view = scene.view
   const imageSize = VIEW_SIZE / view.size
-  const throwColors = [...new Set(scene.abilities.filter(a => a.from).map(a => skin.utility[a.shape]))]
+  const throwColors = [...new Set(scene.abilities.filter(a => a.from).map(inkOf))]
   const counts = `${scene.agents.length} agent${scene.agents.length === 1 ? '' : 's'}, ${scene.abilities.length} abilit${
     scene.abilities.length === 1 ? 'y' : 'ies'
   }`

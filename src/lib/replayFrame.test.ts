@@ -161,17 +161,16 @@ test('an effect no cast of its owner explains has no slot', () => {
   assert.equal(abilities(frameAt(131000)).length, 0)
 })
 
-test('a cast 1 s ago with no effect is an ability, 3 s ago it is not', () => {
+test('on a bundle with no ability actors a cast shows on its agent for 1.5 s', () => {
   const dart = (t: number) => abilities(frameAt(t)).filter(a => a.agent === 'Sova')
   assert.equal(dart(49900).length, 0)
   const shown = dart(51000)
   assert.equal(shown.length, 1)
   assert.deepEqual(
-    { slot: shown[0].slot, shape: shown[0].shape, radius: shown[0].radius, label: shown[0].label, at: shown[0].at },
-    { slot: 'Ability1', shape: 'molly', radius: 400, label: 'Q', at: { u: 0.7, v: 0.6 } },
+    { slot: shown[0].slot, shape: shown[0].shape, radius: shown[0].radius, label: shown[0].label, at: shown[0].at, family: shown[0].family },
+    { slot: 'Ability1', shape: 'molly', radius: 400, label: 'Q', at: { u: 0.6, v: 0.6 }, family: 'self' },
   )
-  assert.equal(dart(52500).length, 0)
-  assert.equal(dart(53000).length, 0)
+  assert.equal(dart(51600).length, 0)
 })
 
 test('the plant marker appears at the plant time, labelled with the site', () => {
@@ -199,7 +198,7 @@ test('ids are stable across frames and match the id table', () => {
   assert.equal(jettSmoke(a), ids.forEffect(0))
   // A cast keeps its id while it is shown.
   const dart = (t: number) => abilities(frameStep(bundle, t, lookup, T, ids)).find(x => x.agent === 'Sova')!.id
-  assert.equal(dart(50500), dart(52000))
+  assert.equal(dart(50500), dart(51400))
   assert.equal(dart(50500), ids.forCast(bundle.casts[2]))
   // Every id is unique within a frame, and a fresh table gives fresh ids.
   const all = a.elements.map(e => e.id)
@@ -322,12 +321,12 @@ test('a thrown smoke in flight is one ability at the landing, from the hand, wit
   near(omen(40000)[0].progress, 0, 'progress at the throw')
 })
 
-test('once landed the throw keeps its id and loses its progress, and its arc after 3 s', () => {
+test('once landed the throw keeps its id and loses its progress, and the way it came after 1 s', () => {
   const bundle = utilityFixture()
   const ids = createFrameIds()
   const omen = (t: number) => abilities(frameStep(bundle, t, lookup, T, ids)).filter(a => a.agent === 'Omen')
   const flying = omen(41900)[0]
-  for (const t of [42000, 43000, 44900]) {
+  for (const t of [42000, 42500, 42900]) {
     const landed = omen(t)
     assert.equal(landed.length, 1, String(t))
     assert.equal(landed[0].id, flying.id, String(t))
@@ -335,7 +334,7 @@ test('once landed the throw keeps its id and loses its progress, and its arc aft
     nearPos(landed[0].at, 0.7, 0.8, `at ${t}`)
     nearPos(landed[0].from, 0.6, 0.6, `from ${t}`)
   }
-  const later = omen(45000)
+  const later = omen(43000)
   assert.equal(later.length, 1)
   assert.equal(later[0].id, flying.id)
   assert.equal('from' in later[0], false)
@@ -381,7 +380,7 @@ test('a wall built point by point grows with its points, the badge halfway, and 
   bundle.casts = []
   bundle.effects = [
     {
-      start: 60000, end: 80000, kind: 'other', agent: 'Mage', cls: 'GameObject_Mage_Q_WallManager_C', x: 0, y: 0, owner: SOVA,
+      start: 60000, end: 80000, kind: 'other', agent: 'Mage', cls: 'GameObject_Mage_Q_WallManager_C', x: 0, y: 0, owner: null,
       points: [[60300, 0, 0], [60500, 1000, 0], [60700, 2000, 0]],
     },
   ]
@@ -428,27 +427,103 @@ test('utility that never closed counts down to the end of the round', () => {
   near(abilities(frameStep(bundle, halfway, lookup, T, createFrameIds()))[0].life, 0.5, 'life')
 })
 
-test('a flash with no landing rides its own track, then shows where it popped for a second', () => {
+test('a flash with no landing is drawn where its track ends from the throw on, then goes off there', () => {
   const bundle = utilityFixture()
   bundle.casts = []
   bundle.effects = [
     {
-      start: 50000, end: 51000, kind: 'other', agent: 'Grenadier', cls: 'Projectile_C_Grenadier_Flash_C', x: 0, y: 0, owner: JETT,
-      track: [[50000, 0, 0], [50500, 1000, 0], [51000, 2000, 0]],
+      start: 50000, end: 53000, kind: 'other', agent: 'Grenadier', cls: 'Projectile_C_Grenadier_Flash_C', x: 0, y: 0, owner: null,
+      track: [[50000, 0, 0], [50500, 1000, 0], [51000, 2000, 0], [53000, 2000, 0]],
     },
   ]
   const ids = createFrameIds()
   const flash = (t: number) => abilities(frameStep(bundle, t, lookup, T, ids))
   const flying = flash(50250)[0]
   assert.equal(flying.id, ids.forEffect(0))
-  assert.equal(flying.shape, 'flash')
-  nearPos(flying.at, 0.5, 0.55, 'in flight')
+  nearPos(flying.at, 0.5, 0.7, 'already where it pops')
+  nearPos(flying.flyer, 0.5, 0.55, 'the flyer travels')
   nearPos(flying.from, 0.5, 0.5, 'from')
-  assert.equal(flying.progress, 1)
-  const popped = flash(51500)[0]
+  near(flying.progress, 0.25, 'progress')
+  const popped = flash(51300)[0]
   nearPos(popped.at, 0.5, 0.7, 'popped')
   assert.equal(popped.progress, undefined)
-  assert.equal(flash(52100).length, 0)
+  assert.equal(popped.family, 'burst')
+  // Over by its own clock, though the actor lies there two seconds more.
+  assert.equal(flash(52300).length, 0)
+})
+
+test('a smoke put down far from the agent leaves nothing at the agent', () => {
+  const bundle = utilityFixture()
+  bundle.casts = [{ t: 40000, round: 1, player: OMEN, slot: 'E', x: 0, y: 0 }]
+  bundle.effects = [
+    { start: 40500, end: 55000, kind: 'smoke', agent: null, cls: 'GameObject_Sarge_4_Smoke_ProductionNEW_C', x: 2000, y: 0, owner: OMEN },
+    { start: 39000, end: 39500, kind: 'other', agent: null, cls: 'Projectile_Wraith_4_Smoke_C', x: 0, y: 0, owner: OMEN },
+  ]
+  const shown = abilities(frameStep(bundle, 41000, lookup, T, createFrameIds()))
+  assert.equal(shown.length, 1)
+  nearPos(shown[0].at, 0.5, 0.7, 'at the smoke')
+  assert.equal(shown[0].family, 'cloud')
+  assert.equal(shown[0].seconds, 14)
+})
+
+test('what acts on the agent alone rides on them, and only that', () => {
+  const bundle = utilityFixture()
+  bundle.effects = [{ start: 1000, end: 1500, kind: 'other', agent: null, cls: 'Projectile_Wraith_4_Smoke_C', x: 0, y: 0, owner: OMEN }]
+  bundle.casts = [
+    { t: 40000, round: 1, player: SOVA, slot: 'X', x: 0, y: 0 },
+    { t: 40000, round: 1, player: SOVA, slot: 'E', x: 0, y: 0 },
+  ]
+  const shown = abilities(frameStep(bundle, 40500, lookup, T, createFrameIds())).filter(a => a.agent === 'Sova')
+  assert.equal(shown.length, 1)
+  assert.equal(shown[0].slot, 'Ultimate')
+  assert.equal(shown[0].family, 'self')
+  nearPos(shown[0].at, 0.6, 0.6, 'on the agent, not where it was cast')
+})
+
+test('a burst is over by its own clock while its actor stays', () => {
+  const bundle = utilityFixture()
+  bundle.casts = []
+  bundle.effects = [{ start: 50000, end: 54000, kind: 'other', agent: null, cls: 'GameObject_Hunter_4_ExplosiveBolt_Explosion_C', x: 0, y: 0, owner: SOVA }]
+  const ids = createFrameIds()
+  const blast = (t: number) => abilities(frameStep(bundle, t, lookup, T, ids))
+  assert.equal(blast(50600)[0].family, 'burst')
+  near(blast(50600)[0].life, 0.5, 'life')
+  assert.equal(blast(50600)[0].seconds, undefined)
+  assert.equal(blast(51300).length, 0)
+})
+
+test('a device has no clock; a scout is where it is now, with the way it went', () => {
+  const bundle = utilityFixture()
+  bundle.casts = []
+  bundle.effects = [
+    { start: 50000, end: 70000, kind: 'other', agent: null, cls: 'Pawn_Killjoy_E_Turret_C', x: 3000, y: 0, owner: null },
+    { start: 50000, end: 56000, kind: 'other', agent: null, cls: 'Pawn_Hunter_E_Drone_C', x: 0, y: 0, owner: SOVA },
+  ]
+  bundle.pawns.items = [
+    { cls: 'Pawn_Hunter_E_Drone_C', owner: SOVA, from: 50000, to: 54000, samples: [[50000, 0, 0, 0], [52000, 1000, 0, 0], [54000, 2000, 0, 0]] },
+    { cls: 'Pawn_Killjoy_E_Turret_C', owner: null, from: 50000, to: 70000, samples: [[50000, 3000, 0, 0], [60000, 3000, 0, 0]] },
+  ]
+  const ids = createFrameIds()
+  const [turret, drone] = abilities(frameStep(bundle, 53000, lookup, T, ids))
+  assert.equal(turret.life, undefined)
+  nearPos(turret.at, 0.5, 0.8, 'turret')
+  assert.equal(drone.family, 'scout')
+  nearPos(drone.at, 0.5, 0.65, 'drone now')
+  assert.ok((drone.trail?.length ?? 0) >= 2)
+  near(drone.life, 0.5, 'drone life')
+})
+
+test('a wave runs out along the aim the agent had', () => {
+  const bundle = utilityFixture()
+  bundle.casts = []
+  bundle.effects = [{ start: 50000, end: 56000, kind: 'other', agent: null, cls: 'GameObject_Breach_X_Shockwave_C', x: 0, y: 0, owner: SOVA }]
+  const lookBreach: typeof lookup = id => (id === bundle.players.find(p => p.subject === SOVA)?.agentId ? { name: 'Breach', abilities: [] } : lookup(id))
+  const at = (t: number) => abilities(frameStep(bundle, t, lookBreach, T, createFrameIds())).find(a => a.agent === 'Breach')
+  const early = at(50750)!
+  assert.equal(early.family, 'wave')
+  assert.ok(early.reach)
+  nearPos(early.at, 0.5, 0.5, 'where it started')
+  assert.equal(at(52100), undefined)
 })
 
 test('four wall segments are one ability with a path along the wall, the badge halfway', () => {

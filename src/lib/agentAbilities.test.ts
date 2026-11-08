@@ -4,7 +4,7 @@
 
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { abilityShape, hasAbilityShape, SLOT_KEYS, SLOT_ORDER } from './agentAbilities.ts'
+import { abilityLook, abilityShape, agentInk, CATALOG_AGENTS, hasAbilityShape, SLOT_KEYS, SLOT_ORDER } from './agentAbilities.ts'
 
 test('Omen Dark Cover is a 410 smoke', () => {
   assert.deepEqual(abilityShape('Omen', 'Ability2'), { shape: 'smoke', radius: 410 })
@@ -42,4 +42,25 @@ test('the current pool has an explicit entry for every slot', () => {
     }
   }
   assert.equal(hasAbilityShape('Nobody', 'Grenade'), false)
+})
+
+test('every agent has a family for each key and its own colour', () => {
+  const inks = CATALOG_AGENTS.map(agent => agentInk(agent))
+  for (const ink of inks) assert.match(ink ?? '', /^#[0-9A-F]{6}$/)
+  assert.equal(new Set(inks).size, inks.length)
+  assert.equal(CATALOG_AGENTS.length, 30)
+  for (const agent of CATALOG_AGENTS) for (const slot of SLOT_ORDER) assert.ok(abilityLook(agent, slot, 'other').family, `${agent} ${slot}`)
+})
+
+test('alike abilities share a family across agents', () => {
+  const smokes: [string, 'Grenade' | 'Ability1' | 'Ability2'][] = [['Omen', 'Ability2'], ['Brimstone', 'Ability2'], ['Viper', 'Ability1'], ['Astra', 'Ability2'], ['Jett', 'Grenade'], ['Clove', 'Ability2'], ['Harbor', 'Ability2']]
+  for (const [agent, slot] of smokes) assert.equal(abilityLook(agent, slot, 'other').family, 'cloud', agent)
+  const flashes: [string, 'Grenade' | 'Ability1' | 'Ability2'][] = [['Breach', 'Ability1'], ['Phoenix', 'Ability2'], ['KAY/O', 'Ability1'], ['Yoru', 'Ability1'], ['Skye', 'Ability2'], ['Omen', 'Ability1']]
+  for (const [agent, slot] of flashes) assert.equal(abilityLook(agent, slot, 'other').family, 'burst', agent)
+})
+
+test('an agent the catalogue does not know goes by the shape', () => {
+  assert.equal(abilityLook('Nobody', 'Grenade', 'smoke').family, 'cloud')
+  assert.equal(abilityLook('Omen', null, 'trap').family, 'device')
+  assert.equal(agentInk('Nobody'), null)
 })

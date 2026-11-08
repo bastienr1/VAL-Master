@@ -24,6 +24,7 @@
  * type-checked with the tests.
  */
 
+import type { AbilityFamily } from './agentAbilities.ts'
 import { worldToImage, type MapTransform, type Viewport } from './replayScene.ts'
 
 export const PLAY_DOC_VERSION = 2
@@ -71,6 +72,8 @@ const UTILITY_KINDS: readonly UtilityKind[] = [
   'smoke', 'flash', 'molly', 'recon', 'wall', 'trap', 'drone', 'stun', 'slow', 'ult', 'other',
 ]
 
+const ABILITY_FAMILIES: readonly AbilityFamily[] = ['cloud', 'zone', 'burst', 'wall', 'wave', 'device', 'scout', 'reveal', 'self']
+
 export type MarkerType = 'spike' | 'enemy' | 'pin'
 
 const MARKER_TYPES: readonly MarkerType[] = ['spike', 'enemy', 'pin']
@@ -113,6 +116,16 @@ export interface AbilityElement {
   path?: PlayPos[]
   /** A replay frame's utility: how much of its life is left, 1…0 (a ring on the badge). Not kept in a strat. */
   life?: number
+  /** A replay frame's: whole seconds left, on what runs on a timer. Not kept in a strat. */
+  seconds?: number
+  /** A replay frame's: how the ability behaves, when this phase differs from the ability's own. Not kept in a strat. */
+  family?: AbilityFamily
+  /** A replay frame's: the way it really went so far. Not kept in a strat. */
+  trail?: PlayPos[]
+  /** A replay frame's: where the thrown thing is now. Not kept in a strat. */
+  flyer?: PlayPos
+  /** A replay frame's wave: where its front is now, `at` being where it started. Not kept in a strat. */
+  reach?: PlayPos
 }
 
 export interface PenElement {
@@ -482,6 +495,16 @@ function parseElements(
         if (path.length >= 2) el.path = path
         const life = finite(e.life)
         if (life !== null && life >= 0 && life <= 1) el.life = life
+        const seconds = finite(e.seconds)
+        if (seconds !== null && seconds >= 0) el.seconds = seconds
+        const family = oneOf(e.family, ABILITY_FAMILIES)
+        if (family) el.family = family
+        const trail = list(e.trail).map(parsePos).filter((pos): pos is PlayPos => pos !== null)
+        if (trail.length >= 1) el.trail = trail
+        const flyer = parsePos(e.flyer)
+        if (flyer) el.flyer = flyer
+        const reach = parsePos(e.reach)
+        if (reach) el.reach = reach
         elements.push(el)
         break
       }

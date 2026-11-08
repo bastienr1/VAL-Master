@@ -137,3 +137,170 @@ export function abilityShape(agentName: string, slot: AbilitySlot): AbilityShape
   if (typeof entry === 'string') return { shape: entry, radius: DEFAULT_RADIUS[entry] }
   return { shape: entry[0], radius: entry[1] }
 }
+
+// ── How abilities behave on the board (docs/plays-editor-v2.md §2.14) ─────────
+
+/**
+ * What an ability does, as a player reads it. Everything about how it is drawn
+ * and timed comes from this, so abilities that behave alike look alike:
+ * - `cloud`: a sphere that blocks sight, for a time.
+ * - `zone`: a ground area that acts on whoever is in it, for a time.
+ * - `burst`: goes off once, at a point (flashes, concussions, explosions).
+ * - `wall`: a line on the map, for a time.
+ * - `wave`: sweeps out from where it starts, along the agent's aim.
+ * - `device`: sits where it was put until triggered or destroyed: no clock.
+ * - `scout`: something the agent sends, drawn where it is now.
+ * - `reveal`: shows enemies, in pulses.
+ * - `self`: acts on the agent alone, with nothing on the map (a dash, a heal).
+ */
+export type AbilityFamily = 'cloud' | 'zone' | 'burst' | 'wall' | 'wave' | 'device' | 'scout' | 'reveal' | 'self'
+
+export interface AbilityLook {
+  family: AbilityFamily
+  /**
+   * How long the effect lasts, when the replay's actor outlives it: Shock Bolt's
+   * blast is over at once but its actor stays 4 s. Otherwise the replay's own
+   * times are used (bursts and waves have the defaults below).
+   */
+  ms?: number
+  /** A wave's length, world cm. */
+  reach?: number
+  /** A wave's time to reach its length, when it is not the default. */
+  sweep?: number
+  /** World cm radius, when the shape table's is not the area this draws. */
+  r?: number
+}
+
+export const BURST_MS = 1200
+export const WAVE_MS = 2000
+export const WAVE_SWEEP_MS = 1500
+
+/** Radius of an area with no figure of its own, world cm. */
+export const FAMILY_RADIUS_CM: Record<AbilityFamily, number> = {
+  cloud: 400,
+  zone: 300,
+  burst: 350,
+  wall: 500,
+  wave: 400,
+  device: 100,
+  scout: 100,
+  reveal: 300,
+  self: 100,
+}
+
+const FAMILY_OF_SHAPE: Record<Shape, AbilityFamily> = {
+  smoke: 'cloud',
+  molly: 'zone',
+  slow: 'zone',
+  flash: 'burst',
+  stun: 'burst',
+  wall: 'wall',
+  trap: 'device',
+  drone: 'scout',
+  recon: 'reveal',
+  ult: 'zone',
+  other: 'device',
+}
+
+type Look = AbilityFamily | AbilityLook
+const timed = (family: AbilityFamily, ms: number): AbilityLook => ({ family, ms })
+const wave = (reach: number, ms?: number, sweep?: number): AbilityLook => ({
+  family: 'wave',
+  reach,
+  ...(ms !== undefined ? { ms } : {}),
+  ...(sweep !== undefined ? { sweep } : {}),
+})
+
+/** Lower-cased agent name → C, Q, E, X. */
+const LOOKS: Record<string, [Look, Look, Look, Look]> = {
+  astra: [timed('burst', 2750), 'burst', 'cloud', 'wall'],
+  breach: [timed('burst', 2500), 'burst', wave(4500), wave(3250)],
+  brimstone: ['zone', 'zone', 'cloud', timed('zone', 4000)],
+  chamber: ['device', 'self', 'device', 'self'],
+  clove: ['self', timed('burst', 2000), 'cloud', 'self'],
+  cypher: ['device', 'cloud', 'device', 'reveal'],
+  deadlock: [{ family: 'zone', r: 550 }, 'device', 'zone', 'zone'],
+  fade: ['scout', timed('zone', 4500), 'reveal', wave(4000)],
+  gekko: ['zone', 'scout', 'device', 'scout'],
+  harbor: ['burst', 'wall', 'cloud', wave(3000)],
+  hush: ['burst', 'burst', 'burst', 'zone'],
+  iso: [wave(3500, 5400, 5400), 'burst', 'self', wave(3000, 4000)],
+  jett: ['cloud', 'self', 'self', 'self'],
+  'kay/o': [timed('burst', 2500), 'burst', 'burst', 'zone'],
+  killjoy: ['zone', 'device', 'device', 'zone'],
+  miks: ['zone', 'self', 'cloud', wave(4000)],
+  neon: ['wall', 'burst', 'self', 'self'],
+  omen: ['self', 'burst', 'cloud', 'self'],
+  phoenix: ['wall', 'zone', 'burst', 'device'],
+  raze: ['scout', 'burst', timed('burst', 3000), 'burst'],
+  reyna: [timed('burst', 2000), 'self', 'self', 'self'],
+  sage: ['wall', 'zone', 'self', 'self'],
+  skye: ['self', 'scout', 'burst', 'scout'],
+  sova: ['scout', 'burst', 'reveal', 'self'],
+  tejo: ['scout', 'burst', 'zone', 'zone'],
+  veto: ['device', 'device', 'device', 'self'],
+  viper: ['zone', 'cloud', 'wall', 'cloud'],
+  vyse: ['zone', 'device', 'device', 'zone'],
+  waylay: ['zone', 'self', 'device', wave(3600, 3000)],
+  yoru: ['scout', 'burst', 'scout', 'self'],
+}
+
+/** The agents the catalogue covers, lower-cased. */
+export const CATALOG_AGENTS: readonly string[] = Object.keys(LOOKS)
+
+/** How this ability behaves: the catalogue's entry, else what its shape implies. */
+export function abilityLook(agentName: string, slot: AbilitySlot | null, shape: Shape): AbilityLook {
+  const row = slot ? LOOKS[agentName.trim().toLowerCase()] : undefined
+  const entry = row && slot ? row[SLOT_ORDER.indexOf(slot)] : undefined
+  if (entry === undefined) return { family: FAMILY_OF_SHAPE[shape] }
+  return typeof entry === 'string' ? { family: entry } : entry
+}
+
+/** The radius the shape table gives this ability by name, null when it has none of its own. */
+export function abilityRadius(agentName: string, slot: AbilitySlot): number | null {
+  const entry = TABLE[agentName.trim().toLowerCase()]?.[slot]
+  return Array.isArray(entry) ? entry[1] : null
+}
+
+/**
+ * The colour of each agent's abilities in the game. Not valorant-api's
+ * backdrop gradient, which is a dark portrait background (Gekko's is purple,
+ * Killjoy's plum). Hand-picked: adjust here.
+ */
+const AGENT_INK: Record<string, string> = {
+  astra: '#B56BFF',
+  breach: '#F5A23B',
+  brimstone: '#E8603C',
+  chamber: '#D9B25F',
+  clove: '#E56BD8',
+  cypher: '#C4D6F0',
+  deadlock: '#A9C1FF',
+  fade: '#6C7BD9',
+  gekko: '#A6E22E',
+  harbor: '#26C6C6',
+  hush: '#F47AC7',
+  iso: '#7A5CFF',
+  jett: '#BEEBFF',
+  'kay/o': '#58A6FF',
+  killjoy: '#F7E13B',
+  miks: '#9B8CFF',
+  neon: '#2FA8FF',
+  omen: '#6A4FC9',
+  phoenix: '#FF7A1A',
+  raze: '#FFB02E',
+  reyna: '#C03AD6',
+  sage: '#3FE0C0',
+  skye: '#5FD068',
+  sova: '#4FA3E8',
+  tejo: '#E8A040',
+  veto: '#2BB6C4',
+  viper: '#39D353',
+  vyse: '#A77BEB',
+  waylay: '#F0A6E0',
+  yoru: '#3F6BFF',
+}
+
+/** The agent's ability colour as #rrggbb, null for an agent not in the table. */
+export function agentInk(agentName: string): string | null {
+  return AGENT_INK[agentName.trim().toLowerCase()] ?? null
+}

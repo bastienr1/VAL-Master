@@ -10,10 +10,10 @@
  * Also the round helpers the transport needs: the span a round's scrubber
  * covers, its side, its clock and the ticks on it.
  *
- * Utility follows §2.10: a thrown ability is drawn at its landing with an arc
- * from the hand (`from`, and `progress` while in flight), a wall's segments
- * as one `path`, and the class table of `utilityClasses.ts` says which
- * effect is which.
+ * Utility follows §2.14: an ability is drawn where it takes effect, from the
+ * first frame of its throw, and only a small flyer travels from the hand. How
+ * long it lasts and how it reads come from its family (`agentAbilities.ts`);
+ * the class table of `utilityClasses.ts` says which effect is which.
  *
  * Pure, no React, no Supabase: the caller supplies the agent lookup (built
  * from the registry) and the map transform. Must not import `gameContent.ts`,
@@ -40,7 +40,18 @@ import {
   type PlayPos,
   type PlayStep,
 } from './playDoc.ts'
-import { abilityShape, SLOT_KEYS } from './agentAbilities.ts'
+import {
+  abilityLook,
+  abilityRadius,
+  abilityShape,
+  BURST_MS,
+  FAMILY_RADIUS_CM,
+  SLOT_KEYS,
+  WAVE_MS,
+  WAVE_SWEEP_MS,
+  type AbilityFamily,
+  type AbilityLook,
+} from './agentAbilities.ts'
 import { classInfo, type EffectClassInfo } from './utilityClasses.ts'
 
 export interface ReplayAgentInfo { name: string; abilities: { slot: AbilitySlot; name: string }[] }
@@ -68,8 +79,8 @@ const ROUND_SPAN_AFTER_BARRIER_MS = 120_000
 const CAST_EFFECT_MS = 3_000
 /** …and this distance (world cm). */
 const CAST_EFFECT_CM = 300
-/** A cast no effect explains (a flash, a dash) stays on the map this long. */
-const CAST_SHOWN_MS = 2_500
+/** An ability that acts on the agent alone is shown on the agent this long. */
+const SELF_SHOWN_MS = 1_500
 /** A landing pairs with a projectile of its owner when it starts this long before… */
 const LAND_EARLY_MS = 600
 /** …to this long after the projectile ends, */
@@ -80,10 +91,22 @@ const LAND_LATE_MS = 1_500
  * while an emitter that starts with its wall must not count as a throw.
  */
 const MIN_FLIGHT_MS = 50
-/** A landing keeps its throw arc this long. */
-const ARC_KEPT_MS = 3_000
-/** How long a projectile with no landing actor (a flash popping in the air) shows where it ended. */
-const POP_SHOWN_MS = 1_000
+/** A landing keeps the way it came this long. */
+const ARC_KEPT_MS = 1_000
+/** A projectile has arrived once this close (world cm) to where its track ends: a flash lies there until its actor closes. */
+const ARRIVED_CM = 60
+/** A pawn pairs with the effect that starts within this time and distance of its first sample. */
+const PAWN_JOIN_MS = 1_500
+const PAWN_JOIN_CM = 400
+/** A pawn's movement is kept at this spacing, and counts as moving past this distance. */
+const PAWN_STEP_MS = 150
+const PAWN_MOVES_CM = 100
+/** A scout's trail shows this far back. */
+const SCOUT_TRAIL_MS = 4_000
+/** What runs on a timer shows its seconds. */
+const TIMED: ReadonlySet<AbilityFamily> = new Set<AbilityFamily>(['cloud', 'zone', 'wall'])
+/** What has no clock at all: it waits. */
+const UNTIMED: ReadonlySet<AbilityFamily> = new Set<AbilityFamily>(['device'])
 /** A runner and the wall it draws start within this of each other. */
 const TRACER_MS = 300
 /** Wall segments of one owner and class starting within this time of the first are one wall. */
@@ -222,6 +245,12 @@ interface EffectPlan {
   wallOf: Map<number, number>
   /** A wall with no points of its own → the runner whose track draws it. */
   tracerOf: Map<number, number>
+  /** A pawn's effect index → how it moved, [t, x, y]; absent for one that stays put. */
+  pawnOf: Map<number, [number, number, number][]>
+  /** A wire anchor's index → its far end's. */
+  wireEnd: Map<number, number>
+  /** Older bundles hold area effects only: a flash there has no actor of its own. */
+  hasActors: boolean
 }
 
 // Built once per bundle, like the deaths.
@@ -229,7 +258,7 @@ const planCache = new WeakMap<ReplayBundle, EffectPlan>()
 function planOf(bundle: ReplayBundle): EffectPlan {
   let plan = planCache.get(bundle)
   if (!plan) {
-    plan = buildPlan(bundle.effects)
+    plan = buildPlan(bundle.effects, bundle.pawns?.items ?? [])
     planCache.set(bundle, plan)
   }
   return plan
@@ -246,7 +275,7 @@ export function throwPairs(bundle: ReplayBundle): ReadonlyMap<number, number> {
   return planOf(bundle).landingOf
 }
 
-function buildPlan(effects: ReplayEffect[]): EffectPlan {
+function buildPlan(effects: ReplayEffect[], pawns: ReplayBundle['pawns']['items']): EffectPlan {
   const info = effects.map(e => classInfo(e.cls, e.kind))
   const byOwner = new Map<string, { projectiles: number[]; landings: number[]; lines: number[] }>()
   effects.forEach((e, i) => {
@@ -322,7 +351,51 @@ function buildPlan(effects: ReplayEffect[]): EffectPlan {
     })
     if (best >= 0) tracerOf.set(best, i)
   })
-  return { info, landingOf, throwOf, walls, wallOf, tracerOf }
+  // Pawns move in their own table: each is the one that starts with its effect, in the same place.
+  const pawnOf = new Map<number, [number, number, number][]>()
+  const taken = new Set<number>()
+  effects.forEach((e, i) => {
+    if (!e.cls.startsWith('Pawn_')) return
+    let best = -1
+    let bestGap = Infinity
+    pawns.forEach((pawn, j) => {
+      const first = pawn.samples[0]
+      if (!first || taken.has(j) || (pawn.owner !== null && e.owner !== null && pawn.owner !== e.owner)) return
+      const gap = Math.abs(first[0] - e.start)
+      if (gap <= PAWN_JOIN_MS && gap < bestGap && Math.hypot(first[1] - e.x, first[2] - e.y) <= PAWN_JOIN_CM) {
+        best = j
+        bestGap = gap
+      }
+    })
+    if (best < 0) return
+    taken.add(best)
+    const samples = pawns[best].samples
+    const start = samples[0]
+    if (!samples.some(s => Math.hypot(s[1] - start[1], s[2] - start[2]) > PAWN_MOVES_CM)) return
+    const kept: [number, number, number][] = []
+    for (const [t, x, y] of samples) {
+      if (kept.length === 0 || t - kept[kept.length - 1][0] >= PAWN_STEP_MS) kept.push([t, x, y])
+    }
+    const last = samples[samples.length - 1]
+    if (kept[kept.length - 1][0] !== last[0]) kept.push([last[0], last[1], last[2]])
+    pawnOf.set(i, kept)
+  })
+  // A wire's far end starts with its anchor.
+  const wireEnd = new Map<number, number>()
+  effects.forEach((e, i) => {
+    if (!info[i].wireEnd) return
+    const anchor = effects.findIndex((a, j) => info[j].shape === 'trap' && !info[j].wireEnd && a.owner === e.owner && a.cls.includes('TripWire') && !wireEnd.has(j) && Math.abs(a.start - e.start) <= WALL_GROUP_MS)
+    if (anchor >= 0) wireEnd.set(anchor, i)
+  })
+  const hasActors = effects.some(e => e.cls.startsWith('Projectile_'))
+  return { info, landingOf, throwOf, walls, wallOf, tracerOf, pawnOf, wireEnd, hasActors }
+}
+
+/** When a tracked projectile reached the point its track ends at. */
+function arrivalOf(track: ReadonlyArray<readonly [number, number, number]>): number {
+  const [, x, y] = track[track.length - 1]
+  const first = track.find(([, sx, sy]) => Math.hypot(sx - x, sy - y) <= ARRIVED_CM)
+  return (first ?? track[track.length - 1])[0]
 }
 
 /** A wall's segments in order: along the line through the two that lie farthest apart. */
@@ -455,7 +528,7 @@ export function frameStep(
    */
   const abilityOf = (index: number, sources: ReplayEffect[], id: string, at: PlayPos, thrown?: number): AbilityElement => {
     const effect = effects[index]
-    const { shape, radius } = plan.info[index]
+    const { shape, radius, family: phase } = plan.info[index]
     let slot = plan.info[index].slot ?? (thrown !== undefined ? plan.info[thrown].slot : undefined) ?? null
     if (!slot) {
       let cast: PositionedCast | null = null
@@ -468,45 +541,85 @@ export function frameStep(
     }
     const info = infoOfSubject(effect.owner) ?? lookup(effect.agent)
     const agent = info?.name.trim() || UNKNOWN_AGENT
-    const el: AbilityElement = { kind: 'ability', id, agent, slot, shape, at }
+    const look = lookOf(index, thrown)
+    const el: AbilityElement = { kind: 'ability', id, agent, slot, shape, at, family: look.family }
     if (radius !== undefined) el.radius = radius
-    if (slot) {
-      // Else the board table's radius, only when it agrees on what the effect is.
-      const table = abilityShape(agent, slot)
-      if (el.radius === undefined && table.shape === shape) el.radius = table.radius
-      el.label = info?.abilities.find(a => a.slot === slot)?.name.trim() || SLOT_KEYS[slot]
+    else {
+      // A phase of its own (a cage's canister) is not the area the table sizes.
+      const named = look.r ?? (slot && !phase ? abilityRadius(agent, slot) : null)
+      el.radius = named ?? FAMILY_RADIUS_CM[look.family]
     }
+    if (slot) el.label = info?.abilities.find(a => a.slot === slot)?.name.trim() || SLOT_KEYS[slot]
     return el
   }
 
-  // Utility up at t. `shown` holds what a cast may be explained by: every effect drawn, and a drawn throw's projectile.
-  const shown: ReplayEffect[] = []
+  /** How effect `index` behaves: its class's phase, else its ability's. */
+  function lookOf(index: number, thrown?: number): AbilityLook {
+    const { family, slot, shape } = plan.info[index]
+    if (family) return { family }
+    const info = infoOfSubject(effects[index].owner) ?? lookup(effects[index].agent)
+    const key = slot ?? (thrown !== undefined ? plan.info[thrown].slot : undefined) ?? null
+    return abilityLook(info?.name ?? '', key, shape)
+  }
+
+  /** When it stops being drawn: a burst and a wave by their own clock, what has a figure by that, else its actor's. */
+  const endOf = (effect: ReplayEffect, look: AbilityLook): number | null => {
+    if (look.family === 'burst') return effect.start + (look.ms ?? BURST_MS)
+    if (look.family === 'wave') return effect.start + (look.ms ?? WAVE_MS)
+    if (look.ms !== undefined) return effect.start + look.ms
+    return effect.end
+  }
+
+  /** The clock on an element: its ring, and its seconds when it runs on a timer and its end is known. */
+  const clock = (el: AbilityElement, start: number, end: number, known: boolean) => {
+    if (el.family && UNTIMED.has(el.family)) return
+    const life = lifeLeft(start, end, t)
+    if (life !== null) el.life = life
+    if (known && el.family && TIMED.has(el.family)) el.seconds = Math.ceil((end - t) / 1000)
+  }
+
+  /** The samples of a track up to `t`, and where it is at `t`. */
+  const walked = (track: ReadonlyArray<readonly [number, number, number]>, since = -Infinity): PlayPos[] => [
+    ...track.filter(([at]) => at <= t && at >= since).map(([, x, y]) => imagePos(transform, x, y)),
+    trackPos(track, t),
+  ]
+
+  // Utility up at t.
   effects.forEach((effect, index) => {
     const { role } = plan.info[index]
     if (role === 'ignore') return
 
     if (role === 'projectile') {
-      // In flight: drawn at its landing, from the hand, under the landing's id.
       const l = plan.landingOf.get(index)
       if (l === undefined) {
-        // No landing actor (a flash that pops in the air, a missile): the badge rides the
-        // projectile's own track, then the area shows where it ended for a moment. No track, nothing.
+        // No landing actor (a flash that pops in the air, a missile): where its own track ends. No track, nothing.
         const track = effect.track
-        if (!track || track.length < 2 || effect.end === null) return
-        if (effect.start < round.buyStartMs || t < effect.start || t >= effect.end + POP_SHOWN_MS) return
-        const el = abilityOf(index, [effect], ids.forEffect(index), trackPos(track, t))
+        if (!track || track.length < 2 || effect.end === null || effect.start < round.buyStartMs) return
+        const look = lookOf(index)
+        const lands = arrivalOf(track)
+        const end = lands + (look.ms ?? BURST_MS)
+        if (t < effect.start || t > end) return
+        const [, x, y] = track[track.length - 1]
+        const el = abilityOf(index, [effect], ids.forEffect(index), imagePos(transform, x, y))
         el.from = posOf(effect)
-        if (t < effect.end) el.progress = 1
-        shown.push(effect)
+        if (t < lands) {
+          el.progress = clamp01((t - effect.start) / (lands - effect.start))
+          el.flyer = trackPos(track, t)
+          el.trail = walked(track)
+        } else clock(el, lands, end, true)
         elements.push(el)
         return
       }
+      // In flight: already where it will land, under the landing's id.
       const landing = effects[l]
       if (effect.start < round.buyStartMs || t < effect.start || t >= landing.start) return
       const el = abilityOf(l, [effect, landing], ids.forEffect(l), posOf(landing), index)
       el.from = posOf(effect)
       el.progress = clamp01((t - effect.start) / (landing.start - effect.start))
-      shown.push(effect)
+      if (effect.track && effect.track.length >= 2) {
+        el.flyer = trackPos(effect.track, t)
+        el.trail = walked(effect.track)
+      }
       elements.push(el)
       return
     }
@@ -521,55 +634,75 @@ export function frameStep(
       const el = abilityOf(index, up, ids.forEffect(index), midway(points))
       if (points.length >= 2) el.path = points
       const ends = up.map(e => e.end)
-      if (ends.every((end): end is number => end !== null)) {
-        const life = lifeLeft(Math.min(...up.map(e => e.start)), Math.max(...ends), t)
-        if (life !== null) el.life = life
-      }
-      shown.push(...up)
+      if (ends.every((end): end is number => end !== null)) clock(el, Math.min(...up.map(e => e.start)), Math.max(...ends), true)
       elements.push(el)
       return
     }
 
-    if (!upAt(effect)) return
     const thrown = plan.throwOf.get(index)
+    const look = lookOf(index, thrown)
+    const end = endOf(effect, look)
+    if (effect.start < round.buyStartMs || effect.start > t || (end !== null && end < t)) return
     const projectile = thrown !== undefined ? effects[thrown] : null
-    // A pawn (a drone, a bot) is where its track has it now; a wall built point by point is
-    // the part already built, the badge halfway along it.
+    // A wall built point by point is the part already built, the badge halfway along it.
     const tracer = plan.tracerOf.get(index)
     const shape = plan.info[index].shape === 'wall' ? (effect.points ?? (tracer !== undefined ? effects[tracer].track : undefined) ?? []) : []
     const formed = shape.filter(([at]) => at <= t).map(([, x, y]) => imagePos(transform, x, y))
-    const at = formed.length >= 2 ? midway(formed) : effect.track && effect.track.length > 0 ? trackPos(effect.track, t) : posOf(effect)
+    const moved = plan.pawnOf.get(index)
+    const ownerRows = effect.owner !== null ? bundle.tracks.byPlayer[effect.owner] : undefined
+    const ownerNow = plan.info[index].onOwner && ownerRows ? playerStateAt(ownerRows, t) : null
+    const at = ownerNow ? imagePos(transform, ownerNow.x, ownerNow.y) : formed.length >= 2 ? midway(formed) : moved ? trackPos(moved, t) : effect.track && effect.track.length > 0 ? trackPos(effect.track, t) : posOf(effect)
     const el = abilityOf(index, projectile ? [effect, projectile] : [effect], ids.forEffect(index), at, thrown)
     if (formed.length >= 2) el.path = formed
-    // Just landed: the arc from the hand stays a moment.
-    if (projectile && t - effect.start < ARC_KEPT_MS) el.from = posOf(projectile)
+    const wire = plan.wireEnd.get(index)
+    if (wire !== undefined) el.path = [posOf(effect), posOf(effects[wire])]
+    if (moved) el.trail = walked(moved, t - SCOUT_TRAIL_MS)
+    // Just landed: the way it came stays a moment.
+    if (projectile && t - effect.start < ARC_KEPT_MS) {
+      el.from = posOf(projectile)
+      if (projectile.track && projectile.track.length >= 2) el.trail = projectile.track.map(([, x, y]) => imagePos(transform, x, y))
+    }
+    if (look.family === 'wave' && look.reach !== undefined && ownerRows) {
+      // Along the aim the agent had when it went off.
+      const aim = playerStateAt(ownerRows, effect.start)
+      if (aim) {
+        const rad = (aim.yaw * Math.PI) / 180
+        const swept = look.reach * clamp01((t - effect.start) / (look.sweep ?? WAVE_SWEEP_MS))
+        el.reach = imagePos(transform, effect.x + Math.cos(rad) * swept, effect.y + Math.sin(rad) * swept)
+      }
+    }
     // One that never closed lasts the round.
-    const life = lifeLeft(effect.start, effect.end ?? roundSpan(bundle, round).end, t)
-    if (life !== null) el.life = life
-    shown.push(effect)
-    if (projectile) shown.push(projectile)
+    clock(el, effect.start, end ?? roundSpan(bundle, round).end, end !== null)
     elements.push(el)
   })
 
-  // Casts of the last moments that left nothing drawn of their own (flashes, dashes, darts).
+  // What acts on the agent alone rides on the agent. So does any cast on an older bundle, which has no actor to show where it went.
   const usedCastIds = new Set<string>()
   for (const cast of casts) {
-    if (cast.t <= t - CAST_SHOWN_MS || cast.t > t || cast.t < round.buyStartMs) continue
-    if (shown.some(e => explains(cast, e))) continue
+    if (cast.t <= t - SELF_SHOWN_MS || cast.t > t || cast.t < round.buyStartMs) continue
+    const slot = KEY_TO_SLOT[cast.slot] ?? null
+    if (!slot) continue
+    const info = infoOfSubject(cast.player)
+    if (!info) continue
+    const agent = info.name.trim() || UNKNOWN_AGENT
+    const { shape, radius } = abilityShape(agent, slot)
+    if (abilityLook(agent, slot, shape).family !== 'self' && plan.hasActors) continue
+    const state = playerStateAt(bundle.tracks.byPlayer[cast.player] ?? [], t)
+    if (!state || !isAliveAt(state, deaths.get(cast.player), t)) continue
     const id = ids.forCast(cast)
     if (usedCastIds.has(id)) continue
     usedCastIds.add(id)
-    const info = infoOfSubject(cast.player)
-    const agent = info?.name.trim() || UNKNOWN_AGENT
-    const slot = KEY_TO_SLOT[cast.slot] ?? null
-    const el: AbilityElement = { kind: 'ability', id, agent, slot, shape: 'other', at: imagePos(transform, cast.x, cast.y) }
-    if (slot) {
-      const { shape, radius } = abilityShape(agent, slot)
-      el.shape = shape
-      el.radius = radius
-      el.label = info?.abilities.find(a => a.slot === slot)?.name.trim() || SLOT_KEYS[slot]
-    }
-    elements.push(el)
+    elements.push({
+      kind: 'ability',
+      id,
+      agent,
+      slot,
+      shape,
+      radius,
+      at: imagePos(transform, state.x, state.y),
+      family: 'self',
+      label: info.abilities.find(a => a.slot === slot)?.name.trim() || SLOT_KEYS[slot],
+    })
   }
 
   // The spike, once planted: at the plant's own point, else where the planter stood.
