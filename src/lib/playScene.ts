@@ -14,6 +14,7 @@
  * taken structurally.
  */
 
+import { abilityLook, type AbilityFamily } from './agentAbilities.ts'
 import {
   calloutViewport,
   findCallout,
@@ -177,6 +178,16 @@ export interface PlacedAbility {
   path: Point[] | null
   /** How much of its life is left, 1…0, on a replay frame; null otherwise. */
   life: number | null
+  /** Whole seconds left, on a replay frame's timed utility; null otherwise. */
+  seconds: number | null
+  /** How it behaves, which decides how it is drawn (§2.14). */
+  family: AbilityFamily
+  /** The way it really went so far, on a replay frame. */
+  trail: Point[] | null
+  /** Where the thrown thing is now, on a replay frame. */
+  flyer: Point | null
+  /** A wave's front now, on a replay frame. */
+  reach: Point | null
 }
 
 export interface PlacedPen {
@@ -375,6 +386,11 @@ export function sceneForStep(
           progress,
           path: path.length >= 2 ? path : null,
           life: typeof el.life === 'number' && Number.isFinite(el.life) ? clamp01(el.life) : null,
+          seconds: typeof el.seconds === 'number' && Number.isFinite(el.seconds) ? el.seconds : null,
+          family: el.family ?? abilityLook(el.agent, el.slot, el.shape).family,
+          trail: el.trail ? el.trail.map(place).filter((p): p is Point => p !== null) : null,
+          flyer: place(el.flyer),
+          reach: place(el.reach),
         })
         break
       }

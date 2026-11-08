@@ -21,6 +21,7 @@
  * Pure, no imports beyond types, so `node --test` can type-check it.
  */
 
+import type { AbilityFamily } from './agentAbilities.ts'
 import type { AbilitySlot, UtilityKind } from './playDoc.ts'
 
 /**
@@ -42,6 +43,12 @@ export interface EffectClassInfo {
   line?: boolean
   /** Never drawn itself, but its track draws the wall of its owner that starts with it (Neon's Fast Lane). */
   traces?: boolean
+  /** How this phase behaves, when it is not how the ability as a whole does (a cage's canister is a device, then a cloud). */
+  family?: AbilityFamily
+  /** Stays on its owner, wherever they go (KAY/O's NULL/cmd). */
+  onOwner?: boolean
+  /** The far end of the wire whose anchor starts with it. */
+  wireEnd?: boolean
 }
 
 const C: AbilitySlot = 'Grenade'
@@ -93,8 +100,8 @@ const TABLE: Record<string, EffectClassInfo> = {
   // Trademark, cast on C despite the `_E_`.
   GameObject_Deadeye_E_Trap_C: placed('trap', C),
   // Fired by a triggered Trademark (about 1.4 m from it, 23 ms) into its slow: `from` is the trap.
-  Projectile_Deadeye_4_Trap_Dart_C: p('slow', C),
-  Patch_Deadeye_E_Slow_Large_C: l('slow', C),
+  Projectile_Deadeye_4_Trap_Dart_C: { ...p('slow', C), family: 'zone' },
+  Patch_Deadeye_E_Slow_Large_C: { ...l('slow', C), family: 'zone' },
   // Tour de Force, the gun itself.
   Gun_Deadeye_X_Giantslayer_Prototype_FireRatePrototype_C: ignore(),
   // Rendezvous' anchor, while it is down.
@@ -109,18 +116,18 @@ const TABLE: Record<string, EffectClassInfo> = {
   GameObject_Smonk_Q_DecayExplosion_C: l('stun', Q),
 
   // Cypher (Gumshoe). Cyber Cage comes in two forms in these bundles, both cast on Q.
-  Projectile_Gumshoe_Q_CageTrap_C: p('trap', Q),
+  Projectile_Gumshoe_Q_CageTrap_C: { ...p('trap', Q), family: 'device' },
   // The cage canister lying in wait (median 20 s), until it is activated.
-  GameObject_Gumshoe_Q_CageTrap_C: l('trap', Q),
+  GameObject_Gumshoe_Q_CageTrap_C: { ...l('trap', Q), family: 'device' },
   // The activated cage, on the canister it replaces: not a throw's landing.
   Zone_Gumshoe_Q_Cage_C: placed('smoke', Q),
   Projectile_Gumshoe_4_CageTrap_C: p('smoke', Q),
   Zone_Gumshoe_4_Cage_C: l('smoke', Q),
   // Trapwire: the anchor drawn, the far end left out. Cast on C in both forms.
   GameObject_Gumshoe_4_TripWire_C: placed('trap', C),
-  GameObject_Gumshoe_4_TripWire_SecondWire_C: ignore('trap'),
+  GameObject_Gumshoe_4_TripWire_SecondWire_C: { role: 'ignore', shape: 'trap', wireEnd: true },
   GameObject_Gumshoe_E_TripWire_C: placed('trap', C),
-  GameObject_Gumshoe_E_TripWire_SecondWire_C: ignore('trap'),
+  GameObject_Gumshoe_E_TripWire_SecondWire_C: { role: 'ignore', shape: 'trap', wireEnd: true },
   // Spycam, where it sits (cast on E in both forms).
   Pawn_Gumshoe_E_PossessableCamera_C: pawn('recon', E),
   Pawn_Gumshoe_Q_PossessableCamera_C: pawn('recon', E),
@@ -146,7 +153,7 @@ const TABLE: Record<string, EffectClassInfo> = {
   Patch_Cable_4_NetToss_C: l('slow', E),
   GameObject_Cable_4_RemovableNet_C: ignore('slow'),
   // Sonic Sensor going off.
-  GameObject_SoundSensor_SweetSpotFissure_C: placed('stun', Q),
+  GameObject_SoundSensor_SweetSpotFissure_C: { ...placed('stun', Q), family: 'burst' },
   // Annihilation's aiming line and its node.
   GameObject_FishingHook_BouncingTrajectoryWarning_C: ignore(),
   GameObject_FishingHook_EndOfTrajectoryWarning_C: ignore(),
@@ -169,12 +176,12 @@ const TABLE: Record<string, EffectClassInfo> = {
   // Spat out where Dizzy finishes (not from Gekko's hand) and lands as Dizzy's glob.
   Projectile_E_Aggrobot_OrbSpawner_C: p('other', E),
   GameObject_Aggrobot_Reclaim_Orb_Turret_C: l('other', E),
-  GameObject_Aggrobot_Reclaim_Orb_SeekerNade_C: placed('other', Q),
+  GameObject_Aggrobot_Reclaim_Orb_SeekerNade_C: { ...placed('other', Q), family: 'device' },
   // Wingman's glob after a plant or defuse.
-  GameObject_Aggrobot_Reclaim_Orb_SeekerNadePlantSuccessful_C: placed('other', Q),
-  GameObject_Aggrobot_X_Reclaim_Orb_C: placed('other', X),
+  GameObject_Aggrobot_Reclaim_Orb_SeekerNadePlantSuccessful_C: { ...placed('other', Q), family: 'device' },
+  GameObject_Aggrobot_X_Reclaim_Orb_C: { ...placed('other', X), family: 'device' },
   // A glob whose ability the casts do not settle (E 7, Q 6): no slot.
-  GameObject_Aggrobot_Reclaim_Orb_ExplodeyPatch_C: placed('other'),
+  GameObject_Aggrobot_Reclaim_Orb_ExplodeyPatch_C: { ...placed('other'), family: 'device' },
   // Mosh Pit: thrown, then the patch where it lands.
   Projectile_Aggrobot_C_ExplodeyPatch_C: p('molly', C),
   Patch_Aggrobot_C_ExplodeyPatch_C: l('molly', C),
@@ -204,7 +211,7 @@ const TABLE: Record<string, EffectClassInfo> = {
   GameObject_Sequoia_4_MovingCover_Slower_C: placed('wall', C),
   GameObject_Sequoia_4_MovingCover_AltFireSlower_C: placed('wall', C),
   // Double Tap's orb (about 1 s).
-  GameObject_Sequoia_E_Orb_C: placed('other', E),
+  GameObject_Sequoia_E_Orb_C: ignore(),
   GameObject_Sequoia_4_MovingCover_C: placed('wall', C),
   // Double Tap's shield on Iso himself, Undercut's flight and its aiming line (no landing recorded).
   GameObject_Sequoia_E_Shield_C: ignore(),
@@ -292,14 +299,15 @@ const TABLE: Record<string, EffectClassInfo> = {
   // Guiding Light: the hawk flies, the flash goes off where it ends.
   Projectile_Guide_E_HawkFlash_C: p('flash', E),
   GameObject_Guide_E_HawkFlash_FlashSource_C: l('flash', E),
-  GameObject_Guide_4_Heal_AOE_C: placed('other', C),
+  // Regrowth heals around Skye: she carries it, not the map.
+  GameObject_Guide_4_Heal_AOE_C: ignore(),
   Pawn_Guide_X_Pack_C: pawn('drone', X),
 
   // Sova (Hunter)
   // Owl Drone, cast on C.
   Pawn_Hunter_E_Drone_C: pawn('drone', C),
   // The Owl Drone's marking dart.
-  GameObject_Hunter_E_Drone_RevealDart_C: placed('recon', C),
+  GameObject_Hunter_E_Drone_RevealDart_C: { ...placed('recon', C), family: 'reveal' },
   // Shock Bolt: the bolt flies (and bounces), the blast lands where it stops. Two builds of it.
   Projectile_Hunter_4_ExplosiveBolt_C: p('molly', Q),
   GameObject_Hunter_4_ExplosiveBolt_Explosion_C: l('molly', Q),
@@ -335,7 +343,7 @@ const TABLE: Record<string, EffectClassInfo> = {
   Projectile_C_Grenadier_Flash_Underhand_C: p('flash', Q),
   Projectile_Grenadier_Q_SemtexBasic_C: p('molly', C),
   // NULL/cmd, on KAY/O; its pulses and the recharge point are left out.
-  Gameobject_Grenadier_X_UltPulseManager_C: placed('stun', X),
+  Gameobject_Grenadier_X_UltPulseManager_C: { ...placed('stun', X), onOwner: true },
   Gameobject_Grenadier_X_UltPulse_C: ignore('stun'),
   Gameobject_Grenadier_X_RechargeUsable_C: ignore(),
 
@@ -406,7 +414,7 @@ const TABLE: Record<string, EffectClassInfo> = {
   // Shear, armed.
   GameObject_Nox_WallTrap_C: placed('trap', Q),
   // Shear's wall, where the armed trap was, when it ends.
-  GameObject_Nox_Wall_C: placed('wall', Q),
+  GameObject_Nox_Wall_C: { ...placed('wall', Q), family: 'wall' },
   // Razorvine: thrown, then the vines where they land; the patch when triggered is left out.
   Projectile_Nox_BarbedWire_C: p('slow', C),
   GameObject_Nox_BarbedWire_C: l('slow', C),

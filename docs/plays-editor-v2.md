@@ -625,6 +625,45 @@ the earlier size), **Fixed on screen** or **Grow with map** when zooming; player
 names with the same two choices, S / M / L / XL (13, 16, 20, 26 units; L is the
 earlier size); and agent icons S / M / L (26, 34, 44 units; M is the default, L the earlier size).
 
+### 2.14 How abilities are drawn
+
+Replaces the per-shape drawing and the badge riding the arc of §2.10.
+
+**Where.** The token sits where the ability takes effect, from the first frame
+of its throw. Only a small comet travels from the hand, along the real track.
+Nothing is ever drawn at the hand: the old fallback that drew a cast no effect
+"explained" put a ghost there for every ability landing over 3 m away (97% of
+Brimstone's smokes, every Clove smoke, 99% of Curveballs).
+
+**Families** (`abilityLook` in `agentAbilities.ts`, one per key for all 30
+agents; a phase with its own behaviour overrides it in `utilityClasses.ts`):
+
+| Family | What it is | Area | Clock |
+| --- | --- | --- | --- |
+| cloud | blocks sight | dense disc, true radius | ring + seconds |
+| zone | acts on who is in it | light disc, true radius | ring + seconds |
+| wall | a line | its real line, built as it was | ring + seconds |
+| burst | goes off once | shock ring out to its reach | the ring is the clock |
+| wave | sweeps along the aim | strip swept so far, token on the front | fades as it ends |
+| reveal | shows enemies | pulses | ring |
+| scout | sent somewhere | none: token where it is now, its trail | ring |
+| device | waits | none: square token, a wire's line | none |
+| self | acts on the agent | none: small token riding the agent | shown 1.5 s |
+
+**Duration** is the replay's own, except bursts and waves (their actors linger
+for seconds after the effect is over: 1.2 s and 2 s by default) and eight abilities
+with a figure in the catalogue (Gravity Well, Aftershock, Orbital Strike, Meddle,
+Seize, FRAG/ment, Paint Shells, Leer: `ms`).
+
+**Colour** is the agent's (`agentInk`, hand-picked: valorant-api's gradient is a
+dark portrait backdrop), darkened on a light skin. The team is the token's ring.
+The token is one object for every ability: dark disc, white glyph, no key tag.
+
+**Data.** Pawns move in `bundle.pawns`, joined to their effects by start time and
+place (3,345 of 3,346). Bundles from before reducer 0.3.0 hold area effects only;
+their casts ride on the agent until the bundle is re-attached. Curveball and
+Flashbulb have neither a landing actor nor a track, so they ride on the agent too.
+
 ## 3. Document v2 (`src/lib/playDoc.ts`)
 
 ```ts
