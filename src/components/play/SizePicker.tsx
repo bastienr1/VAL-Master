@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { ALargeSmall } from 'lucide-react'
-import { AGENT_SIZES, CALLOUT_SIZES, type CanvasSizes } from '../../lib/canvasSizes'
+import { AGENT_SIZES, CALLOUT_SIZES, NAME_SIZES, type CanvasSizes } from '../../lib/canvasSizes'
 
 interface SizePickerProps {
   sizes: CanvasSizes
@@ -44,7 +44,33 @@ function Segments<T extends string>({
   )
 }
 
-/** The toolbar's Size button and its menu (§2.13): callout text and agent icons. */
+/** Whether a kind of text keeps its size on screen or grows with the map. */
+function ZoomChoice({ label, what, follow, onPick }: { label: string; what: string; follow: boolean; onPick(follow: boolean): void }) {
+  return (
+    <div role="radiogroup" aria-label={label} className="flex gap-1">
+      {[
+        { value: false, text: 'Fixed on screen', title: `${what} keep their size when you zoom` },
+        { value: true, text: 'Grow with map', title: `${what} get bigger as you zoom in, like the map` },
+      ].map(({ value, text, title }) => (
+        <button
+          key={text}
+          type="button"
+          role="radio"
+          aria-checked={follow === value}
+          title={title}
+          onClick={() => onPick(value)}
+          className={`flex-1 py-1 rounded-md text-[11px] font-medium transition-colors ${
+            follow === value ? 'bg-val-cyan/15 text-val-cyan' : 'text-text-secondary bg-bg-elevated/50 hover:text-text-primary hover:bg-bg-elevated'
+          }`}
+        >
+          {text}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+/** The toolbar's Size button and its menu (§2.13): callout text, player names and agent icons. */
 export default function SizePicker({ sizes, onSizes, buttonClass }: SizePickerProps) {
   const [open, setOpen] = useState(false)
   const root = useRef<HTMLDivElement>(null)
@@ -67,7 +93,7 @@ export default function SizePicker({ sizes, onSizes, buttonClass }: SizePickerPr
 
   return (
     <div ref={root} className="relative">
-      <button type="button" onClick={() => setOpen(o => !o)} aria-haspopup="dialog" aria-expanded={open} title="Callout text and agent icon size" className={buttonClass}>
+      <button type="button" onClick={() => setOpen(o => !o)} aria-haspopup="dialog" aria-expanded={open} title="Callout text, player name and agent icon size" className={buttonClass}>
         <ALargeSmall className="w-3.5 h-3.5" />
         <span className="hidden md:inline">Size</span>
       </button>
@@ -76,26 +102,12 @@ export default function SizePicker({ sizes, onSizes, buttonClass }: SizePickerPr
           <div className="space-y-1.5">
             <div className={heading}>Callout text</div>
             <Segments label="Callout text size" options={CALLOUT_SIZES} value={sizes.callout} onPick={callout => onSizes({ ...sizes, callout })} />
-            <div role="radiogroup" aria-label="When you zoom" className="flex gap-1">
-              {[
-                { follow: false, text: 'Fixed on screen', title: 'Callouts keep their size when you zoom' },
-                { follow: true, text: 'Grow with map', title: 'Callouts get bigger as you zoom in, like the map' },
-              ].map(({ follow, text, title }) => (
-                <button
-                  key={text}
-                  type="button"
-                  role="radio"
-                  aria-checked={sizes.calloutsFollowZoom === follow}
-                  title={title}
-                  onClick={() => onSizes({ ...sizes, calloutsFollowZoom: follow })}
-                  className={`flex-1 py-1 rounded-md text-[11px] font-medium transition-colors ${
-                    sizes.calloutsFollowZoom === follow ? 'bg-val-cyan/15 text-val-cyan' : 'text-text-secondary bg-bg-elevated/50 hover:text-text-primary hover:bg-bg-elevated'
-                  }`}
-                >
-                  {text}
-                </button>
-              ))}
-            </div>
+            <ZoomChoice label="Callouts when you zoom" what="Callouts" follow={sizes.calloutsFollowZoom} onPick={calloutsFollowZoom => onSizes({ ...sizes, calloutsFollowZoom })} />
+          </div>
+          <div className="space-y-1.5">
+            <div className={heading}>Player names</div>
+            <Segments label="Player name size" options={NAME_SIZES} value={sizes.name} onPick={name => onSizes({ ...sizes, name })} />
+            <ZoomChoice label="Player names when you zoom" what="Names" follow={sizes.namesFollowZoom} onPick={namesFollowZoom => onSizes({ ...sizes, namesFollowZoom })} />
           </div>
           <div className="space-y-1.5">
             <div className={heading}>Agent icons</div>

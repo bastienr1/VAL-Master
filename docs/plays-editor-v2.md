@@ -605,8 +605,9 @@ already there, in its stored position.
 
 The toolbar's **Size** menu (`SizePicker.tsx`, `canvasSizes.ts`, per device as
 `plays.canvasSizes`): callout text S / M / L / XL (15, 18, 22, 28 units; L is
-the earlier size), **Fixed on screen** or **Grow with map** when zooming, and
-agent icons S / M / L (26, 34, 44 units; M is the default, L the earlier size).
+the earlier size), **Fixed on screen** or **Grow with map** when zooming; player
+names with the same two choices, S / M / L / XL (13, 16, 20, 26 units; L is the
+earlier size); and agent icons S / M / L (26, 34, 44 units; M is the default, L the earlier size).
 
 ## 3. Document v2 (`src/lib/playDoc.ts`)
 
@@ -801,6 +802,9 @@ Every ability (2026-11-08): the rebuilt Abyss bundle of 2026-11-02 attached
 in the signed-in app; your Sova's round 1 Shock Bolt flies along its arc and
 lands 29 m away at A Site as a 4 m blast, where before only a badge sat on
 Sova.
+
+Player name sizes (2026-11-08): on the Abyss replay, names measured 13, 16, 20
+and 26 px, centred under the tile; fixed stayed 20 px at 400 % zoom, grown 76 px.
 
 Exact positions (2026-11-08): scrubbing Abyss round 1 from 62 s to 70 s in
 100 ms steps, 640 samples, the only large step was Jett's 21 units per 100 ms,

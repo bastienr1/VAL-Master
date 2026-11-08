@@ -85,7 +85,7 @@ import {
   type PlacedMarker,
   type Point,
 } from '../lib/playScene'
-import { DEFAULT_CANVAS_SIZES, agentScale, calloutUnits, type CanvasSizes } from '../lib/canvasSizes'
+import { DEFAULT_CANVAS_SIZES, agentScale, calloutUnits, nameUnits, type CanvasSizes } from '../lib/canvasSizes'
 import type { AgentMotion } from '../lib/replayMotion'
 import { canvasSkin, hexChannels, skinDrawColor, skinMapMatrix, type CanvasSkin, type CanvasSkinId } from '../lib/canvasSkins'
 import type { ControlGrid } from '../lib/mapControl'
@@ -264,8 +264,6 @@ const TEXT_SIZE = 24
 const TEXT_BOX_H = 34
 const UTILITY_LABEL = 20
 const NOTE_MAX = 42
-/** The name under an agent tile (Names toggle). */
-const NAME_SIZE = 20
 const NAME_MAX = 16
 /** Below this rendered width (px) ability, marker and agent labels hide. */
 const LABEL_MIN_WIDTH_PX = 280
@@ -643,6 +641,9 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
   // Fixed on screen unless the user asked for callouts that grow with the map.
   const calloutK = sizes.calloutsFollowZoom ? 1 : k
   const tileScale = agentScale(sizes.agent)
+  const nameSize = nameUnits(sizes.name)
+  // Fixed on screen unless the user asked for names that grow with the map.
+  const nameK = sizes.namesFollowZoom ? 1 : k
   /** Half an agent tile as drawn, in screen-size units. The tile's centre is the agent's exact position. */
   const half = HALF * tileScale
   const tileSized = `scale(${k * tileScale})`
@@ -1593,12 +1594,12 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
       >
         {tile(agent.agent, ringOf(agent))}
         {named && (
-          <g transform={sized}>
+          <g transform={`scale(${nameK})`}>
             <text
-              y={half + 4 + NAME_SIZE}
+              y={(half * k) / nameK + 4 + nameSize}
               textAnchor="middle"
               fontFamily={FONT}
-              fontSize={NAME_SIZE}
+              fontSize={nameSize}
               fontWeight={600}
               fill={agent.team === 'enemy' ? skin.enemyName : skin.allyName}
               pointerEvents="none"
