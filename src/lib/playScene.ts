@@ -20,6 +20,7 @@ import {
   findCallout,
   resolvePos,
   type AbilitySlot,
+  type KitSlot,
   type MapCallout,
   type MarkerType,
   type PlayPos,
@@ -153,6 +154,8 @@ export interface PlacedAgent {
   spike: boolean
   /** Who played the agent (a replay's Riot name), '' when not known. */
   player: string
+  /** What the agent has left, on a replay frame. */
+  kit: KitSlot[] | null
   /** Where the agent is drawn: exactly the placed point, even over another agent. */
   x: number
   y: number
@@ -360,6 +363,7 @@ export function sceneForStep(
           note: el.note ?? '',
           spike: el.spike === true,
           player: el.player ?? '',
+          kit: el.kit ?? null,
           x: at[0],
           y: at[1],
           path: points.length >= 2 ? points : null,

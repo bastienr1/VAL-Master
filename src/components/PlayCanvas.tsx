@@ -56,6 +56,7 @@ import {
   withoutElement,
   type AbilityElement,
   type AbilitySlot,
+  type KitSlot,
   type MarkerElement,
   type PlayElement,
   type PlayPos,
@@ -114,6 +115,8 @@ export interface PlayCanvasProps {
   skin?: CanvasSkinId
   /** A name under every agent tile: who played it (a replay's Riot name), else the agent. */
   showNames?: boolean
+  /** On a replay frame, what each agent has left, above their tile. */
+  showKit?: boolean
   /** False while scrubbing fast, and for a replay's frames. */
   animate: boolean
   onSelect(id: string | null): void
@@ -228,6 +231,16 @@ const DEVICE_RX = 6
 /** What acts on the agent alone is a small token beside them. */
 const CHIP_SCALE = 0.68
 const CHIP_OFFSET = 21
+/** What an agent has left (§2.15): a strip above the tile. */
+const KIT_ICON = 13
+const KIT_STEP = 15
+const KIT_GAP = 3
+const KIT_HEIGHT = 19
+const KIT_SPENT = 0.28
+const KIT_PIP = 1.3
+const KIT_PIP_STEP = 4
+/** More charges than this (Headhunter's magazine) have no room for pips. */
+const KIT_PIPS_MAX = 4
 /** The time-left ring around the token: its radius and width. */
 const LIFE_R = BADGE_R + BADGE_RING + 3
 const LIFE_WIDTH = 3
@@ -445,6 +458,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
     selectedId,
     showCallouts,
     showNames = false,
+    showKit = false,
     sizes = DEFAULT_CANVAS_SIZES,
     motion = null,
     abilityVisible,
@@ -1640,6 +1654,39 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
       })
     : null
 
+  /** The agent's four abilities above the tile: white while they have a charge, dim when spent, a glow as one comes back. */
+  const kitOf = (name: string, kit: KitSlot[]) => {
+    const registry = agentOf(name)
+    const ink = agentInk(name) ?? skin.ally
+    const width = kit.length * KIT_STEP + 2
+    const top = -half - KIT_GAP - KIT_HEIGHT
+    return (
+      <g pointerEvents="none" transform={sized}>
+        <rect x={-width / 2} y={top} width={width} height={KIT_HEIGHT} rx={5} fill={TOKEN_FILL} fillOpacity={0.82} />
+        {kit.map((slot, i) => {
+          const x = (i - (kit.length - 1) / 2) * KIT_STEP
+          const cy = top + KIT_ICON / 2 + 1.5
+          const icon = registry?.abilities.find(a => a.slot === slot.slot)?.icon ?? null
+          const pipY = top + KIT_HEIGHT - 2.5
+          return (
+            <g key={slot.slot}>
+              {slot.glow > 0 && <circle cx={x} cy={cy} r={6 + 5 * (1 - slot.glow)} fill={ink} opacity={0.8 * slot.glow} />}
+              {icon ? (
+                <image href={icon} x={x - KIT_ICON / 2} y={cy - KIT_ICON / 2} width={KIT_ICON} height={KIT_ICON} opacity={slot.n > 0 ? 1 : KIT_SPENT} />
+              ) : (
+                <circle cx={x} cy={cy} r={3} fill={WHITE} opacity={slot.n > 0 ? 1 : KIT_SPENT} />
+              )}
+              {slot.max > 1 && slot.max <= KIT_PIPS_MAX &&
+                Array.from({ length: slot.max }, (_, p) => (
+                  <circle key={p} cx={x + (p - (slot.max - 1) / 2) * KIT_PIP_STEP} cy={pipY} r={KIT_PIP} fill={WHITE} opacity={p < slot.n ? 1 : KIT_SPENT} />
+                ))}
+            </g>
+          )
+        })}
+      </g>
+    )
+  }
+
   const agentTiles = scene.agents.map(agent => {
     const [dx, dy] = offsetOf(agent.id)
     const label = `${agent.agent}${agent.player ? ` (${agent.player})` : ''}${agent.team === 'enemy' ? ' (enemy)' : ''}${
@@ -1654,6 +1701,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
         style={{ ...placement(agent.x + dx, agent.y + dy, true, live?.id === agent.id), cursor: elementCursor }}
       >
         {tile(agent.agent, ringOf(agent))}
+        {showKit && agent.kit && kitOf(agent.agent, agent.kit)}
         {named && (
           <g transform={`scale(${nameK})`}>
             <text

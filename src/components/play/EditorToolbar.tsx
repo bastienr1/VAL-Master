@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ArrowLeft, BookOpen, Check, Ellipsis, Film, GraduationCap, Layers, LayoutDashboard, Loader2, Maximize2, PanelRight, Redo2, Tag, Trash2, Undo2, UserRound } from 'lucide-react'
+import { ArrowLeft, BookOpen, Check, Ellipsis, Film, GraduationCap, Layers, LayoutDashboard, Loader2, Maximize2, PanelRight, Redo2, Sparkles, Tag, Trash2, Undo2, UserRound } from 'lucide-react'
 import type { CanvasSkinId } from '../../lib/canvasSkins'
 import type { PlaySide } from '../../lib/types'
 import type { CanvasSizes } from '../../lib/canvasSizes'
@@ -27,6 +27,9 @@ interface EditorToolbarProps {
   /** Names under the agent tiles: the players' on a replay, else the agents'. */
   showNames: boolean
   onToggleNames(): void
+  /** What each agent has left: given while a replay is open. */
+  showKit?: boolean
+  onToggleKit?(): void
   /** The map-control overlay (§2.9): who holds which part of the map. */
   showControl: boolean
   onToggleControl(): void
@@ -156,6 +159,18 @@ export default function EditorToolbar(props: EditorToolbarProps) {
           <UserRound className="w-3.5 h-3.5" />
           <span className="hidden md:inline">Names</span>
         </button>
+        {props.onToggleKit && (
+          <button
+            type="button"
+            onClick={props.onToggleKit}
+            aria-pressed={props.showKit === true}
+            title="Show what each agent has left: dim when spent, a glow when it comes back"
+            className={toggle(props.showKit === true)}
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            <span className="hidden md:inline">Abilities</span>
+          </button>
+        )}
         <button
           type="button"
           onClick={props.onToggleControl}
