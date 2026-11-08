@@ -21,13 +21,18 @@ export interface ReplayMatch {
   map: string
   mapId: string | null
   agent: string
+  agentId: string | null
   result: Match['result']
   score: string
+  acs: number
+  kills: number
+  deaths: number
+  assists: number
   /** `matches.match_date`; null when the row has none. */
   playedAt: string | null
 }
 
-type MatchRow = Pick<Match, 'match_id' | 'map' | 'map_id' | 'agent' | 'result' | 'score' | 'match_date'>
+type MatchRow = Pick<Match, 'match_id' | 'map' | 'map_id' | 'agent' | 'agent_id' | 'result' | 'score' | 'match_date' | 'acs' | 'kills' | 'deaths' | 'assists'>
 
 /**
  * Every match of the signed-in user with a replay, newest first. A replay
@@ -49,7 +54,7 @@ export async function listReplayMatches(): Promise<ReplayMatch[]> {
 
   const { data: rows, error: matchError } = await supabase
     .from('matches')
-    .select('match_id, map, map_id, agent, result, score, match_date')
+    .select('match_id, map, map_id, agent, agent_id, result, score, match_date, acs, kills, deaths, assists')
     .eq('user_id', userId)
     .in('match_id', ids)
   if (matchError) throw new Error(`matches read failed: ${matchError.message}`)
@@ -66,8 +71,13 @@ export async function listReplayMatches(): Promise<ReplayMatch[]> {
       map: row.map,
       mapId: row.map_id,
       agent: row.agent,
+      agentId: row.agent_id,
       result: row.result,
       score: row.score,
+      acs: row.acs,
+      kills: row.kills,
+      deaths: row.deaths,
+      assists: row.assists,
       playedAt: row.match_date || null,
     })
   }
