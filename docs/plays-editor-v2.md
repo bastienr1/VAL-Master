@@ -689,6 +689,17 @@ cast of it took them to zero, else `ULT_POINTS`, the most any player of that age
 held. Soul orbs show on both of Reyna's Q and E. Vyse's Shear has no record, so
 it has no icon. Bundles from before 0.4.0 have no strip.
 
+### 2.16 Who killed whom
+
+From `bundle.kills`, read by `replayKills.ts` and kept out of the frame so a
+captured step holds none of it. A kill draws a line with an arrow from where the
+killer stood to where the victim fell, in the killer's team colour, for 4 s (full
+strength for half, then fading), with a ring on the killer's tile as it is now.
+Where the victim fell stays a mark for the rest of the round: their tile with an X,
+faint once the line has gone. A feed under the zoom control names them, the
+weapon or ability between, for 7 s, at most five rows. A death nobody dealt
+(Clove's ult running out) has a mark and a feed row, and no line.
+
 ## 3. Document v2 (`src/lib/playDoc.ts`)
 
 ```ts

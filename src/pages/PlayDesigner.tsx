@@ -67,6 +67,7 @@ import type { PlaySide } from '../lib/types'
 import { formatTime } from '../lib/youtube'
 import { readLayers, writeLayers, type LayerKey, type Layers } from '../lib/replayLayers'
 import { frameMotion, pawnEffectIds, sightBlockers } from '../lib/replayMotion'
+import { killMarks, type KillMark } from '../lib/replayKills'
 import type { RosterPlayer } from '../lib/replayPanels'
 import type { AgentMotion } from '../lib/replayMotion'
 import { createValueStore, type ValueStore } from '../lib/valueStore'
@@ -374,13 +375,16 @@ function FrameCanvas({
   step,
   control,
   motionAt,
+  killsAt,
   ref,
   ...props
-}: Omit<PlayCanvasProps, 'motion'> & {
+}: Omit<PlayCanvasProps, 'motion' | 'kills'> & {
   frames: ValueStore<ReplayFrame | null> | null
   edited?: PlayStep | null
   /** A replay's view cones and trails at a replay time, when any layer asks for them. */
   motionAt?: ((t: number, shown: PlayStep) => ReadonlyMap<string, AgentMotion>) | null
+  /** Who has killed whom by a replay time. */
+  killsAt?: ((t: number) => KillMark[]) | null
   ref?: Ref<PlayCanvasHandle>
 }) {
   const frame = useSyncExternalStore(frames?.subscribe ?? noSubscribe, () => frames?.get() ?? null)
@@ -390,7 +394,8 @@ function FrameCanvas({
     () => (motionAt && replayMs !== undefined && shown ? motionAt(replayMs, shown) : null),
     [motionAt, replayMs, shown],
   )
-  return <PlayCanvas ref={ref} {...props} motion={motion} step={shown} control={frame ? frame.control : control} />
+  const kills = useMemo(() => (killsAt && replayMs !== undefined ? killsAt(replayMs) : null), [killsAt, replayMs])
+  return <PlayCanvas ref={ref} {...props} motion={motion} kills={kills} step={shown} control={frame ? frame.control : control} />
 }
 
 /**
@@ -647,6 +652,14 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
             })
         : null,
     [replay, coneLayer, trailLayer, sight],
+  )
+
+  const killsAt = useMemo(
+    () =>
+      replay
+        ? (t: number) => killMarks(replay.bundle, t, roundAt(replay.bundle, t), replay.transform, replay.ids, replay.lookup, s => replay.players.get(s))
+        : null,
+    [replay],
   )
 
   /** What Save writes: the doc, with the match it was built from. */
@@ -1600,6 +1613,7 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
                 edited={inReplay ? live?.step : null}
                 control={stepControl}
                 motionAt={inReplay ? motionAt : null}
+                killsAt={inReplay ? killsAt : null}
                 abilityVisible={inReplay ? abilityVisible : undefined}
                 map={gameMap}
                 side={inReplay && !layers.flip ? 'attack' : side}
