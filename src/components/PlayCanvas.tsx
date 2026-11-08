@@ -88,6 +88,7 @@ import {
 } from '../lib/playScene'
 import { DEFAULT_CANVAS_SIZES, agentScale, calloutUnits, nameUnits, type CanvasSizes } from '../lib/canvasSizes'
 import type { AgentMotion } from '../lib/replayMotion'
+import { KILL_FEED_MAX, type KillMark, type KillPerson } from '../lib/replayKills'
 import { canvasSkin, hexChannels, skinDrawColor, skinMapMatrix, type CanvasSkin, type CanvasSkinId } from '../lib/canvasSkins'
 import type { ControlGrid } from '../lib/mapControl'
 import type { PlaySide } from '../lib/types'
@@ -107,6 +108,8 @@ export interface PlayCanvasProps {
   showCallouts: boolean
   /** A replay's view cones and trails, by agent element id (§2.12). */
   motion?: ReadonlyMap<string, AgentMotion> | null
+  /** Who has killed whom this round, on a replay (§2.16). */
+  kills?: KillMark[] | null
   /** False for an ability a replay layer hides. It stays in the step, so edits and captures keep it. */
   abilityVisible?: (id: string) => boolean
   /** Callout text and agent icon sizes (§2.13); the defaults when not given. */
@@ -231,6 +234,18 @@ const DEVICE_RX = 6
 /** What acts on the agent alone is a small token beside them. */
 const CHIP_SCALE = 0.68
 const CHIP_OFFSET = 21
+/** A kill (§2.16): the line from killer to victim, the arrow at its end, the ring on the killer. */
+const KILL_LINE = 5
+const KILL_ARROW = 13
+/** The line is at full strength for this first part of its time, then fades. */
+const KILL_LINE_HOLD = 0.5
+const KILL_RING_PAD = 7
+const KILL_RING = 4
+/** The mark where someone died: faint once the kill has passed. */
+const DEATH_FRESH = 0.9
+const DEATH_OLD = 0.4
+const DEATH_X = 0.62
+const DEATH_X_WIDTH = 3.5
 /** What an agent has left (§2.15): a strip above the tile. */
 const KIT_ICON = 13
 const KIT_STEP = 15
@@ -466,6 +481,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
     showKit = false,
     sizes = DEFAULT_CANVAS_SIZES,
     motion = null,
+    kills = null,
     abilityVisible,
     skin: skinId,
     animate,
@@ -1670,6 +1686,59 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
       })
     : null
 
+  const teamInk = (person: Pick<KillPerson, 'team'>) => (person.team === 'enemy' ? skin.enemy : skin.ally)
+  const killFade = (line: number) => Math.min(1, line / KILL_LINE_HOLD)
+
+  // Where each death happened, and who did it while it is fresh: under the agents, over the utility.
+  const killLayer = (kills ?? []).map(kill => {
+    const [tx, ty] = imageToView(scene.view, kill.to.u, kill.to.v, scene.turns)
+    const fresh = kill.line > 0
+    const x = half * DEATH_X
+    let link: ReactNode = null
+    if (fresh && kill.from && kill.killer) {
+      const [fx, fy] = imageToView(scene.view, kill.from.u, kill.from.v, scene.turns)
+      const length = Math.hypot(tx - fx, ty - fy)
+      if (length > 0) {
+        const [ux, uy] = [(tx - fx) / length, (ty - fy) / length]
+        // Stops at the rim of the victim's mark, so the arrow shows.
+        const stop = Math.min(length, Math.max(0, length - half * k))
+        const [ex, ey] = [fx + ux * stop, fy + uy * stop]
+        const a = KILL_ARROW * k
+        const [bx, by] = [ex - ux * a, ey - uy * a]
+        const color = teamInk(kill.killer)
+        link = (
+          <g opacity={killFade(kill.line)}>
+            <line x1={fx} y1={fy} x2={bx} y2={by} stroke={TOKEN_FILL} strokeOpacity={0.7} strokeWidth={(KILL_LINE + 3) * k} strokeLinecap="round" />
+            <line x1={fx} y1={fy} x2={bx} y2={by} stroke={color} strokeWidth={KILL_LINE * k} strokeLinecap="round" />
+            <polygon points={pointsAttr([[ex, ey], [bx - uy * a * 0.6, by + ux * a * 0.6], [bx + uy * a * 0.6, by - ux * a * 0.6]])} fill={color} stroke={TOKEN_FILL} strokeWidth={1.5 * k} strokeLinejoin="round" />
+          </g>
+        )
+      }
+    }
+    return (
+      <g key={kill.key} pointerEvents="none">
+        <g style={placement(tx, ty)} opacity={fresh ? DEATH_FRESH : DEATH_OLD}>
+          {tile(kill.victim.agent, teamInk(kill.victim))}
+          <g transform={sized} stroke={WHITE} strokeWidth={DEATH_X_WIDTH} strokeLinecap="round">
+            <line x1={-x} y1={-x} x2={x} y2={x} />
+            <line x1={x} y1={-x} x2={-x} y2={x} />
+          </g>
+        </g>
+        {link}
+      </g>
+    )
+  })
+
+  /** The killer's ring, on their tile as it is now, while the line is up. */
+  const killerRing = (id: string, color: string) => {
+    const line = Math.max(0, ...(kills ?? []).filter(kill => kill.killerId === id).map(kill => kill.line))
+    if (line <= 0) return null
+    const size = half + KILL_RING_PAD
+    return <rect x={-size} y={-size} width={size * 2} height={size * 2} rx={TILE_RX + 4} fill="none" stroke={color} strokeWidth={KILL_RING} opacity={killFade(line)} transform={sized} pointerEvents="none" />
+  }
+
+  const feed = (kills ?? []).filter(kill => kill.feed > 0).slice(-KILL_FEED_MAX)
+
   /** The agent's four abilities above the tile: white while they have a charge, dim when spent, a glow as one comes back. */
   const kitOf = (name: string, kit: KitSlot[]) => {
     const registry = agentOf(name)
@@ -1716,6 +1785,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
         {...interactive(agent.id, label)}
         style={{ ...placement(agent.x + dx, agent.y + dy, true, live?.id === agent.id), cursor: elementCursor }}
       >
+        {killerRing(agent.id, agent.team === 'enemy' ? skin.enemy : skin.ally)}
         {tile(agent.agent, ringOf(agent))}
         {showKit && agent.kit && kitOf(agent.agent, agent.kit)}
         {named && (
@@ -2171,6 +2241,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
           <g>{scene.markers.filter(m => m.type !== 'spike').map(renderMarker)}</g>
           <g>{texts}</g>
           <g pointerEvents="none">{ghostTiles}</g>
+          <g>{killLayer}</g>
           <g>{agentTiles}</g>
           <g>{selection()}</g>
           <g pointerEvents="none">{labels}</g>
@@ -2178,6 +2249,31 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
           {editor}
         </g>
       </svg>
+
+      {feed.length > 0 && (
+        <ol aria-label="Kill feed" className="pointer-events-none absolute top-11 right-2 flex flex-col items-end gap-1">
+          {feed.map(kill => {
+            const side = (person: KillPerson) => {
+              const icon = agentOf(person.agent)?.displayIcon ?? null
+              return (
+                <span className="flex items-center gap-1 min-w-0">
+                  {icon && <img src={icon} alt="" className="w-5 h-5 rounded-sm" />}
+                  <span className="font-semibold truncate max-w-[92px]" style={{ color: teamInk(person) }}>
+                    {person.name}
+                  </span>
+                </span>
+              )
+            }
+            return (
+              <li key={kill.key} className="flex items-center gap-1.5 rounded-md bg-bg-primary/90 border border-bg-elevated px-1.5 py-1 text-[11px]" style={{ opacity: Math.min(1, kill.feed * 4) }}>
+                {kill.killer ? side(kill.killer) : null}
+                <span className="text-text-secondary whitespace-nowrap">{kill.killer ? `▸ ${kill.weapon ?? 'killed'} ▸` : '☠'}</span>
+                {side(kill.victim)}
+              </li>
+            )
+          })}
+        </ol>
+      )}
 
       {/* Outside the svg: its presses never reach the map. */}
       <div
