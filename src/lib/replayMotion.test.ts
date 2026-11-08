@@ -6,7 +6,8 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import type { ReplayBundle } from './replayBundle.ts'
 import { createFrameIds } from './replayFrame.ts'
-import { frameMotion, pawnEffectIds } from './replayMotion.ts'
+import { frameMotion, pawnEffectIds, sightBlockers } from './replayMotion.ts'
+import type { PlayStep } from './playDoc.ts'
 import type { SightGrid } from './sightGrid.ts'
 
 // World x → v, world y → u, 10 000 cm across the image.
@@ -65,6 +66,40 @@ test('with the walls every sight line runs until a wall or the edge stops it', (
   near(middle.v, m.at.v)
   // Past 9 m: 0.2 of the map is 20 m here.
   assert.ok(Math.hypot(middle.u - m.at.u, middle.v - m.at.v) > 0.09)
+})
+
+test('only landed smokes with a life, and walls with a line, block sight', () => {
+  const at = { u: 0.5, v: 0.5 }
+  const step: PlayStep = {
+    id: 'frame',
+    name: 'R1',
+    caption: '',
+    elements: [
+      { kind: 'ability', id: 's1', agent: 'Omen', slot: 'Ability2', shape: 'smoke', at, radius: 400, life: 0.5 },
+      // No radius: the shape's default, 380 cm.
+      { kind: 'ability', id: 's2', agent: 'Clove', slot: 'Ability2', shape: 'smoke', at, life: 0.5 },
+      { kind: 'ability', id: 'cast', agent: 'Omen', slot: 'Ability2', shape: 'smoke', at },
+      { kind: 'ability', id: 'flying', agent: 'Omen', slot: 'Ability2', shape: 'smoke', at, life: 1, progress: 0.4 },
+      { kind: 'ability', id: 'molly', agent: 'Phoenix', slot: 'Ability1', shape: 'molly', at, life: 0.5 },
+      { kind: 'ability', id: 'w', agent: 'Harbor', slot: 'Ability1', shape: 'wall', at, life: 0.5, path: [{ u: 0.1, v: 0.1 }, { u: 0.2, v: 0.1 }, { u: 0.3, v: 0.2 }] },
+      { kind: 'ability', id: 'mesh', agent: 'Deadlock', slot: 'Grenade', shape: 'wall', at, life: 0.5 },
+    ],
+  }
+  const b = sightBlockers(step, T)
+  assert.deepEqual(b.circles.map(c => +c.r.toFixed(4)), [0.04, 0.038])
+  assert.equal(b.segments.length, 2)
+})
+
+test('a smoke stops the sight lines that reach it, and not the ones that miss it', () => {
+  const ids = createFrameIds()
+  const looking = structuredClone(bundle)
+  looking.tracks.byPlayer.p1 = [[0, 0, 0, 90, 1, null], [1000, 0, 0, 90, 1, null]]
+  // 3 m ahead of the player (u = 0.5 + 0.03, v = 0.5), 1 m radius.
+  const blockers = { circles: [{ u: 0.53, v: 0.5, r: 0.01 }], segments: [] }
+  const m = frameMotion(looking, 1000, T, ids, { cones: true, trails: false, sight: walled(), blockers }).get(ids.forSubject('p1'))!
+  near(m.cone![24].u, 0.52)
+  // The edge of the wedge misses it and runs on to the wall.
+  assert.ok(m.cone![0].u > 0.65 || Math.hypot(m.cone![0].u - m.at.u, m.cone![0].v - m.at.v) > 0.1)
 })
 
 test('a trail holds the last 3 seconds, oldest first', () => {

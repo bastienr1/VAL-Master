@@ -580,7 +580,10 @@ panel while it is open. The layers are the VOD review's own choice
 running until a wall or the edge of the map stops it (`sightGrid.ts`: the
 1024 px minimap, transparent or bright-outlined pixels block). While the walls
 are not loaded, or cannot be read, cones reach 9 m. Boxes outlined in the art
-block like walls, and smokes do not block. Then Utility and Pawns hide abilities without taking them out
+block like walls. Landed smokes and walls with a line (High Tide, Toxic Screen,
+Blaze, Fast Lane, Sage's wall) stop sight too, read from the frame as drawn, so
+an edited frame counts (`sightBlockers`, `clipRay`); from inside a smoke, sight
+stops at its edge. Then Utility and Pawns hide abilities without taking them out
 of the step, so an edit or a capture keeps them, and My side off keeps
 attackers at the bottom. The agent strip is hidden while the replay
 view is on and comes back in the steps view. With no replay it is the rail, the
@@ -806,6 +809,10 @@ Every ability (2026-11-08): the rebuilt Abyss bundle of 2026-11-02 attached
 in the signed-in app; your Sova's round 1 Shock Bolt flies along its arc and
 lands 29 m away at A Site as a 4 m blast, where before only a badge sat on
 Sova.
+
+Smokes in the cones (2026-11-08): over 3136 sight lines across Abyss round 1, 768
+ended exactly on a smoke's edge and none passed through a landed smoke or a
+High Tide.
 
 View cones (2026-11-08): on Abyss and Pearl replays each ray's reach varied from
 12 to 421 map units with the walls in the way; about 3 ms per frame.

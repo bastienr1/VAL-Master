@@ -1,6 +1,6 @@
 /**
  * The replay layers the Plays canvas draws beside a frame (docs/plays-editor-v2.md
- * §2.12): each player's view cone, stopped by the map's walls, and last 3 seconds of path, and which
+ * §2.12): each player's view cone, stopped by the map's walls, smokes and sight-blocking utility, and last 3 seconds of path, and which
  * abilities are pawns. Kept out of the frame itself, so a captured step holds
  * none of it.
  *
@@ -10,7 +10,9 @@
 import type { ReplayBundle } from './replayBundle.ts'
 import type { FrameIds } from './replayFrame.ts'
 import { playerStateAt, sampleIndex, worldToImage, type MapTransform } from './replayScene.ts'
-import { castRay, type SightGrid } from './sightGrid.ts'
+import { UTILITY_RADIUS_CM } from './playScene.ts'
+import type { PlayStep } from './playDoc.ts'
+import { castRay, clipRay, type SightBlockers, type SightGrid } from './sightGrid.ts'
 import { classInfo } from './utilityClasses.ts'
 
 export interface ImagePoint {
@@ -39,13 +41,40 @@ const image = (transform: MapTransform, x: number, y: number): ImagePoint => {
   return { u, v }
 }
 
+/**
+ * The landed smokes and sight-blocking walls of a frame, as drawn (a paused
+ * frame's edits included). Only utility with a known life counts: a bare cast
+ * badge is not a smoke yet, nor is one still in flight. A wall with a line is
+ * one that hides what is behind it (High Tide, Toxic Screen, Blaze, Fast Lane,
+ * Sage's wall).
+ */
+export function sightBlockers(step: PlayStep, transform: MapTransform): SightBlockers {
+  const blockers: SightBlockers = { circles: [], segments: [] }
+  const scale = Math.abs(transform.xMultiplier)
+  for (const el of step.elements) {
+    if (el.kind !== 'ability' || el.life === undefined || el.progress !== undefined) continue
+    if (el.shape === 'smoke' && el.at.u !== undefined && el.at.v !== undefined) {
+      blockers.circles.push({ u: el.at.u, v: el.at.v, r: (el.radius ?? UTILITY_RADIUS_CM.smoke) * scale })
+    } else if (el.shape === 'wall' && el.path) {
+      for (let i = 1; i < el.path.length; i++) {
+        const p = el.path[i - 1]
+        const q = el.path[i]
+        if (p.u !== undefined && p.v !== undefined && q.u !== undefined && q.v !== undefined) {
+          blockers.segments.push([{ u: p.u, v: p.v }, { u: q.u, v: q.v }])
+        }
+      }
+    }
+  }
+  return blockers
+}
+
 /** Per agent element id: the cone and the trail asked for, at replay time `t`. */
 export function frameMotion(
   bundle: ReplayBundle,
   t: number,
   transform: MapTransform,
   ids: FrameIds,
-  want: { cones: boolean; trails: boolean; sight?: SightGrid | null },
+  want: { cones: boolean; trails: boolean; sight?: SightGrid | null; blockers?: SightBlockers | null },
 ): Map<string, AgentMotion> {
   const motion = new Map<string, AgentMotion>()
   if (!want.cones && !want.trails) return motion
@@ -62,7 +91,8 @@ export function frameMotion(
         const angle = rad - CONE_HALF_RAD + (2 * CONE_HALF_RAD * i) / (CONE_RAYS - 1)
         // Through the map transform, so the rays turn the way the map does.
         const far = image(transform, state.x + Math.cos(angle) * CONE_FALLBACK_CM, state.y + Math.sin(angle) * CONE_FALLBACK_CM)
-        cone.push(want.sight ? castRay(want.sight, from.u, from.v, far.u - from.u, far.v - from.v) : far)
+        const end = want.sight ? castRay(want.sight, from.u, from.v, far.u - from.u, far.v - from.v) : far
+        cone.push(want.blockers ? clipRay(from, end, want.blockers) : end)
       }
     }
     let trail: ImagePoint[] | null = null

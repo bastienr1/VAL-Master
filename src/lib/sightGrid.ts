@@ -1,5 +1,5 @@
 /**
- * What blocks sight on a map, read from its minimap art
+ * What blocks sight on a map: its walls, read from the minimap art
  * (docs/plays-editor-v2.md §2.12): off the map (transparent) or a wall (the
  * art's bright outlines). The published minimaps are 1024 px, about 14 cm a
  * pixel, so the grid keeps that resolution.
@@ -78,4 +78,51 @@ export function castRay(grid: SightGrid, u: number, v: number, du: number, dv: n
     pv = nextV
   }
   return { u: pu, v: pv }
+}
+
+/** What blocks sight on top of the map at one moment, in image units. */
+export interface SightBlockers {
+  /** Smokes. */
+  circles: { u: number; v: number; r: number }[]
+  /** The legs of walls that block sight (Harbor's High Tide, Viper's Toxic Screen...). */
+  segments: [{ u: number; v: number }, { u: number; v: number }][]
+}
+
+/**
+ * Where a sight line from `from` to `to` stops once smokes and sight-blocking
+ * walls are in the way: the nearest hit, else `to`. From inside a smoke a
+ * player cannot see out, so the line stops at the smoke's edge.
+ */
+export function clipRay(
+  from: { u: number; v: number },
+  to: { u: number; v: number },
+  blockers: SightBlockers,
+): { u: number; v: number } {
+  const du = to.u - from.u
+  const dv = to.v - from.v
+  const a = du * du + dv * dv
+  if (a === 0) return to
+  let nearest = 1
+  for (const { u, v, r } of blockers.circles) {
+    const fu = from.u - u
+    const fv = from.v - v
+    const b = 2 * (fu * du + fv * dv)
+    const c = fu * fu + fv * fv - r * r
+    const disc = b * b - 4 * a * c
+    if (disc < 0) continue
+    const root = Math.sqrt(disc)
+    // Inside: where the line leaves. Outside: where it enters.
+    const s = c < 0 ? (-b + root) / (2 * a) : (-b - root) / (2 * a)
+    if (s >= 0 && s < nearest) nearest = s
+  }
+  for (const [p, q] of blockers.segments) {
+    const eu = q.u - p.u
+    const ev = q.v - p.v
+    const cross = du * ev - dv * eu
+    if (cross === 0) continue
+    const s = ((p.u - from.u) * ev - (p.v - from.v) * eu) / cross
+    const along = ((p.u - from.u) * dv - (p.v - from.v) * du) / cross
+    if (s >= 0 && s < nearest && along >= 0 && along <= 1) nearest = s
+  }
+  return nearest === 1 ? to : { u: from.u + du * nearest, v: from.v + dv * nearest }
 }

@@ -65,7 +65,7 @@ import type { ReplayPlay } from '../lib/replayToPlay'
 import type { PlaySide } from '../lib/types'
 import { formatTime } from '../lib/youtube'
 import { readLayers, writeLayers, type LayerKey, type Layers } from '../lib/replayLayers'
-import { frameMotion, pawnEffectIds } from '../lib/replayMotion'
+import { frameMotion, pawnEffectIds, sightBlockers } from '../lib/replayMotion'
 import type { RosterPlayer } from '../lib/replayPanels'
 import type { AgentMotion } from '../lib/replayMotion'
 import { createValueStore, type ValueStore } from '../lib/valueStore'
@@ -379,13 +379,17 @@ function FrameCanvas({
   frames: ValueStore<ReplayFrame | null> | null
   edited?: PlayStep | null
   /** A replay's view cones and trails at a replay time, when any layer asks for them. */
-  motionAt?: ((t: number) => ReadonlyMap<string, AgentMotion>) | null
+  motionAt?: ((t: number, shown: PlayStep) => ReadonlyMap<string, AgentMotion>) | null
   ref?: Ref<PlayCanvasHandle>
 }) {
   const frame = useSyncExternalStore(frames?.subscribe ?? noSubscribe, () => frames?.get() ?? null)
   const replayMs = frame?.step.replayMs
-  const motion = useMemo(() => (motionAt && replayMs !== undefined ? motionAt(replayMs) : null), [motionAt, replayMs])
-  return <PlayCanvas ref={ref} {...props} motion={motion} step={edited ?? frame?.step ?? step} control={frame ? frame.control : control} />
+  const shown = edited ?? frame?.step ?? step
+  const motion = useMemo(
+    () => (motionAt && replayMs !== undefined && shown ? motionAt(replayMs, shown) : null),
+    [motionAt, replayMs, shown],
+  )
+  return <PlayCanvas ref={ref} {...props} motion={motion} step={shown} control={frame ? frame.control : control} />
 }
 
 /**
@@ -626,7 +630,13 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
   const motionAt = useMemo(
     () =>
       replay && (coneLayer || trailLayer)
-        ? (t: number) => frameMotion(replay.bundle, t, replay.transform, replay.ids, { cones: coneLayer, trails: trailLayer, sight })
+        ? (t: number, shown: PlayStep) =>
+            frameMotion(replay.bundle, t, replay.transform, replay.ids, {
+              cones: coneLayer,
+              trails: trailLayer,
+              sight,
+              blockers: coneLayer ? sightBlockers(shown, replay.transform) : null,
+            })
         : null,
     [replay, coneLayer, trailLayer, sight],
   )

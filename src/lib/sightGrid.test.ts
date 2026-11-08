@@ -4,7 +4,7 @@
 
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { castRay, sightGridFromPixels, type SightGrid } from './sightGrid.ts'
+import { castRay, clipRay, sightGridFromPixels, type SightGrid } from './sightGrid.ts'
 
 const N = 100
 
@@ -50,4 +50,32 @@ test('a ray starting on a wall line reaches the free side nearby; deep in a wall
 
 test('a zero direction stays where it is', () => {
   assert.deepEqual(castRay(withWalls([]), 0.3, 0.4, 0, 0), { u: 0.3, v: 0.4 })
+})
+
+const FROM = { u: 0.1, v: 0.5 }
+const TO = { u: 0.9, v: 0.5 }
+const close = (a: number, b: number) => assert.ok(Math.abs(a - b) < 1e-9, `${a} ≠ ${b}`)
+
+test('a sight line stops at the near edge of a smoke', () => {
+  const end = clipRay(FROM, TO, { circles: [{ u: 0.5, v: 0.5, r: 0.1 }], segments: [] })
+  close(end.u, 0.4)
+  close(end.v, 0.5)
+})
+
+test('a smoke off the line, or behind the viewer, or beyond the end, changes nothing', () => {
+  assert.deepEqual(clipRay(FROM, TO, { circles: [{ u: 0.5, v: 0.9, r: 0.1 }], segments: [] }), TO)
+  assert.deepEqual(clipRay({ u: 0.5, v: 0.5 }, TO, { circles: [{ u: 0.2, v: 0.5, r: 0.1 }], segments: [] }), TO)
+  assert.deepEqual(clipRay(FROM, { u: 0.3, v: 0.5 }, { circles: [{ u: 0.5, v: 0.5, r: 0.1 }], segments: [] }), { u: 0.3, v: 0.5 })
+})
+
+test('from inside a smoke the line stops at its edge', () => {
+  close(clipRay({ u: 0.5, v: 0.5 }, TO, { circles: [{ u: 0.5, v: 0.5, r: 0.1 }], segments: [] }).u, 0.6)
+})
+
+test('a wall stops the line where they cross; the nearest blocker wins', () => {
+  const wall: [{ u: number; v: number }, { u: number; v: number }] = [{ u: 0.3, v: 0.2 }, { u: 0.3, v: 0.8 }]
+  close(clipRay(FROM, TO, { circles: [], segments: [wall] }).u, 0.3)
+  close(clipRay(FROM, TO, { circles: [{ u: 0.25, v: 0.5, r: 0.05 }], segments: [wall] }).u, 0.2)
+  // A wall that ends short of the line does nothing.
+  assert.deepEqual(clipRay(FROM, TO, { circles: [], segments: [[{ u: 0.3, v: 0.2 }, { u: 0.3, v: 0.4 }]] }), TO)
 })
