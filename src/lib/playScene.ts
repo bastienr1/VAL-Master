@@ -150,6 +150,8 @@ export interface PlacedAgent {
   team: Team
   note: string
   spike: boolean
+  /** Who played the agent (a replay's Riot name), '' when not known. */
+  player: string
   /** Where the agent is drawn: the placed point, spread apart from agents standing on the same spot. */
   x: number
   y: number
@@ -389,6 +391,7 @@ export function sceneForStep(
           team: el.team,
           note: el.note ?? '',
           spike: el.spike === true,
+          player: el.player ?? '',
           x: at[0],
           y: at[1],
           path: points.length >= 2 ? points : null,

@@ -73,6 +73,18 @@ walls teal on the navy backdrop (`#0B1220`): `feColorMatrix` mapping luminance
 to about `#2BB3C9`, then the image at opacity 0.85. Callout labels `#5B8A98`,
 22 px, with the dark halo; a "Callouts" toggle in the toolbar.
 
+**Names** (2026-11-08): a "Names" toggle beside "Callouts" (on by default,
+remembered per device as `plays.showNames`) puts a small name under every agent
+tile, at screen size like the tile: the player's Riot name (without the tag)
+on agents from a match replay, the agent's name otherwise; enemies' in light
+red. The name is left out while the agent's hover or selection card is shown,
+and on a canvas too small for labels. Replay bundles name players only by
+PUUID, so `replayNames.ts` asks Henrik's `v2/match/{id}` (the endpoint
+`matchSync.ts` uses) once per match, keeps the PUUID → name map per device
+(`plays.names.<matchId>`), and `frameStep` writes it on the agent as
+`player`, which captured steps and saved strats keep. Without a Henrik key or
+an answer, the agents' names are shown.
+
 Elements per step (section 3), drawn bottom to top: pen strokes, abilities,
 arrows, agent move paths, markers, text, agents, selection. Agents are
 **square** portrait tiles (44 px, `rx 6`, `#1A1F2E` fill, 3 px ring: ally
@@ -669,6 +681,11 @@ grows with the map (51 px across at 100 %, 309 px at 600 %) while the Phoenix
 tile stays 32 px and the Q badge 19 px, so the badge and arc sit on top of the
 fire instead of being covered by tiles. At 100 % the 85 elements of the round
 render identically to the previous commit.
+
+Names (2026-11-08): on the same Pearl match in the signed-in app, all 10
+players got their Riot names from Henrik (all 10 PUUIDs match, also checked
+offline against a cached match); the toggle hid and restored the 10 names and
+stored its state.
 
 Not yet verified: the phone layout, touch input and pinch zoom on a real
 touch screen.

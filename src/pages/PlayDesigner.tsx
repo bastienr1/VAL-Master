@@ -58,6 +58,7 @@ import {
 } from '../lib/replayFrame'
 import { replayContext, replayRoundToPlay, type ReplayContext } from '../lib/replayMatches'
 import { getReplayBundle } from '../lib/replays'
+import { fetchPlayerNames } from '../lib/replayNames'
 import type { ReplayPlay } from '../lib/replayToPlay'
 import type { PlaySide } from '../lib/types'
 import { createValueStore, type ValueStore } from '../lib/valueStore'
@@ -226,6 +227,8 @@ interface OpenReplay extends ReplayContext {
   ids: FrameIds
   /** A player's agent name, for the ticks and the captions. */
   nameOf(subject: string): string
+  /** Who played each subject (Riot name), filled in when Henrik answers; empty until then or on failure. */
+  players: Map<string, string>
 }
 
 /** The paused frame once edited, and whether this version of it is already a step. */
@@ -405,6 +408,13 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
   const toggleControl = () =>
     setShowControlState(prev => {
       writeFlag('plays.showControl', !prev)
+      return !prev
+    })
+  // Names under the agent tiles, on by default and remembered per device like the callouts.
+  const [showNames, setShowNamesState] = useState(() => readFlag('plays.showNames', true))
+  const toggleNames = () =>
+    setShowNamesState(prev => {
+      writeFlag('plays.showNames', !prev)
       return !prev
     })
   const [playing, setPlaying] = useState(false)
@@ -639,6 +649,7 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
   useEffect(() => {
     if (!replay || !replayPlaying) return
     const { bundle, lookup, transform, ids } = replay
+    const playerOf = (subject: string) => replay.players.get(subject)
     const round = replayRoundRef.current ?? roundAt(bundle, replayMsRef.current)
     const { end } = roundSpan(bundle, round)
     const epoch = replayEpoch.current
@@ -652,7 +663,7 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
       last = now
       replayMsRef.current = t
       const control = replayMask ? advanceControl(replayControl, replay, round, t, replayMask) : null
-      frames.set({ step: frameStep(bundle, t, lookup, transform, ids, round), control })
+      frames.set({ step: frameStep(bundle, t, lookup, transform, ids, round, playerOf), control })
       const over = t >= end
       if (over || now - clockAt >= CLOCK_MS) {
         share = control ? controlShare(control) : null
@@ -930,7 +941,7 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
     replayRoundRef.current = round
     const openMask = controlMaskFor(open)
     const control = openMask ? advanceControl(replayControl, open, round, at, openMask) : null
-    frames.set({ step: frameStep(open.bundle, at, open.lookup, open.transform, open.ids, round), control })
+    frames.set({ step: frameStep(open.bundle, at, open.lookup, open.transform, open.ids, round, s => open.players.get(s)), control })
     clock.set({ ms: at, round, share: control ? controlShare(control) : null })
     changeSide(roundSide(round))
   }
@@ -999,7 +1010,25 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
       bundle,
       ids: createFrameIds(),
       nameOf: subject => context.lookup(agentOf.get(subject) ?? null)?.name ?? 'Agent',
+      players: new Map(),
     }
+    // The players' names come from Henrik: every later frame carries them, and the
+    // frame on screen (edited or not) gets them when they land.
+    void fetchPlayerNames(matchId, import.meta.env.VITE_HENRIK_API_KEY).then(names => {
+      if (names.size === 0) return
+      const byId = new Map<string, string>()
+      for (const [subject, name] of names) {
+        open.players.set(subject, name)
+        byId.set(open.ids.forSubject(subject), name)
+      }
+      const named = (shown: PlayStep): PlayStep => ({
+        ...shown,
+        elements: shown.elements.map(el => (el.kind === 'agent' && !el.player && byId.has(el.id) ? { ...el, player: byId.get(el.id) } : el)),
+      })
+      const shown = frames.get()
+      if (shown) frames.set({ ...shown, step: named(shown.step) })
+      setLive(prev => (prev ? { ...prev, step: named(prev.step) } : prev))
+    })
     const mapName = bundle.match.mapUuid ? registry.maps.byId.get(bundle.match.mapUuid)?.name : undefined
     if (mapName) setMapPick(mapName)
     // A strat started from a match is named after it until the user renames it.
@@ -1340,6 +1369,8 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
         onRedo={redo}
         showCallouts={showCallouts}
         onToggleCallouts={() => setShowCallouts(s => !s)}
+        showNames={showNames}
+        onToggleNames={toggleNames}
         showControl={showControl}
         onToggleControl={toggleControl}
         playbookOpen={playbookOpen}
@@ -1455,6 +1486,7 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
                 pending={pending}
                 selectedId={selectedId}
                 showCallouts={showCallouts}
+                showNames={showNames}
                 animate={inReplay ? false : animate}
                 onSelect={onCanvasSelect}
                 onChange={inReplay ? (replayPlaying ? undefined : onFrameChange) : onCanvasChange}

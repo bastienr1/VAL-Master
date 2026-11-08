@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ArrowLeft, BookOpen, Check, Ellipsis, Film, Layers, Loader2, PanelRight, Redo2, Tag, Trash2, Undo2 } from 'lucide-react'
+import { ArrowLeft, BookOpen, Check, Ellipsis, Film, Layers, Loader2, PanelRight, Redo2, Tag, Trash2, Undo2, UserRound } from 'lucide-react'
 import type { PlaySide } from '../../lib/types'
 
 interface EditorToolbarProps {
@@ -14,6 +14,9 @@ interface EditorToolbarProps {
   onRedo(): void
   showCallouts: boolean
   onToggleCallouts(): void
+  /** Names under the agent tiles: the players' on a replay, else the agents'. */
+  showNames: boolean
+  onToggleNames(): void
   /** The map-control overlay (§2.9): who holds which part of the map. */
   showControl: boolean
   onToggleControl(): void
@@ -56,7 +59,7 @@ const toggle = (on: boolean) =>
 /**
  * The editor's one 44 px bar (docs/plays-editor-v2.md §2.5): back link, the
  * editable title, map and side at a glance, undo / redo, Open replay for a
- * play built from a match replay (§2.8), the Callouts, Control (§2.9),
+ * play built from a match replay (§2.8), the Callouts, Names, Control (§2.9),
  * Playbook (§2.6) and Brief toggles, Save, and Delete behind an overflow menu for a saved play.
  */
 export default function EditorToolbar(props: EditorToolbarProps) {
@@ -114,6 +117,16 @@ export default function EditorToolbar(props: EditorToolbarProps) {
         >
           <Tag className="w-3.5 h-3.5" />
           <span className="hidden md:inline">Callouts</span>
+        </button>
+        <button
+          type="button"
+          onClick={props.onToggleNames}
+          aria-pressed={props.showNames}
+          title="Show player names under the agents"
+          className={toggle(props.showNames)}
+        >
+          <UserRound className="w-3.5 h-3.5" />
+          <span className="hidden md:inline">Names</span>
         </button>
         <button
           type="button"
