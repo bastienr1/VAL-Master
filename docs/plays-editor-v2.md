@@ -591,6 +591,15 @@ map, the Step panel and the agent strip. The roster reads the frame store
 (`replayPanels.ts`, pure, tested), so a playing match does not re-render the
 page. Utility that never closed counts down to the end of the round.
 
+The match's VOD sits at the top of that panel (`ReplayVodPlayer.tsx`), the same
+video and barrier-drop sync as the review page. The replay is the master: the
+video plays and pauses with it, at its speed up to 2x, and is moved when it
+drifts (`vodFollow.ts`: over 0.6 s while running, at most once a second; 0.15 s
+when still). At 4x it waits and catches up when paused. A click on it is the
+replay's play button; sound is off until its speaker is pressed, remembered per
+device. A video not synced yet shows YouTube's own controls and a link to the
+review page; a match with no video says so.
+
 **Study** puts the guide beside the board: the Playbook panel at
 `min(42vw, 760px)`, the Step panel and the roster hidden. **New step at this
 chapter** adds a step named after the chapter playing, with the guide's time
@@ -809,6 +818,12 @@ Every ability (2026-11-08): the rebuilt Abyss bundle of 2026-11-02 attached
 in the signed-in app; your Sova's round 1 Shock Bolt flies along its arc and
 lands 29 m away at A Site as a 4 m blast, where before only a badge sat on
 Sova.
+
+VOD in the replay panel (2026-11-08): on the Abyss replay, paused at 60.06 s the
+video stood 0.1 s from the barrier-drop sync; running at 1x it stayed within
+0.05 s and at 2x within the 0.6 s tolerance; at 4x it waited; at round end it
+paused with the replay. Measured with a timer in place of requestAnimationFrame,
+which does not run in the hidden pane. A match not synced showed its note.
 
 Smokes in the cones (2026-11-08): over 3136 sight lines across Abyss round 1, 768
 ended exactly on a smoke's edge and none passed through a landed smoke or a

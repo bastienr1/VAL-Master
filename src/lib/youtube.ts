@@ -45,6 +45,9 @@ export interface YTPlayer {
   getPlaybackRate: () => number
   pauseVideo: () => void
   playVideo: () => void
+  setPlaybackRate: (rate: number) => void
+  mute: () => void
+  unMute: () => void
   destroy: () => void
 }
 
