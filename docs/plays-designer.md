@@ -345,7 +345,12 @@ title, side chip, the five agent icons, the summary line, updated date. Empty
 state: the dashed `EmptyLine` style from `Improve.tsx`: "Write your first play:
 the map, the comp, and what each agent does. Claude draws it on the minimap."
 
-## 8a. Templates
+## 8a. Templates (removed 2026-11-08)
+
+> Removed on 2026-11-08 at Bastien's request ("I don't think the template
+> feature is useful"): `playTemplates.ts`, its test, `TemplateStrip.tsx`, the
+> strip in the Brief drawer and the `?template=` link are gone. `emptyPlayDoc`
+> (Start blank) stays. The section below records what it was.
 
 Four starting points, in `src/lib/playTemplates.ts`, so a play starts with the
 right phases and a brief scaffold instead of a blank textarea:

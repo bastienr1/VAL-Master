@@ -190,7 +190,8 @@ clicked or Escape).
 360 px, `bg-bg-card border-l border-bg-elevated`, scrollable, closed by default
 on a saved play that has elements, open on a new play. Sections:
 
-1. **Start from a template** strip (as 8a, v2 steps) while the play has no elements.
+1. **From a replay** picker and **Start blank** while the play has no elements
+   (the template strip that stood here was removed on 2026-11-08).
 2. **Brief**: textarea, Compose button, model line, errors, as before.
 3. **This step**: caption textarea; a list of the ally agents on the map this
    step with their note input and the spike dot; the abilities placed this step
@@ -292,8 +293,8 @@ registry by the caller) and `transform` is the map transform. It returns
   replay: <winner> won by <how>", `brief` two lines describing the round so
   a recompose has context.
 
-**Editor** (`src/components/play/ReplayPicker.tsx`, in the Brief drawer under
-the templates, also reachable when the play has elements through a "From a
+**Editor** (`src/components/play/ReplayPicker.tsx`, at the top of the Brief
+drawer while the play is empty, also reachable when the play has elements through a "From a
 replay" link that confirms replacing): a list of the user's matches that have
 a replay (`match_replays` rows for the signed-in user joined client-side with
 `matches` by `match_id`: map, agent, result, score, date; newest first; the
@@ -579,7 +580,7 @@ comp agents at spawn as ally agent elements. New helpers: `newId()`,
 
 `resolvePos`, `findCallout`, `calloutViewport` unchanged.
 
-Templates (`src/lib/playTemplates.ts`): same four, emitting v2 steps.
+Templates: removed on 2026-11-08 (see `plays-designer.md` 8a).
 
 ## 4. Abilities (`src/lib/agentAbilities.ts`, registry)
 
