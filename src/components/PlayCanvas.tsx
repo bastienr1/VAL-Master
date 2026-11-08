@@ -216,6 +216,8 @@ const OUTLINE_WIDTH = 4
 /** The ability badge (§2.10): a disc in the shape's colour, a ring in the thrower's team colour, the white glyph inside. */
 const BADGE_R = 13
 const BADGE_RING = 2
+/** A view cone runs across the map until a wall stops it, so it stays faint. */
+const CONE_FILL = 0.12
 /** The time-left ring around a replay frame's badge: its radius, width and length. */
 const LIFE_R = BADGE_R + BADGE_RING + 3.5
 const LIFE_WIDTH = 3
@@ -1574,7 +1576,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
           m.trail && m.trail.length > 0 ? (
             <polyline key={`trail:${agent.id}`} points={[...m.trail.map(shift), here].join(' ')} fill="none" stroke={color} strokeOpacity={0.35} strokeWidth={3 * k} strokeLinejoin="round" strokeLinecap="round" />
           ) : null,
-          m.cone ? <polygon key={`cone:${agent.id}`} points={[here, ...m.cone.map(shift)].join(' ')} fill={color} fillOpacity={0.16} /> : null,
+          m.cone ? <polygon key={`cone:${agent.id}`} points={[here, ...m.cone.map(shift)].join(' ')} fill={color} fillOpacity={CONE_FILL} /> : null,
         ]
       })
     : null
