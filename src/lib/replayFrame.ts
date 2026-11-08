@@ -543,10 +543,9 @@ export function frameStep(
     if (formed.length >= 2) el.path = formed
     // Just landed: the arc from the hand stays a moment.
     if (projectile && t - effect.start < ARC_KEPT_MS) el.from = posOf(projectile)
-    if (effect.end !== null) {
-      const life = lifeLeft(effect.start, effect.end, t)
-      if (life !== null) el.life = life
-    }
+    // One that never closed lasts the round.
+    const life = lifeLeft(effect.start, effect.end ?? roundSpan(bundle, round).end, t)
+    if (life !== null) el.life = life
     shown.push(effect)
     if (projectile) shown.push(projectile)
     elements.push(el)

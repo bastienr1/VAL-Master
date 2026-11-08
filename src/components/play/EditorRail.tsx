@@ -1,8 +1,8 @@
-import type { ComponentType } from 'react'
-import { Bomb, CircleQuestionMark, Eraser, MapPin, MousePointer2, MoveUpRight, Pause, Pencil, Play, Plus, Type, X } from 'lucide-react'
+import { Pause, Play, Plus, X } from 'lucide-react'
 import type { Tool } from '../PlayCanvas'
 import type { PlayStep } from '../../lib/playDoc'
 import type { PlaySide } from '../../lib/types'
+import { TOOLS } from './tools'
 
 interface EditorRailProps {
   mapNames: string[]
@@ -36,17 +36,6 @@ const SPEED_MAX = 3000
 const SIDES: { value: PlaySide; label: string; on: string }[] = [
   { value: 'attack', label: 'ATK', on: 'bg-val-red/15 text-val-red' },
   { value: 'defense', label: 'DEF', on: 'bg-val-cyan/15 text-val-cyan' },
-]
-
-const TOOLS: { tool: Tool; name: string; key?: string; Icon: ComponentType<{ className?: string }> }[] = [
-  { tool: 'select', name: 'Select', key: 'V', Icon: MousePointer2 },
-  { tool: 'pen', name: 'Pen', key: 'P', Icon: Pencil },
-  { tool: 'arrow', name: 'Arrow', key: 'A', Icon: MoveUpRight },
-  { tool: 'text', name: 'Text', key: 'T', Icon: Type },
-  { tool: 'eraser', name: 'Eraser', key: 'E', Icon: Eraser },
-  { tool: 'spike', name: 'Spike', Icon: Bomb },
-  { tool: 'enemy', name: 'Enemy', Icon: CircleQuestionMark },
-  { tool: 'pin', name: 'Pin', Icon: MapPin },
 ]
 
 const label = 'text-[10px] uppercase tracking-widest text-text-secondary'

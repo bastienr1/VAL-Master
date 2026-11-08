@@ -9,6 +9,8 @@ import PlaybookChapterList from '../PlaybookChapterList'
 
 interface PlaybookPanelProps {
   map: string
+  /** Given in the Study layout (§2.12): a new step from the chapter playing. */
+  onNewStep?: (title: string, seconds: number) => void
 }
 
 const label = 'text-[10px] uppercase tracking-widest text-text-secondary'
@@ -71,7 +73,7 @@ function PulseRows() {
  * pressed inside it, so Space on the player's buttons does not also toggle the
  * step playback.
  */
-export default function PlaybookPanel({ map }: PlaybookPanelProps) {
+export default function PlaybookPanel({ map, onNewStep }: PlaybookPanelProps) {
   const { playbooks, loading, error } = usePlaybooks({ map })
   const [pickedId, setPickedId] = useState(() => readPick(map))
   const playbook = playbooks.find(p => p.id === pickedId) ?? playbooks[0] ?? null
@@ -166,6 +168,16 @@ export default function PlaybookPanel({ map }: PlaybookPanelProps) {
                 <span className="font-stats text-[11px] text-text-muted ml-1 whitespace-nowrap">
                   {formatTime(currentTime)} / {formatTime(duration)}
                 </span>
+                {onNewStep && activeChapter && (
+                  <button
+                    type="button"
+                    onClick={() => onNewStep(activeChapter.title, activeChapter.start_seconds)}
+                    title={`New step from "${activeChapter.title}"`}
+                    className="ml-2 px-2 py-1 rounded-md text-xs font-medium text-val-cyan border border-val-cyan/25 bg-val-cyan/10 hover:bg-val-cyan/20 transition-colors whitespace-nowrap"
+                  >
+                    New step at this chapter
+                  </button>
+                )}
                 {/* A new tab: the editor has no unsaved-changes guard, so leaving it would drop the play. */}
                 <a
                   href={`/playbook/${playbook.slug}?chapter=${activeChapter?.chapter_number ?? 1}`}
