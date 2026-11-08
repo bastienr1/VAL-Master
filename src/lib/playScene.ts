@@ -150,7 +150,12 @@ export interface PlacedAbility {
   y: number
   /** ViewBox units: the ability's radius or the per-shape default, with the minimum applied. */
   r: number
+  /** Where it was thrown from (§2.10): the throw arc starts here. */
   from: Point | null
+  /** 0…1 while in flight (with `from`): the badge rides the arc and no area is drawn yet. */
+  progress: number | null
+  /** A wall's line, at least two placed points; the badge sits at its middle by length. */
+  path: Point[] | null
 }
 
 export interface PlacedPen {
@@ -369,6 +374,8 @@ export function sceneForStep(step: PlayStep | null | undefined, map: SceneMap, s
         const from = place(el.from)
         if (!at) break
         const cm = el.radius ?? UTILITY_RADIUS_CM[el.shape]
+        const path = (el.path ?? []).map(place).filter((p): p is Point => p !== null)
+        const progress = typeof el.progress === 'number' && Number.isFinite(el.progress) ? clamp01(el.progress) : null
         scene.abilities.push({
           id: el.id,
           agent: el.agent,
@@ -379,6 +386,8 @@ export function sceneForStep(step: PlayStep | null | undefined, map: SceneMap, s
           y: at[1],
           r: Math.max(MIN_UTILITY_RADIUS, cmToView(cm, map.transform, view)),
           from,
+          progress,
+          path: path.length >= 2 ? path : null,
         })
         break
       }
@@ -412,6 +421,100 @@ export function sceneForStep(step: PlayStep | null | undefined, map: SceneMap, s
 
   spreadCrowds(scene.agents)
   return scene
+}
+
+// ── Utility geometry (§2.10) ────────────────────────────────────────────────
+
+/** How far a throw arc bows, as a share of its length. */
+export const THROW_BOW = 0.18
+
+export interface ThrowArc {
+  /** The quadratic's control point. */
+  control: Point
+  /** SVG path data from `from` to `at`, or to the point `endGap` units short of `at` when one is given. */
+  d: string
+  /** The point at `t` (0…1, clamped) on the whole curve. */
+  pointAt(t: number): Point
+}
+
+const fmt = (n: number) => (Math.round(n * 100) / 100).toString()
+
+/**
+ * The arc an ability is drawn thrown along: a quadratic Bézier from `from` to
+ * `at` whose control point is the midpoint pushed `THROW_BOW` of the length to
+ * the left of the direction of travel. Both points are viewBox points, already
+ * turned, and the viewBox's y runs down, so left of travel (dx, dy) is
+ * (dy, -dx): every arc bows the same way on screen whichever side the play is
+ * for. `endGap` stops the drawn curve that far (viewBox units, along the end
+ * tangent) short of `at`, so an arrowhead there shows outside a badge; the
+ * curve is cut with de Casteljau, so it keeps its shape.
+ */
+export function throwArc(from: Point, at: Point, endGap = 0): ThrowArc {
+  const [x0, y0] = from
+  const [x2, y2] = at
+  const dx = x2 - x0
+  const dy = y2 - y0
+  const control: Point = [(x0 + x2) / 2 + dy * THROW_BOW, (y0 + y2) / 2 - dx * THROW_BOW]
+  const pointAt = (t: number): Point => {
+    const k = clamp01(t)
+    const a = (1 - k) * (1 - k)
+    const b = 2 * (1 - k) * k
+    const c = k * k
+    return [a * x0 + b * control[0] + c * x2, a * y0 + b * control[1] + c * y2]
+  }
+  // |B'(1)| = 2 |at - control|: near the end a length `endGap` is that share of t.
+  const endSpeed = 2 * Math.hypot(x2 - control[0], y2 - control[1])
+  const tEnd = endGap > 0 && endSpeed > 0 ? clamp01(1 - endGap / endSpeed) : 1
+  // The curve on [0, tEnd]: control lerp(from, control, tEnd), end B(tEnd).
+  const c1: Point = [x0 + (control[0] - x0) * tEnd, y0 + (control[1] - y0) * tEnd]
+  const end = pointAt(tEnd)
+  const d = `M${fmt(x0)},${fmt(y0)}Q${fmt(c1[0])},${fmt(c1[1])} ${fmt(end[0])},${fmt(end[1])}`
+  return { control, d, pointAt }
+}
+
+/** The point half way along a polyline by length: where a wall's badge sits. Its only point, or null, when it has fewer than two. */
+export function polylineMidpoint(points: Point[]): Point | null {
+  if (points.length === 0) return null
+  if (points.length === 1) return points[0]
+  const lengths = points.slice(1).map((p, i) => Math.hypot(p[0] - points[i][0], p[1] - points[i][1]))
+  let left = lengths.reduce((sum, n) => sum + n, 0) / 2
+  for (let i = 0; i < lengths.length; i++) {
+    if (left <= lengths[i] || i === lengths.length - 1) {
+      const k = lengths[i] > 0 ? Math.min(1, left / lengths[i]) : 0
+      const [ax, ay] = points[i]
+      const [bx, by] = points[i + 1]
+      return [ax + (bx - ax) * k, ay + (by - ay) * k]
+    }
+    left -= lengths[i]
+  }
+  return points[points.length - 1]
+}
+
+/** A designed ability counts as thrown when its agent stands further than this (world cm) from where it lands. */
+export const THROW_MIN_CM = 300
+
+/**
+ * Where a designed ability placed at the viewBox point `click` is thrown from
+ * (§2.10): a copy of the `at` of the first agent element of the step named
+ * `agent` (names compared trimmed, without case), when that agent places more
+ * than `THROW_MIN_CM` from the click; else null. The agent's position as
+ * written, not as the crowd spread draws it. `scene` is the step placed.
+ */
+export function throwOrigin(
+  step: PlayStep | null | undefined,
+  agent: string,
+  click: Point,
+  map: SceneMap,
+  scene: Pick<StepScene, 'view' | 'turns'>,
+): PlayPos | null {
+  const name = agent.trim().toLowerCase()
+  const thrower = step?.elements.find(el => el.kind === 'agent' && el.agent.trim().toLowerCase() === name)
+  if (!thrower || thrower.kind !== 'agent') return null
+  const image = imagePoint(thrower.at, map)
+  if (!image) return null
+  const [x, y] = imageToView(scene.view, image[0], image[1], scene.turns)
+  const far = Math.hypot(x - click[0], y - click[1]) > cmToView(THROW_MIN_CM, map.transform, scene.view)
+  return far ? { ...thrower.at } : null
 }
 
 /**

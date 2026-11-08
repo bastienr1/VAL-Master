@@ -45,7 +45,7 @@ import {
 import { Maximize2 } from 'lucide-react'
 import { useGameContent } from '../hooks/useGameContent'
 import { agentColor, type GameAgent, type GameMap } from '../lib/gameContent'
-import { abilityShape } from '../lib/agentAbilities'
+import { SLOT_KEYS, abilityShape } from '../lib/agentAbilities'
 import {
   elementAt,
   newId,
@@ -66,7 +66,10 @@ import {
   VIEW_SIZE,
   clampCamera,
   ghostAgents,
+  polylineMidpoint,
   sceneForStep,
+  throwArc,
+  throwOrigin,
   viewBoxFor,
   viewToImage,
   zoomAbout,
@@ -189,7 +192,7 @@ const TILE_RX = 6
 const TILE_RING = 3
 const GHOST_OPACITY = 0.25
 
-const ABILITY_FILL = 0.35
+const ABILITY_FILL = 0.28
 /**
  * Agent colours are backdrop gradients, and several (Omen, Clove, Cypher…) are
  * near-navy, so an ability drawn in them vanishes on the map. Mixing in white
@@ -202,13 +205,35 @@ function liftColor(hex: string): string {
   const lift = (c: string) => Math.round(parseInt(c, 16) + (255 - parseInt(c, 16)) * LIFT).toString(16).padStart(2, '0')
   return `#${lift(m[1])}${lift(m[2])}${lift(m[3])}`
 }
-const ABILITY_RING = 0.9
+const ABILITY_RING = 0.85
 /** Ring of a filled shape. */
 const RING_WIDTH = 1.5
 /** Stroke of a shape that is only a ring (recon, ult, other). */
 const OUTLINE_WIDTH = 4
-const ABILITY_ICON = 18
-const ICON_DISC = 13
+/** The ability badge (§2.10): a disc in the agent's lifted colour, a dark ring, the white glyph inside. */
+const BADGE_R = 13
+const BADGE_RING = 2
+const BADGE_GLYPH = 18
+/** The letter drawn instead when the registry has no glyph. */
+const BADGE_LETTER = 14
+/** The key tag at the badge's top-right: an 11-unit rounded square with the C / Q / E / X letter. */
+const KEY_TAG = 11
+const KEY_TAG_RX = 2.5
+const KEY_LETTER = 8
+/** The tag's centre, on the badge's rim at 45°. */
+const KEY_TAG_AT = BADGE_R * Math.SQRT1_2
+/** The throw arc: dashed, in the agent's colour; fainter while the ability is still in flight. */
+const ARC_WIDTH = 2
+const ARC_DASH = '5 4'
+const ARC_OPACITY = 0.9
+const ARC_FLIGHT_OPACITY = 0.55
+/** The arc stops this short of a badge at the landing, so its arrowhead shows. */
+const ARC_END_GAP = BADGE_R + 2
+/** A wall's line through its path. */
+const WALL_LINE = 7
+const WALL_LINE_OPACITY = 0.9
+/** The handle at a selected ability's `from`. */
+const FROM_HANDLE_R = 10
 /** Shapes too small to read around the icon get at least this size. */
 const BURST_MIN = 28
 const TRAP_MIN = 22
@@ -368,8 +393,14 @@ const PIN_PATH =
 /** A marker id for an arrowhead in this colour, unique to the canvas instance. */
 const colorKey = (color: string) => color.replace(/[^a-zA-Z0-9]/g, '').toLowerCase() || 'none'
 
-/** Where an ability is drawn to, from its centre: its selection ring and label sit outside it. */
+/** In flight (§2.10): thrown, with a progress; the badge rides the arc and no area is drawn yet. */
+const inFlight = (item: PlacedAbility): item is PlacedAbility & { from: Point; progress: number } =>
+  item.from !== null && item.progress !== null
+
+/** Where an ability is drawn to, from its centre: its selection ring sits outside it. */
 function abilityExtent(item: PlacedAbility): number {
+  // Only the badge stands at the centre of a throw in flight or of a wall drawn along its path.
+  if (inFlight(item) || item.path) return BADGE_R
   switch (item.shape) {
     case 'flash':
       return Math.max(item.r, BURST_MIN)
@@ -378,15 +409,16 @@ function abilityExtent(item: PlacedAbility): number {
     case 'drone':
       return Math.max(item.r * 0.8, DRONE_MIN) * Math.SQRT2
     case 'wall':
-      return item.from ? WALL_WIDTH : Math.max(item.r * 2, WALL_BAR_MIN) / 2
+      return Math.max(item.r * 2, WALL_BAR_MIN) / 2
     default:
       return item.r
   }
 }
 
+/** The registry's name for the slot, else the element's label, else the shape's. */
 function abilityName(item: PlacedAbility, agent: GameAgent | null): string {
   const fromRegistry = item.slot ? agent?.abilities.find(a => a.slot === item.slot)?.name : undefined
-  return fromRegistry || UTILITY_STYLE[item.shape].label
+  return fromRegistry || item.label || UTILITY_STYLE[item.shape].label
 }
 
 // ── Component ───────────────────────────────────────────────────────────────
@@ -415,6 +447,8 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
   const tileClip = `${uid}-tile`
   const tint = `${uid}-tint`
   const arrowHead = (color: string) => `${uid}-head-${colorKey(color)}`
+  const badgeClip = `${uid}-badge`
+  const throwHead = (color: string) => `${uid}-throw-${colorKey(color)}`
 
   const { registry } = useGameContent()
   const reducedMotion = useSyncExternalStore(subscribeReducedMotion, readReducedMotion, () => false)
@@ -472,15 +506,25 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
     [previousScene, previous, step, map, side],
   )
 
-  /** Element id → the viewBox points a drag moves: one for most, both ends of an arrow, a whole stroke. */
+  /**
+   * Element id → the viewBox points a drag moves: one for most, both ends of
+   * an arrow, a whole stroke; an ability's `at` then its wall path, if any.
+   */
   const anchors = useMemo(() => {
     const byId = new Map<string, Point[]>()
     for (const a of scene.agents) byId.set(a.id, [[a.x, a.y]])
-    for (const a of scene.abilities) byId.set(a.id, [[a.x, a.y]])
+    for (const a of scene.abilities) byId.set(a.id, [[a.x, a.y], ...(a.path ?? [])])
     for (const m of scene.markers) byId.set(m.id, [[m.x, m.y]])
     for (const t of scene.texts) byId.set(t.id, [[t.x, t.y]])
     for (const a of scene.arrows) byId.set(a.id, [a.from, a.to])
     for (const p of scene.pens) byId.set(p.id, p.points)
+    return byId
+  }, [scene])
+
+  /** Ability id → where it is thrown from: what its `from` handle drags. */
+  const throwFrom = useMemo(() => {
+    const byId = new Map<string, Point>()
+    for (const a of scene.abilities) if (a.from) byId.set(a.id, a.from)
     return byId
   }, [scene])
 
@@ -660,6 +704,9 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
   }, [])
 
   const anchorsOf = (id: string, part: Part): Point[] => {
+    // An ability's `from` handle moves the hand alone; its body moves `at` (and a wall's path).
+    const hand = throwFrom.get(id)
+    if (hand) return part === 'from' ? [hand] : (anchors.get(id) ?? [])
     const points = anchors.get(id) ?? []
     return part === 'from' ? points.slice(0, 1) : part === 'to' ? points.slice(1, 2) : points
   }
@@ -683,8 +730,18 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
     if (!el || !points || points.length === 0) return null
     const shift = ([x, y]: Point): Point => [x + dx, y + dy]
     switch (el.kind) {
+      case 'ability': {
+        if (part === 'from') {
+          const hand = throwFrom.get(id)
+          return hand ? { ...el, from: toPos(shift(hand)) } : null
+        }
+        // `from` stays put; a wall's path goes along with its badge.
+        const wall = points.slice(1)
+        return wall.length >= 2
+          ? { ...el, at: toPos(shift(points[0])), path: wall.map(p => toPos(shift(p))) }
+          : { ...el, at: toPos(shift(points[0])) }
+      }
       case 'agent':
-      case 'ability':
       case 'marker':
       case 'text':
         return { ...el, at: toPos(shift(points[0])) }
@@ -733,6 +790,8 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
     if (pending) {
       if (!inSquare(press.at)) return
       const { shape, radius } = abilityShape(pending.agent, pending.slot)
+      // Placed more than 3 m from its agent on the map, the ability is thrown from there (§2.10).
+      const from = throwOrigin(step, pending.agent, press.at, map, scene)
       const el: AbilityElement = {
         kind: 'ability',
         id: newId(),
@@ -741,6 +800,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
         shape,
         radius,
         at: toPos(press.at),
+        ...(from ? { from } : {}),
       }
       onChange?.(withElement(step, el))
       onSelect(el.id)
@@ -1095,110 +1155,170 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
     )
   })
 
-  const renderAbility = (item: PlacedAbility) => {
+  /** The lifted colour an agent's utility is drawn in. */
+  const utilityColor = (name: string) => liftColor(agentColor(agentOf(name)))
+
+  /** The drag offset of an ability's hand: only while its `from` handle is dragged. */
+  const handOffsetOf = (id: string): Point => (live && live.id === id && live.part === 'from' ? [live.dx, live.dy] : [0, 0])
+
+  /**
+   * An ability as drawn now, the drag in progress included: its landing, its
+   * hand, its wall line, its throw arc and where the badge stands (on the arc
+   * in flight, at the middle of a wall's path, else at the landing).
+   */
+  const abilityLayout = (item: PlacedAbility) => {
     const [dx, dy] = offsetOf(item.id)
+    const at: Point = [item.x + dx, item.y + dy]
+    const [hx, hy] = handOffsetOf(item.id)
+    const from: Point | null = item.from ? [item.from[0] + hx, item.from[1] + hy] : null
+    const path = item.path ? item.path.map(([x, y]): Point => [x + dx, y + dy]) : null
+    const flying = inFlight(item)
+    // Landed, the badge covers the landing: the arc stops at its rim so the arrowhead shows.
+    const arc = from ? throwArc(from, at, flying ? 0 : ARC_END_GAP) : null
+    const badge: Point = flying && arc ? arc.pointAt(item.progress ?? 0) : path ? (polylineMidpoint(path) ?? at) : at
+    // A throw shorter than the badge has nothing to show between hand and landing.
+    const showArc = from !== null && Math.hypot(at[0] - from[0], at[1] - from[1]) > BADGE_R * 2
+    return { at, from, path, flying, arc: showArc ? arc : null, badge }
+  }
+
+  /** The badge (§2.10) about the origin: a disc in the agent's colour, the glyph, the key tag. */
+  const badgeOf = (item: PlacedAbility, color: string, icon: string | null) => {
+    const key = item.slot ? SLOT_KEYS[item.slot] : null
+    return (
+      <g pointerEvents="none">
+        <circle r={BADGE_R} fill={color} stroke={BACKDROP} strokeWidth={BADGE_RING} />
+        {icon ? (
+          <image
+            href={icon}
+            x={-BADGE_GLYPH / 2}
+            y={-BADGE_GLYPH / 2}
+            width={BADGE_GLYPH}
+            height={BADGE_GLYPH}
+            preserveAspectRatio="xMidYMid meet"
+            clipPath={`url(#${badgeClip})`}
+          />
+        ) : (
+          <text textAnchor="middle" dominantBaseline="central" fontFamily={FONT} fontWeight="bold" fontSize={BADGE_LETTER} fill={WHITE}>
+            {UTILITY_STYLE[item.shape].label.slice(0, 1)}
+          </text>
+        )}
+        {key && (
+          <g transform={`translate(${KEY_TAG_AT.toFixed(2)} ${(-KEY_TAG_AT).toFixed(2)})`}>
+            <rect x={-KEY_TAG / 2} y={-KEY_TAG / 2} width={KEY_TAG} height={KEY_TAG} rx={KEY_TAG_RX} fill={BACKDROP} />
+            <text textAnchor="middle" dominantBaseline="central" fontFamily={FONT} fontWeight="bold" fontSize={KEY_LETTER} fill={WHITE}>
+              {key}
+            </text>
+          </g>
+        )}
+      </g>
+    )
+  }
+
+  const renderAbility = (item: PlacedAbility) => {
     const agent = agentOf(item.agent)
-    const color = liftColor(agentColor(agent))
+    const color = utilityColor(item.agent)
     const icon = item.slot ? (agent?.abilities.find(a => a.slot === item.slot)?.icon ?? null) : null
+    const { at, path, flying, arc, badge } = abilityLayout(item)
     const { r } = item
-    // `from` stays put while `at` is dragged.
-    const fx = item.from ? item.from[0] - item.x - dx : 0
-    const fy = item.from ? item.from[1] - item.y - dy : 0
     const filled = { fill: color, fillOpacity: ABILITY_FILL, stroke: color, strokeOpacity: ABILITY_RING, strokeWidth: RING_WIDTH }
     const ring = { fill: 'none', stroke: color, strokeOpacity: ABILITY_RING, strokeWidth: OUTLINE_WIDTH }
 
-    let shape: ReactNode
-    switch (item.shape) {
-      case 'smoke':
-      case 'molly':
-      case 'slow':
-      case 'stun':
-        shape = <circle r={r} {...filled} />
-        break
-      case 'flash':
-        shape = <polygon points={burst(Math.max(r, BURST_MIN))} strokeLinejoin="round" {...filled} />
-        break
-      case 'wall':
-        if (item.from) {
-          const length = Math.hypot(fx, fy)
-          const angle = (Math.atan2(fy, fx) * 180) / Math.PI
-          shape = (
-            <rect
-              x={-WALL_WIDTH / 2}
-              y={-WALL_WIDTH / 2}
-              width={length + WALL_WIDTH}
-              height={WALL_WIDTH}
-              rx={WALL_WIDTH / 2}
-              transform={`rotate(${angle.toFixed(2)})`}
-              {...filled}
-            />
-          )
-        } else {
+    // No area while in flight; a wall with a path is its line instead.
+    let shape: ReactNode = null
+    if (!flying && !path) {
+      switch (item.shape) {
+        case 'smoke':
+        case 'molly':
+        case 'slow':
+        case 'stun':
+          shape = <circle r={r} {...filled} />
+          break
+        case 'flash':
+          shape = <polygon points={burst(Math.max(r, BURST_MIN))} strokeLinejoin="round" {...filled} />
+          break
+        case 'wall': {
           const length = Math.max(r * 2, WALL_BAR_MIN)
-          shape = (
-            <rect x={-length / 2} y={-WALL_WIDTH / 2} width={length} height={WALL_WIDTH} rx={WALL_WIDTH / 2} {...filled} />
-          )
+          shape = <rect x={-length / 2} y={-WALL_WIDTH / 2} width={length} height={WALL_WIDTH} rx={WALL_WIDTH / 2} {...filled} />
+          break
         }
-        break
-      case 'trap':
-        shape = <polygon points={diamond(Math.max(r, TRAP_MIN))} strokeLinejoin="round" {...filled} />
-        break
-      case 'drone': {
-        const h = Math.max(r * 0.8, DRONE_MIN)
-        shape = <rect x={-h} y={-h} width={h * 2} height={h * 2} rx={4} {...filled} />
-        break
+        case 'trap':
+          shape = <polygon points={diamond(Math.max(r, TRAP_MIN))} strokeLinejoin="round" {...filled} />
+          break
+        case 'drone': {
+          const h = Math.max(r * 0.8, DRONE_MIN)
+          shape = <rect x={-h} y={-h} width={h * 2} height={h * 2} rx={4} {...filled} />
+          break
+        }
+        case 'recon':
+          shape = <circle r={r} {...ring} />
+          break
+        case 'ult':
+          shape = (
+            <>
+              <circle r={r} {...filled} strokeWidth={OUTLINE_WIDTH} />
+              <circle r={r * 0.7} {...ring} />
+            </>
+          )
+          break
+        default:
+          shape = <circle r={r} {...ring} strokeDasharray="1 9" strokeLinecap="round" />
       }
-      case 'recon':
-        shape = <circle r={r} {...ring} />
-        break
-      case 'ult':
-        shape = (
-          <>
-            <circle r={r} {...filled} strokeWidth={OUTLINE_WIDTH} />
-            <circle r={r * 0.7} {...ring} />
-          </>
-        )
-        break
-      default:
-        shape = <circle r={r} {...ring} strokeDasharray="1 9" strokeLinecap="round" />
     }
 
     const name = abilityName(item, agent)
+    const note = item.label && item.label !== name ? `: ${item.label}` : ''
     return (
       <g
         key={item.id}
-        {...interactive(item.id, `${name}${item.agent ? ` (${item.agent})` : ''}${item.label ? `: ${item.label}` : ''}`)}
-        style={{ ...placement(item.x + dx, item.y + dy), cursor: elementCursor }}
+        {...interactive(item.id, `${name}${item.agent ? ` (${item.agent})` : ''}${note}`)}
+        style={{ cursor: elementCursor }}
       >
-        {item.from && item.shape !== 'wall' && (
-          <line
-            x1={fx}
-            y1={fy}
-            x2={0}
-            y2={0}
+        {shape && (
+          <g style={placement(at[0], at[1])}>
+            {/* Hit area: rings and small shapes are hard to grab. */}
+            <circle r={Math.max(item.shape === 'wall' ? 0 : abilityExtent(item), HIT_R)} fill="transparent" />
+            {shape}
+          </g>
+        )}
+        {arc && (
+          <path
+            d={arc.d}
+            fill="none"
             stroke={color}
-            strokeOpacity={ABILITY_RING}
-            strokeWidth={3}
-            strokeDasharray="10 8"
+            strokeWidth={ARC_WIDTH}
+            strokeDasharray={ARC_DASH}
+            opacity={flying ? ARC_FLIGHT_OPACITY : ARC_OPACITY}
+            markerEnd={`url(#${throwHead(color)})`}
             pointerEvents="none"
           />
         )}
-        {/* Hit area: rings and small shapes are hard to grab. */}
-        <circle r={Math.max(item.shape === 'wall' ? 0 : abilityExtent(item), HIT_R)} fill="transparent" />
-        {shape}
-        {icon && (
-          <g pointerEvents="none">
-            <circle r={ICON_DISC} fill={BACKDROP} fillOpacity={0.85} />
-            <image
-              href={icon}
-              x={-ABILITY_ICON / 2}
-              y={-ABILITY_ICON / 2}
-              width={ABILITY_ICON}
-              height={ABILITY_ICON}
-              preserveAspectRatio="xMidYMid meet"
+        {path && (
+          <>
+            {/* Hit area: the whole wall grabs, not only its badge. */}
+            <polyline
+              points={pointsAttr(path)}
+              fill="none"
+              stroke="transparent"
+              strokeWidth={22}
+              strokeLinecap="round"
+              strokeLinejoin="round"
             />
-          </g>
+            <polyline
+              points={pointsAttr(path)}
+              fill="none"
+              stroke={color}
+              strokeOpacity={WALL_LINE_OPACITY}
+              strokeWidth={WALL_LINE}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              pointerEvents="none"
+            />
+          </>
         )}
+        <g style={placement(badge[0], badge[1])}>
+          {!shape && <circle r={HIT_R} fill="transparent" />}
+          {badgeOf(item, color, icon)}
+        </g>
       </g>
     )
   }
@@ -1404,29 +1524,29 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
     }
     const ability = scene.abilities.find(a => a.id === selectedId)
     if (ability) {
-      const [dx, dy] = offsetOf(ability.id)
-      if (ability.shape === 'wall' && ability.from) {
-        const fx = ability.from[0] - ability.x - dx
-        const fy = ability.from[1] - ability.y - dy
-        const pad = WALL_WIDTH / 2 + 6
-        const angle = (Math.atan2(fy, fx) * 180) / Math.PI
-        return (
-          <g key={`sel:${ability.id}`} pointerEvents="none" style={placement(ability.x + dx, ability.y + dy)}>
-            <rect
-              x={-pad}
-              y={-pad}
-              width={Math.hypot(fx, fy) + pad * 2}
-              height={pad * 2}
-              rx={pad}
-              transform={`rotate(${angle.toFixed(2)})`}
-              {...dashed}
-            />
-          </g>
-        )
-      }
+      const { at, from, path, flying, badge } = abilityLayout(ability)
+      // Round the area at the landing; round the badge alone in flight or on a wall's path.
+      const [cx, cy] = flying || path ? badge : at
       return (
-        <g key={`sel:${ability.id}`} pointerEvents="none" style={placement(ability.x + dx, ability.y + dy)}>
-          <circle r={abilityExtent(ability) + 8} {...dashed} />
+        <g key={`sel:${ability.id}`}>
+          <g pointerEvents="none" style={placement(cx, cy)}>
+            <circle r={abilityExtent(ability) + 8} {...dashed} />
+          </g>
+          {from && (
+            // The hand: the select tool drags it to move `from`.
+            <circle
+              data-id={ability.id}
+              data-part="from"
+              cx={from[0]}
+              cy={from[1]}
+              r={FROM_HANDLE_R}
+              fill={BACKDROP}
+              stroke={WHITE}
+              strokeWidth={3}
+              pointerEvents={selecting ? undefined : 'none'}
+              style={{ cursor: elementCursor }}
+            />
+          )}
         </g>
       )
     }
@@ -1539,10 +1659,11 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
     for (const agent of scene.agents) if (shown.has(agent.id)) labels.push(agentLabel(agent))
     for (const ability of scene.abilities) {
       if (!shown.has(ability.id)) continue
-      const [dx, dy] = offsetOf(ability.id)
+      // Under the badge, wherever it stands.
+      const [bx, by] = abilityLayout(ability).badge
       labels.push(
-        <g key={`label:${ability.id}`} style={placement(ability.x + dx, ability.y + dy)}>
-          {smallLabel(abilityName(ability, agentOf(ability.agent)), abilityExtent(ability) + 10 + utilityLabel)}
+        <g key={`label:${ability.id}`} style={placement(bx, by)}>
+          {smallLabel(abilityName(ability, agentOf(ability.agent)), BADGE_R + BADGE_RING + 4 + utilityLabel)}
         </g>,
       )
     }
@@ -1639,6 +1760,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
 
   const view = scene.view
   const imageSize = VIEW_SIZE / view.size
+  const throwColors = [...new Set(scene.abilities.filter(a => a.from).map(a => utilityColor(a.agent)))]
   const counts = `${scene.agents.length} agent${scene.agents.length === 1 ? '' : 's'}, ${scene.abilities.length} abilit${
     scene.abilities.length === 1 ? 'y' : 'ies'
   }`
@@ -1682,6 +1804,10 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
           <clipPath id={tileClip}>
             <rect x={-HALF} y={-HALF} width={TILE} height={TILE} rx={TILE_RX} />
           </clipPath>
+          {/* The glyph inside a badge drawn about its own origin, held inside the ring. */}
+          <clipPath id={badgeClip}>
+            <circle r={BADGE_R - BADGE_RING / 2} />
+          </clipPath>
           <filter id={tint} colorInterpolationFilters="sRGB">
             <feColorMatrix type="matrix" values={LUMINANCE_MATRIX} />
             <feComponentTransfer>
@@ -1702,6 +1828,22 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
               markerHeight={3.5}
               markerUnits="strokeWidth"
               orient="auto-start-reverse"
+            >
+              <path d="M0,0L10,5L0,10Z" fill={color} />
+            </marker>
+          ))}
+          {/* Throw arcs' heads, one per agent colour (§2.10): the arc's opacity carries over to them. */}
+          {throwColors.map(color => (
+            <marker
+              key={color}
+              id={throwHead(color)}
+              viewBox="0 0 10 10"
+              refX={8}
+              refY={5}
+              markerWidth={5}
+              markerHeight={5}
+              markerUnits="strokeWidth"
+              orient="auto"
             >
               <path d="M0,0L10,5L0,10Z" fill={color} />
             </marker>

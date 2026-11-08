@@ -18,6 +18,7 @@ import {
   resolvePos,
   withElement,
   withoutElement,
+  type AbilityElement,
   type AgentElement,
   type MapCallout,
   type PlayDoc,
@@ -511,6 +512,43 @@ test('a step keeps its replay time when it is a finite number of at least 0', ()
   assert.equal('replayMs' in parsePlayDoc(VALID).steps[0], false)
   const withTime: PlayDoc = { ...VALID, steps: [{ ...VALID.steps[0], replayMs: 61000 }] }
   assert.deepEqual(parsePlayDoc(JSON.parse(JSON.stringify(withTime))), withTime)
+})
+
+test('an ability keeps its progress when finite and in [0, 1], and its path when it has 2 usable points', () => {
+  const ability = (extra: Record<string, unknown>) => {
+    const raw = { kind: 'ability', id: 'u', agent: 'Omen', slot: null, shape: 'smoke', at: { u: 0.5, v: 0.5 }, ...extra }
+    const parsed = parsePlayDoc({ ...VALID, steps: [{ ...VALID.steps[0], elements: [raw] }] }).steps[0].elements[0]
+    assert.equal(parsed.kind, 'ability')
+    return parsed as AbilityElement
+  }
+  assert.equal(ability({ progress: 0.5 }).progress, 0.5)
+  assert.equal(ability({ progress: 0 }).progress, 0)
+  assert.equal(ability({ progress: 1 }).progress, 1)
+  for (const bad of [-0.1, 1.01, Number.NaN, Infinity, '0.5', null, undefined]) {
+    assert.equal('progress' in ability({ progress: bad }), false, String(bad))
+  }
+  const wall = ability({ path: [{ u: 0.1, v: 0.2 }, { u: 0.3, v: 0.4 }, { u: 2, v: -1 }] }).path
+  assert.deepEqual(wall, [{ u: 0.1, v: 0.2 }, { u: 0.3, v: 0.4 }, { u: 1, v: 0 }])
+  // Unusable points are dropped; fewer than 2 left drops the path.
+  assert.deepEqual(ability({ path: [{ u: 0.1, v: 0.2 }, 'x', { callout: 'A Site' }] }).path, [{ u: 0.1, v: 0.2 }, { callout: 'A Site' }])
+  for (const bad of [[{ u: 0.1, v: 0.2 }], [{ u: 0.1 }, null, { v: 0.3 }], [], 'path', null, undefined]) {
+    assert.equal('path' in ability({ path: bad }), false, JSON.stringify(bad))
+  }
+  // Absent stays absent, and a thrown smoke and a wall round-trip.
+  assert.equal('progress' in ability({}), false)
+  assert.equal('path' in ability({}), false)
+  const thrown: PlayDoc = {
+    ...VALID,
+    steps: [{
+      ...VALID.steps[0],
+      elements: [
+        ...VALID.steps[0].elements,
+        { kind: 'ability', id: 'fly', agent: 'Omen', slot: 'Ability2', shape: 'smoke', at: { u: 0.6, v: 0.6 }, from: { u: 0.5, v: 0.5 }, progress: 0.25 },
+        { kind: 'ability', id: 'wall', agent: 'Omen', slot: null, shape: 'wall', at: { u: 0.2, v: 0.2 }, path: [{ u: 0.1, v: 0.2 }, { u: 0.3, v: 0.2 }] },
+      ],
+    }],
+  }
+  assert.deepEqual(parsePlayDoc(JSON.parse(JSON.stringify(thrown))), thrown)
 })
 
 test('a play keeps the match of its replay when the match id is a non-empty string', () => {

@@ -267,3 +267,126 @@ test('roundTicks are the barrier, the kills, the plant and the defuse, in time o
   assert.deepEqual(r2.map(t => t.t), [130000, 132000, 150000])
   assert.equal(r2[1].label, `${JETT} ▸ ${SOVA}`)
 })
+
+// ── Utility v2 (§2.10): throws, walls, ignored classes ───────────────────────
+
+/** The fixture with only these effects, and Omen's E cast in his hand at 40 s. */
+function utilityFixture(): ReplayBundle {
+  const bundle = fixture()
+  bundle.casts = [{ t: 40000, round: 1, player: OMEN, slot: 'E', x: 1000, y: 1010 }]
+  bundle.effects = [
+    // 0: Omen's smoke, thrown from the hand at (1000, 1000)…
+    { start: 40000, end: 42500, kind: 'smoke', agent: 'Wraith', cls: 'Projectile_Wraith_4_Smoke_C', x: 1000, y: 1000, owner: OMEN },
+    // 1: …lands 500 ms before the projectile closes, 22 m away.
+    { start: 42000, end: 58000, kind: 'smoke', agent: 'Wraith', cls: 'Zone_Wraith_4_Smoke_C', x: 3000, y: 2000, owner: OMEN },
+    // 2: Breach-like flash with no landing: never drawn.
+    { start: 41000, end: 43000, kind: 'wall', agent: 'Breach', cls: 'Projectile_Breach_Q_ThroughWalls_Flash_C', x: -2000, y: 0, owner: JETT },
+    // 3: a molly that never lands (no landing of its owner).
+    { start: 50000, end: 51400, kind: 'damage_zone', agent: 'Sarge', cls: 'Projectile_Sarge_Q_Molotov_Production_C', x: 1000, y: 1000, owner: SOVA },
+    // 4–7: four wall segments of one wall, out of order along it; 6 is broken at 70 s.
+    { start: 60000, end: 75000, kind: 'wall', agent: 'Thorne', cls: 'GameObject_Thorne_E_Wall_Segment_Fortifying_C', x: 2000, y: 300, owner: SOVA },
+    { start: 60100, end: 75000, kind: 'wall', agent: 'Thorne', cls: 'GameObject_Thorne_E_Wall_Segment_Fortifying_C', x: 2000, y: -900, owner: SOVA },
+    { start: 60200, end: 70000, kind: 'wall', agent: 'Thorne', cls: 'GameObject_Thorne_E_Wall_Segment_Fortifying_C', x: 2000, y: 900, owner: SOVA },
+    { start: 60300, end: 75000, kind: 'wall', agent: 'Thorne', cls: 'GameObject_Thorne_E_Wall_Segment_Fortifying_C', x: 2000, y: -300, owner: SOVA },
+    // 8: the wall's manager, at its middle: ignored.
+    { start: 60000, end: 75000, kind: 'wall', agent: 'Thorne', cls: 'GameObject_Thorne_E_Wall_Fortifying_C', x: 2000, y: 0, owner: SOVA },
+    // 9: an ult orb: ignored.
+    { start: 30000, end: 79000, kind: 'orb', agent: null, cls: 'UltPointOrb_C', x: 0, y: 3000, owner: null },
+  ]
+  return bundle
+}
+
+const near = (actual: number | undefined, expected: number, what: string) =>
+  assert.ok(actual !== undefined && Math.abs(actual - expected) < 1e-9, `${what}: ${actual} ≠ ${expected}`)
+const nearPos = (actual: { u?: number; v?: number } | undefined, u: number, v: number, what: string) => {
+  near(actual?.u, u, `${what}.u`)
+  near(actual?.v, v, `${what}.v`)
+}
+
+test('a thrown smoke in flight is one ability at the landing, from the hand, with its progress', () => {
+  const bundle = utilityFixture()
+  const ids = createFrameIds()
+  const omen = (t: number) => abilities(frameStep(bundle, t, lookup, T, ids)).filter(a => a.agent === 'Omen')
+  assert.equal(omen(39900).length, 0)
+  const flying = omen(41000)
+  // The cast in the hand is the throw: no badge of its own.
+  assert.equal(flying.length, 1)
+  const [el] = flying
+  assert.equal(el.id, ids.forEffect(1))
+  assert.deepEqual({ slot: el.slot, shape: el.shape, radius: el.radius, label: el.label }, { slot: 'Ability2', shape: 'smoke', radius: 380, label: 'Dark Cover' })
+  nearPos(el.at, 0.7, 0.8, 'at')
+  nearPos(el.from, 0.6, 0.6, 'from')
+  near(el.progress, 0.5, 'progress')
+  near(omen(40000)[0].progress, 0, 'progress at the throw')
+})
+
+test('once landed the throw keeps its id and loses its progress, and its arc after 3 s', () => {
+  const bundle = utilityFixture()
+  const ids = createFrameIds()
+  const omen = (t: number) => abilities(frameStep(bundle, t, lookup, T, ids)).filter(a => a.agent === 'Omen')
+  const flying = omen(41900)[0]
+  for (const t of [42000, 43000, 44900]) {
+    const landed = omen(t)
+    assert.equal(landed.length, 1, String(t))
+    assert.equal(landed[0].id, flying.id, String(t))
+    assert.equal('progress' in landed[0], false, String(t))
+    nearPos(landed[0].at, 0.7, 0.8, `at ${t}`)
+    nearPos(landed[0].from, 0.6, 0.6, `from ${t}`)
+  }
+  const later = omen(45000)
+  assert.equal(later.length, 1)
+  assert.equal(later[0].id, flying.id)
+  assert.equal('from' in later[0], false)
+  assert.equal(omen(58500).length, 0)
+})
+
+test('a projectile with no landing draws nothing', () => {
+  const bundle = utilityFixture()
+  assert.equal(abilities(frameStep(bundle, 42000, lookup, T, createFrameIds())).filter(a => a.agent === 'Jett').length, 0)
+  assert.equal(abilities(frameStep(bundle, 50500, lookup, T, createFrameIds())).filter(a => a.agent === 'Sova').length, 0)
+})
+
+test('four wall segments are one ability with a path along the wall, the badge halfway', () => {
+  const bundle = utilityFixture()
+  const ids = createFrameIds()
+  const wall = (t: number) => abilities(frameStep(bundle, t, lookup, T, ids)).filter(a => a.agent === 'Sova')
+  const up = wall(65000)
+  assert.equal(up.length, 1)
+  const [el] = up
+  assert.equal(el.id, ids.forEffect(4))
+  assert.deepEqual({ slot: el.slot, shape: el.shape }, { slot: 'Grenade', shape: 'wall' })
+  assert.equal(el.path?.length, 4)
+  // In order along the wall (y −900, −300, 300, 900 → u 0.41 … 0.59), whichever end comes first.
+  const us = el.path!.map(p => p.u!)
+  const ordered = us[0] < us[3] ? us : [...us].reverse()
+  ordered.forEach((u, k) => near(u, [0.41, 0.47, 0.53, 0.59][k], `path[${k}].u`))
+  for (const p of el.path!) near(p.v, 0.7, 'path v')
+  nearPos(el.at, 0.5, 0.7, 'at')
+  // One segment broken: the rest of the wall, same id.
+  const broken = wall(72000)
+  assert.equal(broken.length, 1)
+  assert.equal(broken[0].id, el.id)
+  assert.equal(broken[0].path?.length, 3)
+  assert.equal(wall(76000).length, 0)
+})
+
+test('an ignore class never appears', () => {
+  const bundle = utilityFixture()
+  const ids = createFrameIds()
+  for (let t = 30000; t <= 80000; t += 500) {
+    for (const el of abilities(frameStep(bundle, t, lookup, T, ids))) {
+      assert.notEqual(el.id, ids.forEffect(8), `manager at ${t}`)
+      assert.notEqual(el.id, ids.forEffect(9), `ult orb at ${t}`)
+      assert.notEqual(el.agent, 'Agent', `ownerless at ${t}`)
+    }
+  }
+})
+
+test('a frame with a throw and a wall passes parsePlayDoc unchanged', () => {
+  const bundle = utilityFixture()
+  const ids = createFrameIds()
+  for (const t of [41000, 43000, 65000, 72000]) {
+    const doc = { version: 2 as const, summary: '', comp: ['Omen', 'Sova'], steps: [frameStep(bundle, t, lookup, T, ids)], assumptions: [] }
+    assert.deepEqual(parsePlayDoc(JSON.parse(JSON.stringify(doc))), doc, String(t))
+  }
+})

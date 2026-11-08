@@ -19,6 +19,11 @@ import {
   sceneForStep,
   sceneTurns,
   sceneViewport,
+  THROW_BOW,
+  THROW_MIN_CM,
+  polylineMidpoint,
+  throwArc,
+  throwOrigin,
   viewBoxFor,
   viewToImage,
   zoomAbout,
@@ -485,4 +490,104 @@ test('zoomAbout at the same zoom pans, and a pan past the edge stops at the edge
   // Zooming out to 1 in a wide canvas centres the map again, whatever the pointer.
   const out = zoomAbout({ zoom: 2, x: 0, y: 0 }, [100, 100], 1, 1600, 800)
   closeRect(viewBoxFor(out, 1600, 800), { x: -500, y: 0, w: 2000, h: 1000 })
+})
+
+// ── Utility geometry (§2.10) ────────────────────────────────────────────────
+
+test('throwArc runs from the hand to the landing, bowed 18 % of its length to the left of travel on screen', () => {
+  // Travelling right on screen (y down): left is up.
+  const right = throwArc([100, 500], [500, 500])
+  assert.deepEqual(right.control, [300, 500 - 400 * THROW_BOW])
+  assert.deepEqual(right.pointAt(0), [100, 500])
+  assert.deepEqual(right.pointAt(1), [500, 500])
+  // The curve's middle is half way to the control point.
+  const mid = right.pointAt(0.5)
+  close(mid[0], 300)
+  close(mid[1], 500 - 200 * THROW_BOW)
+  assert.equal(right.d, `M100,500Q300,${500 - 400 * THROW_BOW} 500,500`)
+  // Travelling down on screen: left is +x. Travelling left: left is down.
+  assert.deepEqual(throwArc([0, 0], [0, 100]).control, [100 * THROW_BOW, 50])
+  assert.deepEqual(throwArc([500, 0], [100, 0]).control, [300, 400 * THROW_BOW])
+  // t is clamped.
+  assert.deepEqual(right.pointAt(-1), [100, 500])
+  assert.deepEqual(right.pointAt(2), [500, 500])
+})
+
+test('throwArc bows to the same screen side for a throw and its mirror under a half turn', () => {
+  // The same throw seen on attack and on defense (the map half a turn round): travel reverses on screen, the bow follows.
+  const attack = throwArc([200, 800], [600, 300])
+  const defense = throwArc([800, 200], [400, 700])
+  const side = (arc: ReturnType<typeof throwArc>, from: [number, number], at: [number, number]) => {
+    const [cx, cy] = arc.control
+    // Cross product of travel and (control - from): negative is left of travel with y down.
+    return Math.sign((at[0] - from[0]) * (cy - from[1]) - (at[1] - from[1]) * (cx - from[0]))
+  }
+  assert.equal(side(attack, [200, 800], [600, 300]), -1)
+  assert.equal(side(defense, [800, 200], [400, 700]), -1)
+})
+
+test('throwArc with an end gap stops short of the landing on the same curve', () => {
+  const arc = throwArc([100, 500], [500, 500], 15)
+  const [, rest] = arc.d.split('Q')
+  const [, end] = rest.split(' ')
+  const [ex, ey] = end.split(',').map(Number)
+  const gap = Math.hypot(500 - ex, 500 - ey)
+  assert.ok(gap > 13 && gap < 17, `gap ${gap}`)
+  // The cut end lies on the whole curve.
+  const t = 1 - 15 / (2 * Math.hypot(500 - arc.control[0], 500 - arc.control[1]))
+  const [px, py] = arc.pointAt(t)
+  close(ex, Math.round(px * 100) / 100, 0.01)
+  close(ey, Math.round(py * 100) / 100, 0.01)
+  // A degenerate throw does not divide by zero.
+  assert.equal(throwArc([10, 10], [10, 10], 15).d, 'M10,10Q10,10 10,10')
+})
+
+test('polylineMidpoint is half way along by length', () => {
+  assert.deepEqual(polylineMidpoint([[0, 0], [10, 0]]), [5, 0])
+  // 10 then 30: the middle (20) is 10 into the second leg.
+  assert.deepEqual(polylineMidpoint([[0, 0], [10, 0], [10, 30]]), [10, 10])
+  assert.deepEqual(polylineMidpoint([[0, 0], [0, 0], [4, 0], [4, 0]]), [2, 0])
+  assert.deepEqual(polylineMidpoint([[3, 4]]), [3, 4])
+  assert.equal(polylineMidpoint([]), null)
+})
+
+test('abilities carry progress and a placed wall path', () => {
+  const step = stepOf(
+    ability('molly', { callout: 'A Site' }, { from: { callout: 'A Main' }, progress: 0.4 }),
+    ability('molly', { callout: 'A Site' }, { progress: 7 }),
+    ability('wall', { callout: 'A Site' }, {
+      path: [{ callout: 'A Main' }, { callout: 'Gone' }, { u: 0.5, v: 0.5 }],
+    }),
+    ability('wall', { callout: 'A Site' }, { path: [{ callout: 'A Main' }, { callout: 'Gone' }] }),
+    ability('smoke', { callout: 'A Site' }),
+  )
+  const scene = sceneForStep(step, MAP, 'attack')
+  const [flying, clamped, wall, short, plain] = scene.abilities
+  assert.equal(flying.progress, 0.4)
+  assert.ok(flying.from)
+  assert.equal(clamped.progress, 1)
+  assert.equal(wall.path?.length, 2)
+  close(wall.path![0][0], viewPointOf('A Main')[0])
+  assert.equal(short.path, null)
+  assert.equal(plain.progress, null)
+  assert.equal(plain.path, null)
+  assert.deepEqual(scene.unresolved, ['Gone'])
+})
+
+test('throwOrigin copies the agent position when it stands more than 3 m from the click', () => {
+  const sova = agent('Sova', { callout: 'A Main' })
+  const step = stepOf(agent('Jett', { callout: 'A Site' }), sova)
+  const scene = sceneForStep(step, MAP, 'attack')
+  const [mx, my] = viewPointOf('A Main')
+  const threshold = cmToView(THROW_MIN_CM, ASCENT, scene.view)
+  const far = throwOrigin(step, ' sova ', [mx + threshold + 1, my], MAP, scene)
+  assert.deepEqual(far, { callout: 'A Main' })
+  assert.notEqual(far, sova.at)
+  assert.equal(throwOrigin(step, 'Sova', [mx + threshold - 1, my], MAP, scene), null)
+  assert.equal(throwOrigin(step, 'Omen', [0, 0], MAP, scene), null)
+  assert.equal(throwOrigin(null, 'Sova', [0, 0], MAP, scene), null)
+  // Measured from the position as written, not where a crowd spread draws the tile.
+  const crowd = stepOf(agent('Jett', { callout: 'A Main' }), sova)
+  const crowdScene = sceneForStep(crowd, MAP, 'attack')
+  assert.equal(throwOrigin(crowd, 'Sova', [mx + threshold - 1, my], MAP, crowdScene), null)
 })

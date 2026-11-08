@@ -954,6 +954,13 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
       .sort((a, b) => Math.abs(a.t - t) - Math.abs(b.t - t))[0]
     const fitted = fitComp(pristine ? [] : doc.comp, {
       ...source,
+      // A throw caught mid-air is kept as thrown: the strat shows where it lands, not the frame.
+      elements: source.elements.map(el => {
+        if (el.kind !== 'ability' || el.progress === undefined) return el
+        const { progress: _inFlight, ...landed } = el
+        void _inFlight
+        return landed
+      }),
       id: newId(),
       name,
       caption: `${name} · ${near?.label ?? roundFacts(round)}`,
