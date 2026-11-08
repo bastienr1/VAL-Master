@@ -1067,7 +1067,7 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
       ...source,
       // A throw caught mid-air is kept as thrown: the strat shows where it lands, not the frame.
       // A strat shows intent, not a frame: a throw in flight is kept landed, and no time-left ring.
-      elements: source.elements.map(el => {
+      elements: source.elements.filter(el => el.kind !== 'marker' || el.type !== 'orb').map(el => {
         if (el.kind === 'agent') {
           const agent = { ...el }
           delete agent.kit

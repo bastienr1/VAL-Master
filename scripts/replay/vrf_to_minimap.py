@@ -35,12 +35,14 @@ import duckdb
 import _env
 
 SCHEMA = 1
-REDUCER_VERSION = "0.4.0"
+REDUCER_VERSION = "0.5.0"
 # 0.2.0: effects also hold the ability actors vrfkit's keyword filter leaves out (Sova's bolts,
 #        Raze's grenades, KAY/O's knife, Fade's prowlers...), with `kind` "other".
 # 0.3.0: effects may carry `points` (a wall's shape, point by point, timed) and `track` (a
 #        projectile's or a pawn's movement), both as [t, x, y] rows.
 # 0.4.0: `kits`: by player, each ability's charges over time and their ultimate points.
+# 0.5.0: a projectile on a precalculated path (Curveball, Flashbulb) has no movement to track:
+#        its `track` is where it was thrown from and where the game says it went off.
 
 # Leaf prefixes of the actors an ability puts in the world; `Ability_` controllers and `Gun_` weapons
 # are not among them.
@@ -792,6 +794,18 @@ def main():
             if held and effect.get("track") and held[0] > effect["track"][-1][0]:
                 effect["track"].append(held)
                 track_rows += 1
+    # Thrown on a precalculated path, the actor sends no movement; the game still says where it pops.
+    for guid, t, value in con.execute("""
+            select actor_net_guid, time_ms, value_str from fields
+            where field_name = 'MulticastTriggerExplodeIndicator.IndicatorLocation' and value_str is not null
+            order by time_ms, packet_id""").fetchall():
+        effect = owning(guid, t)
+        vec = parse_vec(value)
+        if effect is None or not vec or not effect["cls"].lower().startswith("projectile_"):
+            continue
+        if len(effect.get("track", [])) < 2:
+            effect["track"] = [[effect["start"], effect["x"], effect["y"]], [t, round(vec[0]), round(vec[1])]]
+            track_rows += 2
     for effect in effects:
         del effect["_guid"]
     warnings.append(f"{point_rows} wall point(s), {track_rows} track sample(s) on effects")

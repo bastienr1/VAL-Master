@@ -74,9 +74,9 @@ const UTILITY_KINDS: readonly UtilityKind[] = [
 
 const ABILITY_FAMILIES: readonly AbilityFamily[] = ['cloud', 'zone', 'burst', 'wall', 'wave', 'device', 'scout', 'reveal', 'self']
 
-export type MarkerType = 'spike' | 'enemy' | 'pin'
+export type MarkerType = 'spike' | 'enemy' | 'pin' | 'orb'
 
-const MARKER_TYPES: readonly MarkerType[] = ['spike', 'enemy', 'pin']
+const MARKER_TYPES: readonly MarkerType[] = ['spike', 'enemy', 'pin', 'orb']
 
 /** One ability of an agent at a replay's instant: charges left (for the ultimate, 1 when ready), and how bright its recharge glow is, 1…0. */
 export interface KitSlot {

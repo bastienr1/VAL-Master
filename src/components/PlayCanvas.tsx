@@ -277,6 +277,11 @@ const WALL_BAR_MIN = 48
 /** Hit radius around anything small. */
 const HIT_R = 22
 
+/** An ultimate point orb on the map: fixed size, the game's pale green. */
+const ORB_COLOR = '#8CF5D2'
+const ORB_R = 7
+const ORB_HALO = 13
+
 const SPIKE_R = 19
 const ENEMY_R = 18
 /** The pin's head: a circle `PIN_R` wide, `PIN_HEAD` above the point it marks. */
@@ -1540,6 +1545,17 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
               {marker.site}
             </text>
           )}
+        </>
+      )
+    } else if (marker.type === 'orb') {
+      name = 'Ultimate orb'
+      labelY = ORB_HALO + utilityLabel
+      shape = (
+        <>
+          <circle r={HIT_R} fill="transparent" />
+          <circle r={ORB_HALO} fill={ORB_COLOR} fillOpacity={0.22} />
+          <circle r={ORB_R} fill={TOKEN_FILL} stroke={ORB_COLOR} strokeWidth={2} />
+          <circle r={2.5} fill={ORB_COLOR} />
         </>
       )
     } else if (marker.type === 'enemy') {
