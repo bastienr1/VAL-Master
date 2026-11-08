@@ -3,9 +3,10 @@ import { ArrowLeft, Loader2, Play } from 'lucide-react'
 import GameImage from '../GameImage'
 import { useGameContent } from '../../hooks/useGameContent'
 import { useResource } from '../../hooks/useResource'
-import { mapImageFor } from '../../lib/gameContent'
+import { agentImageFor, mapImageFor } from '../../lib/gameContent'
 import { formatScore } from '../../lib/homeStats'
 import type { ReplayBundle } from '../../lib/replayBundle'
+import { filterReplayMatches, isFiltering, NO_REPLAY_FILTER, replayFilterOptions, type ReplayFilter } from '../../lib/replayFilters'
 import { replayMatchesResource, replayRoundToPlay, type ReplayMatch } from '../../lib/replayMatches'
 import { getReplayBundle } from '../../lib/replays'
 import { replayStepTimes, type ReplayPlay } from '../../lib/replayToPlay'
@@ -20,11 +21,15 @@ interface ReplayPickerProps {
   onPlay(bundle: ReplayBundle, matchId: string): void
 }
 
-const RESULT_CHIP: Record<ReplayMatch['result'], { label: string; className: string }> = {
-  W: { label: 'W', className: 'text-val-cyan bg-val-cyan/10' },
-  L: { label: 'L', className: 'text-val-red bg-val-red/10' },
-  draw: { label: 'D', className: 'text-val-yellow bg-val-yellow/10' },
+const RESULT_TEXT: Record<ReplayMatch['result'], string> = {
+  W: 'text-val-cyan',
+  L: 'text-val-red',
+  draw: 'text-val-yellow',
 }
+
+const filterField = 'w-full rounded-md border border-bg-elevated bg-bg-primary px-1.5 py-1 text-xs text-text-primary focus:border-val-cyan/50 focus:outline-none'
+const resultButton = (on: boolean, active: string) =>
+  `px-2.5 py-0.5 rounded-md border text-xs font-medium transition-colors ${on ? active : 'border-bg-elevated text-text-secondary hover:text-text-primary'}`
 
 const smallButton =
   'px-2.5 py-1 rounded-md text-xs font-medium text-val-cyan border border-val-cyan/25 bg-val-cyan/10 hover:bg-val-cyan/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed'
@@ -48,7 +53,8 @@ interface Loaded {
  * that have a minimap bundle, then that bundle's rounds. **Play match** opens
  * the whole match in the editor's replay mode; **Load round** turns one round
  * into a play through `roundToPlay`, and over a play with something drawn it
- * asks once before replacing the steps.
+ * asks once before replacing the steps. The list filters by agent, map and
+ * win or loss, and its rows are the home page's Recent Matches rows.
  */
 export default function ReplayPicker({ currentMap, hasElements, onLoad, onPlay }: ReplayPickerProps) {
   const { registry } = useGameContent()
@@ -58,6 +64,7 @@ export default function ReplayPicker({ currentMap, hasElements, onLoad, onPlay }
   const [roundN, setRoundN] = useState<number | null>(null)
   const [confirming, setConfirming] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
+  const [filter, setFilterState] = useState<ReplayFilter>(NO_REPLAY_FILTER)
 
   useEffect(() => {
     if (!matchId) return
@@ -80,6 +87,9 @@ export default function ReplayPicker({ currentMap, hasElements, onLoad, onPlay }
     const all = matches.data ?? []
     return [...all.filter(m => sameName(m.map, currentMap)), ...all.filter(m => !sameName(m.map, currentMap))]
   }, [matches.data, currentMap])
+
+  const options = useMemo(() => replayFilterOptions(rows), [rows])
+  const shown = useMemo(() => filterReplayMatches(rows, filter), [rows, filter])
 
   const current = loaded && loaded.matchId === matchId ? loaded : null
   const bundle = current?.bundle ?? null
@@ -231,38 +241,100 @@ export default function ReplayPicker({ currentMap, hasElements, onLoad, onPlay }
     )
   }
 
+  const { agents, maps } = options
+  const setFilter = (change: Partial<ReplayFilter>) => setFilterState(f => ({ ...f, ...change }))
+  const toggleResult = (result: 'W' | 'L') => setFilter({ result: filter.result === result ? null : result })
+
   return (
-    <ul className="space-y-1.5">
-      {rows.map(m => {
-        const result = RESULT_CHIP[m.result]
-        return (
-          <li key={m.matchId}>
-            <button
-              type="button"
-              onClick={() => pickMatch(m.matchId)}
-              className="w-full flex items-center gap-2.5 text-left rounded-lg border border-bg-elevated bg-bg-primary px-2 py-1.5 hover:border-val-cyan/50 transition-colors"
-            >
-              <GameImage
-                kind="map"
-                src={mapImageFor({ map_id: m.mapId, map: m.map })}
-                alt=""
-                className="w-12 h-8 shrink-0 rounded object-cover"
-              />
-              <span className="min-w-0 flex-1">
-                <span className="block text-sm font-medium truncate">{m.map}</span>
-                <span className="block text-[11px] text-text-muted truncate">
-                  {m.agent}
-                  {m.playedAt ? ` · ${shortDate(m.playedAt)}` : ''}
-                </span>
-              </span>
-              <span className="shrink-0 font-stats text-xs text-text-secondary">{formatScore(m.score)}</span>
-              <span className={`shrink-0 text-[10px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded ${result.className}`}>
-                {result.label}
-              </span>
-            </button>
-          </li>
-        )
-      })}
-    </ul>
+    <div className="space-y-2">
+      <div className="grid grid-cols-2 gap-1.5">
+        <select value={filter.agent} onChange={e => setFilter({ agent: e.target.value })} aria-label="Filter by agent" className={filterField}>
+          <option value="">All agents</option>
+          {agents.map(name => (
+            <option key={name} value={name}>
+              {name}
+            </option>
+          ))}
+        </select>
+        <select value={filter.map} onChange={e => setFilter({ map: e.target.value })} aria-label="Filter by map" className={filterField}>
+          <option value="">All maps</option>
+          {maps.map(name => (
+            <option key={name} value={name}>
+              {name}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="flex items-center gap-1.5">
+        <div role="group" aria-label="Filter by result" className="flex gap-1">
+          <button type="button" onClick={() => toggleResult('W')} aria-pressed={filter.result === 'W'} className={resultButton(filter.result === 'W', 'text-val-cyan border-val-cyan/40 bg-val-cyan/15')}>
+            Win
+          </button>
+          <button type="button" onClick={() => toggleResult('L')} aria-pressed={filter.result === 'L'} className={resultButton(filter.result === 'L', 'text-val-red border-val-red/40 bg-val-red/15')}>
+            Loss
+          </button>
+        </div>
+        <span className="ml-auto font-stats text-[11px] text-text-muted">
+          {shown.length} of {rows.length}
+        </span>
+        {isFiltering(filter) && (
+          <button type="button" onClick={() => setFilterState(NO_REPLAY_FILTER)} className="text-[11px] text-text-secondary hover:text-val-cyan underline transition-colors">
+            Clear
+          </button>
+        )}
+      </div>
+
+      {shown.length === 0 ? (
+        <p className="text-xs text-text-muted">No replay matches these filters.</p>
+      ) : (
+        <ul className="space-y-1.5">
+          {shown.map(m => (
+            <li key={m.matchId}>
+              {/* The Recent Matches row of the home page, as a button that opens the match here. */}
+              <button
+                type="button"
+                onClick={() => pickMatch(m.matchId)}
+                className="group relative w-full flex items-center gap-2.5 min-h-[4.25rem] px-3 text-left rounded-xl overflow-hidden border border-bg-elevated hover:border-val-cyan/40 transition-colors"
+              >
+                <GameImage
+                  kind="map"
+                  src={mapImageFor({ map_id: m.mapId, map: m.map })}
+                  alt=""
+                  className="absolute inset-0 w-full h-full object-cover opacity-25 group-hover:opacity-35 transition-opacity"
+                />
+                <div className="absolute inset-0 bg-gradient-to-r from-bg-primary/90 via-bg-primary/50 to-bg-primary/80" />
+
+                <div className="relative w-[4.5rem] shrink-0">
+                  <div className="font-heading font-bold uppercase tracking-wide leading-tight truncate">{m.map}</div>
+                  <div className={`font-stats text-base leading-tight ${RESULT_TEXT[m.result]}`}>{formatScore(m.score)}</div>
+                </div>
+
+                <div className="relative flex items-center gap-2 min-w-0 flex-1">
+                  <GameImage
+                    kind="agent"
+                    src={agentImageFor({ agent_id: m.agentId, agent: m.agent })}
+                    alt=""
+                    className="w-8 h-8 rounded-full border-2 border-bg-card shrink-0"
+                  />
+                  <span className="min-w-0">
+                    <span className="block text-sm font-medium truncate">{m.agent}</span>
+                    {m.playedAt && <span className="block text-[11px] text-text-muted truncate">{shortDate(m.playedAt)}</span>}
+                  </span>
+                </div>
+
+                <div className="relative text-right shrink-0">
+                  <div className="font-stats text-base leading-tight text-text-primary">
+                    {m.acs} <span className="text-[9px] uppercase tracking-wider text-text-muted">ACS</span>
+                  </div>
+                  <div className="font-stats text-[11px] text-text-secondary">
+                    {m.kills}/{m.deaths}/{m.assists}
+                  </div>
+                </div>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   )
 }

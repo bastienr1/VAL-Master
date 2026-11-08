@@ -252,6 +252,8 @@ toggle the step playback.
 
 ### 2.7 From a replay
 
+The list of matches filters by agent, map and win or loss (`replayFilters.ts`; the dropdowns offer only what has a replay, a draw is neither), and its rows are the home page's Recent Matches rows.
+
 A round of one of the user's own matches, taken from the attached minimap
 bundle (`match_replays` + the `replays` bucket, see `src/lib/replayBundle.ts`),
 becomes the starting play: "I played this comp; load the round and edit it
