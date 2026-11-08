@@ -1,6 +1,8 @@
 import { Layers, Minimize2, Tag, UserRound } from 'lucide-react'
 import type { Tool } from '../PlayCanvas'
+import type { CanvasSizes } from '../../lib/canvasSizes'
 import type { CanvasSkinId } from '../../lib/canvasSkins'
+import SizePicker from './SizePicker'
 import SkinPicker from './SkinPicker'
 import { TOOLS } from './tools'
 
@@ -13,6 +15,8 @@ interface TheatreChromeProps {
   onToggleNames(): void
   showControl: boolean
   onToggleControl(): void
+  sizes: CanvasSizes
+  onSizes(sizes: CanvasSizes): void
   skin: CanvasSkinId
   onSkin(skin: CanvasSkinId): void
   canSave: boolean
@@ -59,6 +63,7 @@ export default function TheatreChrome(props: TheatreChromeProps) {
           <Layers className="w-3.5 h-3.5" />
           Control
         </button>
+        <SizePicker sizes={props.sizes} onSizes={props.onSizes} buttonClass={toggle(false)} />
         <SkinPicker skin={props.skin} onPick={props.onSkin} buttonClass={toggle(false)} />
         <button
           type="button"

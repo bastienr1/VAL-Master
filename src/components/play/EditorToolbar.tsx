@@ -3,6 +3,8 @@ import { Link } from 'react-router-dom'
 import { ArrowLeft, BookOpen, Check, Ellipsis, Film, GraduationCap, Layers, LayoutDashboard, Loader2, Maximize2, PanelRight, Redo2, Tag, Trash2, Undo2, UserRound } from 'lucide-react'
 import type { CanvasSkinId } from '../../lib/canvasSkins'
 import type { PlaySide } from '../../lib/types'
+import type { CanvasSizes } from '../../lib/canvasSizes'
+import SizePicker from './SizePicker'
 import SkinPicker from './SkinPicker'
 
 export type PlayLayout = 'analyst' | 'study'
@@ -28,6 +30,9 @@ interface EditorToolbarProps {
   /** The map-control overlay (§2.9): who holds which part of the map. */
   showControl: boolean
   onToggleControl(): void
+  /** Callout text and agent icon sizes (§2.13). */
+  sizes: CanvasSizes
+  onSizes(sizes: CanvasSizes): void
   /** The canvas skin (§2.11). */
   skin: CanvasSkinId
   onSkin(skin: CanvasSkinId): void
@@ -161,6 +166,7 @@ export default function EditorToolbar(props: EditorToolbarProps) {
           <Layers className="w-3.5 h-3.5" />
           <span className="hidden md:inline">Control</span>
         </button>
+        <SizePicker sizes={props.sizes} onSizes={props.onSizes} buttonClass={toggle(false)} />
         <SkinPicker skin={props.skin} onPick={props.onSkin} buttonClass={toggle(false)} />
         {props.layout === 'analyst' && (
           <>
