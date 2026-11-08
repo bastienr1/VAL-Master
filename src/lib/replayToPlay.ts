@@ -25,7 +25,7 @@ import {
 } from './replayFrame.ts'
 
 export type { ReplayAgentInfo, ReplayAgentLookup }
-export interface ReplayPlay { doc: PlayDoc; side: 'attack' | 'defense'; mapUuid: string | null; title: string; brief: string }
+export interface ReplayPlay { doc: PlayDoc; side: 'attack' | 'defense'; mapUuid: string | null; title: string }
 
 /** Without an end or a kill, the round is taken to run its full 100 s timer. */
 const ROUND_TIMER_MS = 100_000
@@ -143,7 +143,6 @@ export function roundToPlay(
     if (comp.length < MAX_COMP && !comp.some(c => c.toLowerCase() === name.toLowerCase())) comp.push(name)
   }
   const inComp = (name: string) => comp.some(c => c.toLowerCase() === name.toLowerCase())
-  const enemies = bundle.players.filter(p => p.team === 'ENEMY').map(p => infoOf(p)?.name ?? UNKNOWN_AGENT)
 
   const side = roundSide(round)
   const map = mapName(bundle.match.mapUrl)
@@ -151,7 +150,6 @@ export function roundToPlay(
 
   const kills = roundKills(bundle, round)
   const barrier = roundBarrier(round)
-  const end = endOf(round, kills)
   const times = replayStepTimes(bundle, round)
   const plant = roundPlant(bundle, round)
   const firstKill = kills.find(k => k.t > barrier) ?? null
@@ -188,15 +186,6 @@ export function roundToPlay(
 
   const summary = `Round ${round.n} from the replay${outcome ? `: ${outcome}` : ''}`
 
-  const events: string[] = []
-  if (firstKill) events.push(`first kill ${clock(firstKill.t - barrier)} after barrier (${nameOf(firstKill.killer)} on ${nameOf(firstKill.victim)})`)
-  if (plant.t !== null) events.push(`spike planted${site ? ` on ${site}` : ''} ${clock(plant.t - barrier)} after barrier`)
-  if (outcome) events.push(`${outcome} ${clock(end - barrier)} after barrier`)
-  const brief = [
-    `Round ${round.n} on ${map}, ${side === 'attack' ? 'attacking' : 'defending'} with ${comp.join(', ') || 'unknown agents'} against ${enemies.join(', ') || 'unknown agents'}.`,
-    events.length > 0 ? `${capitalize(events.join('; '))}.` : 'No kills or plant recorded.',
-  ].join('\n')
-
   const doc = parsePlayDoc({ version: 2, summary, comp, steps, assumptions: [] })
-  return { doc, side, mapUuid: bundle.match.mapUuid, title: `Round ${round.n} · ${map} · ${date}`, brief }
+  return { doc, side, mapUuid: bundle.match.mapUuid, title: `Round ${round.n} · ${map} · ${date}` }
 }

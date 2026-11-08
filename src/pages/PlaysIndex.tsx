@@ -145,7 +145,7 @@ export default function PlaysIndex() {
       ) : (
         !error && (
           <EmptyLine>
-            <p>Write your first play: the map, the comp, and what each agent does. Claude draws it on the minimap.</p>
+            <p>Build your first play: place agents and abilities on the map, or start from one of your replays.</p>
             <div className="mt-4">
               <NewPlayButton />
             </div>

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Loader2, Sparkles, X } from 'lucide-react'
+import { X } from 'lucide-react'
 import type { AbilityElement, AbilitySlot, AgentElement, PlayStep } from '../../lib/playDoc'
 import { UTILITY_STYLE } from '../../lib/playScene'
 import type { ReplayBundle } from '../../lib/replayBundle'
@@ -8,14 +8,8 @@ import type { PlaySide } from '../../lib/types'
 import AgentIcon from './AgentIcon'
 import ReplayPicker from './ReplayPicker'
 
-export interface ComposeFailure {
-  message: string
-  /** The composer's secret is missing: offer a blank play instead of a retry. */
-  notConfigured: boolean
-}
-
-interface BriefDrawerProps {
-  /** True while nothing is drawn on any step: the replay picker shows, and Start blank. */
+interface StepDrawerProps {
+  /** True while nothing is drawn on any step: the replay picker shows. */
   isEmpty: boolean
   /** The editor's map: the replay picker lists its matches first. */
   map: string
@@ -23,16 +17,6 @@ interface BriefDrawerProps {
   onLoadReplay(play: ReplayPlay): void
   /** A whole match of the user's replays, opened in the replay mode (§2.8). */
   onPlayReplay(bundle: ReplayBundle, matchId: string): void
-
-  brief: string
-  onBrief(brief: string): void
-  /** False when the brief is empty or the map has no callouts to place agents on. */
-  canCompose: boolean
-  composing: boolean
-  onCompose(): void
-  composedWith: string | null
-  error: ComposeFailure | null
-  onStartBlank(): void
 
   side: PlaySide
   step: PlayStep | null
@@ -46,26 +30,20 @@ interface BriefDrawerProps {
   onRemoveElement(elementId: string): void
   /** The registry's name for an agent's ability, or null when it does not know it. */
   abilityName(agent: string, slot: AbilitySlot | null): string | null
-
-  assumptions: string[]
 }
-
-const PLACEHOLDER =
-  'Ascent attack, comp Omen Sova Jett KAY/O Killjoy. Default A: Sova recon from A Main, Omen smokes Heaven and Generator…'
 
 const label = 'text-[10px] uppercase tracking-widest text-text-secondary'
 const field = 'bg-bg-primary border border-bg-elevated rounded-lg text-sm focus:border-val-cyan outline-none'
 const sectionClass = 'p-4 space-y-3 border-b border-bg-elevated'
 
 /**
- * The right-hand drawer (docs/plays-editor-v2.md §2.4): the replay picker
- * while the play is empty (behind a "From a replay"
- * link once something is drawn), the brief and Compose, what is on the map in this step (the
- * caption, each ally's note and the spike, the abilities placed), and the
- * composer's assumptions. Map and side live in the rail.
+ * The right-hand panel (docs/plays-editor-v2.md §2.4): the replay picker
+ * while the play is empty (behind a "From a replay" link once something is
+ * drawn) and what is on the map in this step (the caption, each ally's note
+ * and the spike, the abilities placed). Map and side live in the rail.
  */
-export default function BriefDrawer(props: BriefDrawerProps) {
-  const { brief, composing, error, step, stepIndex, selectedId, side } = props
+export default function StepDrawer(props: StepDrawerProps) {
+  const { step, stepIndex, selectedId, side } = props
   /** The replay picker, opened from its link over a play with something drawn. */
   const [replayOpen, setReplayOpen] = useState(false)
   const showReplay = props.isEmpty || replayOpen
@@ -108,64 +86,18 @@ export default function BriefDrawer(props: BriefDrawerProps) {
         </section>
       )}
 
-      <section className={sectionClass}>
-        <div className={label}>Brief</div>
-        <textarea
-          rows={6}
-          value={brief}
-          onChange={e => props.onBrief(e.target.value)}
-          placeholder={PLACEHOLDER}
-          aria-label="Brief"
-          className={`${field} p-3 w-full`}
-        />
-        <div className="flex items-center gap-3">
+      {!showReplay && (
+        <div className="px-4 pt-3">
           <button
             type="button"
-            onClick={props.onCompose}
-            disabled={!props.canCompose || composing}
-            className="flex items-center gap-2 px-3 py-1.5 bg-val-cyan/10 text-val-cyan border border-val-cyan/25 rounded-lg hover:bg-val-cyan/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+            onClick={() => setReplayOpen(true)}
+            title="Replace the steps with a round of one of your replays"
+            className="text-xs text-text-secondary hover:text-val-cyan underline transition-colors"
           >
-            {composing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-            <span className="text-sm font-medium">{composing ? 'Composing…' : 'Compose play'}</span>
+            From a replay
           </button>
-          {props.isEmpty && !error?.notConfigured && (
-            <button
-              type="button"
-              onClick={props.onStartBlank}
-              title="Put the agents the brief names in spawn"
-              className="text-xs text-text-secondary hover:text-val-cyan underline transition-colors"
-            >
-              Start blank
-            </button>
-          )}
-          {!showReplay && (
-            <button
-              type="button"
-              onClick={() => setReplayOpen(true)}
-              title="Replace the steps with a round of one of your replays"
-              className="text-xs text-text-secondary hover:text-val-cyan underline transition-colors"
-            >
-              From a replay
-            </button>
-          )}
         </div>
-        {error && (
-          <div className="border border-val-red/25 bg-val-red/10 text-val-red text-sm rounded-md px-3 py-2 space-y-1">
-            <p>{error.message}</p>
-            {error.notConfigured && (
-              <button type="button" onClick={props.onStartBlank} className="text-sm text-val-cyan underline">
-                Start blank
-              </button>
-            )}
-          </div>
-        )}
-        {(props.composedWith || !props.isEmpty) && (
-          <div className="text-[11px] text-text-muted space-y-0.5">
-            {props.composedWith && <p>Composed with {props.composedWith}</p>}
-            {!props.isEmpty && <p>Positions you dragged are kept where the brief did not change.</p>}
-          </div>
-        )}
-      </section>
+      )}
 
       {step && (
         <section className={sectionClass}>
@@ -255,17 +187,6 @@ export default function BriefDrawer(props: BriefDrawerProps) {
           {allies.length === 0 && abilities.length === 0 && (
             <p className="text-xs text-text-muted">Pick agents from the strip below to place them on the map.</p>
           )}
-        </section>
-      )}
-
-      {props.assumptions.length > 0 && (
-        <section className={sectionClass}>
-          <div className={label}>Assumptions</div>
-          <ul className="list-disc pl-5 space-y-1 text-sm text-text-secondary">
-            {props.assumptions.map((a, i) => (
-              <li key={`${i}-${a}`}>{a}</li>
-            ))}
-          </ul>
         </section>
       )}
     </div>

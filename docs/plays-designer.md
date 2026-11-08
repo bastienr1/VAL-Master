@@ -197,7 +197,14 @@ Source: valorant-api `callouts[]` (`regionName`, `superRegionName`,
 `location.x/y`, world cm). The Supabase `game_content` cache stores the raw
 payload, so it carries them already; the Henrik fallback has none (empty array).
 
-## 5. The composer (Supabase Edge Function `compose-play`)
+## 5. The composer (Supabase Edge Function `compose-play`), removed
+
+> **Removed on 2026-11-08** at Bastien's request ("We don't need the feature
+> to input text for generating play"): the brief box, Compose, Start blank, the
+> assumptions list, `composePlay.ts`, `composeAbilities.ts`, `composeMerge.ts`
+> and the `compose-play` function's source are gone. The `plays.brief` and
+> `plays.composed_with` columns stay and are written empty. This section records
+> what the composer was.
 
 `supabase/functions/compose-play/index.ts`, Deno, deployed through the Supabase
 dashboard/MCP (the project has no CLI link). `verify_jwt` on. Secret

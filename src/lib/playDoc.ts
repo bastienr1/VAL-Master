@@ -173,7 +173,7 @@ export interface PlayDoc {
   comp: string[]
   /** 0 to 10. */
   steps: PlayStep[]
-  /** What the composer guessed because the brief did not say it. Shown to the user. */
+  /** Kept on plays made while the composer existed; nothing writes or shows them now. */
   assumptions: string[]
   /** The match whose replay this play was built from, so a saved strat can reopen it (§2.8). */
   replay?: { matchId: string }

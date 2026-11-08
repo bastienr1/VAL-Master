@@ -5,7 +5,7 @@ import PlayCanvas, { type PlayCanvasHandle, type PlayCanvasProps, type Tool } fr
 import AbilityPopover from '../components/play/AbilityPopover'
 import AgentStrip, { type AgentRole } from '../components/play/AgentStrip'
 import { SplitterHandle, useSplitter } from '../components/ColumnSplitter'
-import BriefDrawer, { type ComposeFailure } from '../components/play/BriefDrawer'
+import StepDrawer from '../components/play/StepDrawer'
 import EditorRail from '../components/play/EditorRail'
 import EditorToolbar, { type PlayLayout } from '../components/play/EditorToolbar'
 import PlaybookPanel from '../components/play/PlaybookPanel'
@@ -14,9 +14,7 @@ import TheatreChrome from '../components/play/TheatreChrome'
 import ReplayTransport, { type ReplayClock, type ReplayView } from '../components/play/ReplayTransport'
 import { useGameContent, useGameContentNames } from '../hooks/useGameContent'
 import { useMediaQuery } from '../hooks/useMediaQuery'
-import { abilitiesForComp } from '../lib/composeAbilities'
 import { CANVAS_SKINS, canvasSkin, nextCanvasSkin, type CanvasSkinId } from '../lib/canvasSkins'
-import { composePlay, ComposerNotConfiguredError } from '../lib/composePlay'
 import type { GameAgent } from '../lib/gameContent'
 import {
   controlShare,
@@ -164,25 +162,6 @@ const messageOf = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
 const sameName = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase()
 
-const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-
-/**
- * Registry agent names the brief mentions, in the order written, at most five:
- * the comp for a blank play when the composer cannot run. Whole words only, so
- * "Sage" does not match inside "message".
- */
-function agentsInBrief(brief: string, names: string[]): string[] {
-  const hits: { name: string; at: number }[] = []
-  for (const name of names) {
-    const at = brief.search(new RegExp(`(?<![a-z0-9])${escapeRegExp(name)}(?![a-z0-9])`, 'i'))
-    if (at !== -1) hits.push({ name, at })
-  }
-  return hits
-    .sort((a, b) => a.at - b.at)
-    .slice(0, MAX_COMP)
-    .map(h => h.name)
-}
-
 /** Inputs, text areas, selects and editable text keep their keys: the editor's shortcuts stay out. */
 const isEditable = (target: EventTarget | null) =>
   target instanceof HTMLInputElement ||
@@ -224,7 +203,7 @@ function persistPlaybookOpen(open: boolean) {
   }
 }
 
-const snapshotOf = (s: { title: string; map: string; side: PlaySide; brief: string; doc: PlayDoc }) =>
+const snapshotOf = (s: { title: string; map: string; side: PlaySide; doc: PlayDoc }) =>
   JSON.stringify({ ...s, comp: s.doc.comp })
 
 const hasElements = (doc: PlayDoc) => doc.steps.some(s => s.elements.length > 0)
@@ -238,7 +217,7 @@ function ensureStep(doc: PlayDoc, side: PlaySide): PlayDoc {
 /**
  * The comp without the allies no step shows any more, so deleting an agent
  * everywhere frees its comp slot. Called only after something was removed:
- * a composed comp agent the model left off the map is not dropped by a drag.
+ * a comp agent not on the map is not dropped by a drag.
  */
 function pruneComp(doc: PlayDoc): PlayDoc {
   const comp = doc.comp.filter(name =>
@@ -397,7 +376,7 @@ type LoadState = 'loading' | 'ready' | 'missing' | 'failed'
 /**
  * The v2 editor (docs/plays-editor-v2.md §2.5): the map fills the middle, the
  * rail on the left drives steps and tools, the strip at the bottom places
- * agents and their abilities, and the brief and composer sit in the drawer.
+ * agents and their abilities, and the step's notes sit in the drawer.
  * Every change of the play goes through `commitWith`, which keeps the undo stack.
  */
 function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated(id: string): void }) {
@@ -421,9 +400,7 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
   // '' until picked or loaded: a new play falls back to the registry's first map.
   const [mapPick, setMapPick] = useState('')
   const [side, setSide] = useState<PlaySide>('attack')
-  const [brief, setBrief] = useState('')
   const [history, setHistory] = useState<History<PlayDoc>>(() => historyOf(emptyPlayDoc([], 'attack')))
-  const [composedWith, setComposedWith] = useState<string | null>(null)
   /** What was last saved; null for a play never saved, which counts as unsaved. */
   const [snapshot, setSnapshot] = useState<string | null>(null)
 
@@ -448,7 +425,7 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
   const showPlaybook = !theatre && (study || playbookOpen)
   const showDrawer = !theatre && !study && drawerOpen
   /** What the right panel shows while a replay plays. */
-  const [drawerTab, setDrawerTab] = useState<'utility' | 'brief'>('utility')
+  const [drawerTab, setDrawerTab] = useState<'utility' | 'step'>('utility')
   // On by default, saved plays included: the callout names are how a play is read. Remembered per device.
   const [showCallouts, setShowCalloutsState] = useState(() => readFlag('plays.showCallouts', true))
   const setShowCallouts = (next: boolean | ((prev: boolean) => boolean)) =>
@@ -501,8 +478,6 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [savedFlash, setSavedFlash] = useState(false)
-  const [composing, setComposing] = useState(false)
-  const [composeError, setComposeError] = useState<ComposeFailure | null>(null)
 
   /** The canvas keeps its own zoom: the page's `+` / `-` / `0` keys and the strip's placement ask it. */
   const canvas = useRef<PlayCanvasHandle>(null)
@@ -559,7 +534,7 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
     side: 'right',
     minOtherSide: CANVAS_MIN_PX,
     available: drawerRoom,
-    label: 'Resize the brief',
+    label: 'Resize the step panel',
   })
   const playbookSized = isLg && showPlaybook && !study
   const drawerSized = isLg && showDrawer
@@ -602,7 +577,7 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
 
   /** What Save writes: the doc, with the match it was built from. */
   const savedDoc: PlayDoc = replayLink ? { ...doc, replay: { matchId: replayLink } } : doc
-  const dirty = snapshotOf({ title, map, side, brief, doc: savedDoc }) !== snapshot
+  const dirty = snapshotOf({ title, map, side, doc: savedDoc }) !== snapshot
 
   // ── History ───────────────────────────────────────────────────────────────
 
@@ -651,7 +626,7 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
             parsed = parsePlayDoc(play.play)
           } catch (e) {
             if (!(e instanceof PlayDocError)) throw e
-            // Shown, and the doc left blank so the user can recompose from the brief.
+            // Shown, and the doc left blank.
             setError(e.message)
           }
         }
@@ -659,13 +634,11 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
         setTitle(play.title)
         setMapPick(play.map)
         setSide(play.side)
-        setBrief(play.brief)
         setHistory(historyOf(loaded))
         setReplayLink(loaded.replay?.matchId ?? null)
-        setComposedWith(play.composed_with)
-        // A play with something drawn opens on the map; an empty one on its brief.
+        // A play with something drawn opens on the map; an empty one on its panel.
         setDrawerOpen(!hasElements(loaded))
-        setSnapshot(snapshotOf({ title: play.title, map: play.map, side: play.side, brief: play.brief, doc: loaded }))
+        setSnapshot(snapshotOf({ title: play.title, map: play.map, side: play.side, doc: loaded }))
         setLoad('ready')
       })
       .catch((e: unknown) => {
@@ -942,7 +915,7 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
   const abilityName = (agent: string, slot: AbilitySlot | null) =>
     slot ? (agentByName(agent)?.abilities.find(a => a.slot === slot)?.name ?? null) : null
 
-  // ── Brief, compose ────────────────────────────────────────────────────────
+  // ── View ─────────────────────────────────────────────────────────────────
 
   const resetView = () => {
     setStepIndex(0)
@@ -958,16 +931,9 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
     setSide(next)
   }
 
-  const startBlank = () => {
-    commit(ensureStep(emptyPlayDoc(agentsInBrief(brief, registryAgents.map(a => a.name)), side), side))
-    resetView()
-    setComposedWith(null)
-    setComposeError(null)
-  }
-
   /**
    * A round of a replay, converted (§2.7): its map when the registry knows it,
-   * its side, its steps as one undo step, its title and brief.
+   * its side, its steps as one undo step, its title.
    */
   const loadReplayPlay = (play: ReplayPlay) => {
     const mapName = play.mapUuid ? registry?.maps.byId.get(play.mapUuid)?.name : undefined
@@ -975,10 +941,7 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
     setSide(play.side)
     commit(ensureStep(play.doc, play.side))
     resetView()
-    setComposedWith(null)
-    setComposeError(null)
     setTitle(truncate(play.title, TITLE_MAX) || UNTITLED)
-    setBrief(play.brief)
   }
 
   // ── Replay mode (§2.8) ────────────────────────────────────────────────────
@@ -1202,33 +1165,6 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
       .catch((e: unknown) => setError(messageOf(e)))
   })
 
-  const compose = async () => {
-    if (!gameMap || gameMap.callouts.length === 0 || !brief.trim() || composing) return
-    setComposing(true)
-    setComposeError(null)
-    try {
-      const comp = doc.comp
-      const result = await composePlay({
-        map,
-        side,
-        brief,
-        comp: comp.length === MAX_COMP ? comp : undefined,
-        abilities: abilitiesForComp(comp, name => agentByName(name)?.abilities ?? null),
-        callouts: gameMap.callouts.map(c => c.name),
-        previous: empty ? null : doc,
-      })
-      commit(ensureStep(result.play, side))
-      resetView()
-      setComposedWith(result.model || null)
-      setShowCallouts(true)
-      if (title === UNTITLED) setTitle(truncate(result.play.summary, TITLE_MAX) || `${map} ${side} play`)
-    } catch (e) {
-      setComposeError({ message: messageOf(e), notConfigured: e instanceof ComposerNotConfiguredError })
-    } finally {
-      setComposing(false)
-    }
-  }
-
   // ── Save, delete ──────────────────────────────────────────────────────────
 
   const save = async () => {
@@ -1240,9 +1176,9 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
       map_uuid: gameMap?.uuid ?? null,
       side,
       comp: doc.comp,
-      brief,
+      brief: '',
       play: savedDoc,
-      composed_with: composedWith,
+      composed_with: null,
     }
     setSaving(true)
     setError(null)
@@ -1257,7 +1193,7 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
       }
       setTitle(savedTitle)
       setMapPick(map)
-      setSnapshot(snapshotOf({ title: savedTitle, map, side, brief, doc: savedDoc }))
+      setSnapshot(snapshotOf({ title: savedTitle, map, side, doc: savedDoc }))
       setSavedFlash(true)
     } catch (e) {
       setError(messageOf(e))
@@ -1484,7 +1420,6 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
         }}
         drawerOpen={drawerOpen}
         onToggleDrawer={() => setDrawerOpen(o => !o)}
-        briefHint={composedWith === null}
         onOpenReplay={replayLink && !replay && registry ? openReplay : undefined}
         openingReplay={openingReplay}
         canSave={dirty && Boolean(map)}
@@ -1562,7 +1497,7 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
           {!registry && registryStatus === 'loading' ? (
             <div className="absolute inset-3 rounded-xl bg-bg-card animate-pulse" aria-hidden="true" />
           ) : gameMap && mapDrawable && step ? (
-            <div className={`absolute transition-opacity ${theatre ? 'inset-x-0 top-0 bottom-20' : 'inset-3'} ${composing ? 'opacity-60 pointer-events-none' : ''}`}>
+            <div className={`absolute ${theatre ? 'inset-x-0 top-0 bottom-20' : 'inset-3'}`}>
               {/* In the replay view: the frame from its store (the edited copy once paused and
                   changed), no ghosts, no walk, read-only while the match plays. */}
               <FrameCanvas
@@ -1676,7 +1611,7 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
         >
           {showDrawer && inReplay && (
             <div role="tablist" aria-label="Right panel" className="flex gap-1 p-2 border-b border-bg-elevated">
-              {(['utility', 'brief'] as const).map(tab => (
+              {(['utility', 'step'] as const).map(tab => (
                 <button
                   key={tab}
                   type="button"
@@ -1694,19 +1629,11 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
           )}
           {showDrawer && inReplay && drawerTab === 'utility' && <UtilityNow frames={frames} skin={skin} />}
           {showDrawer && !(inReplay && drawerTab === 'utility') && (
-            <BriefDrawer
+            <StepDrawer
               isEmpty={empty}
               map={map}
               onLoadReplay={loadReplayPlay}
               onPlayReplay={playMatch}
-              brief={brief}
-              onBrief={setBrief}
-              canCompose={brief.trim().length > 0 && (gameMap?.callouts.length ?? 0) > 0}
-              composing={composing}
-              onCompose={compose}
-              composedWith={composedWith}
-              error={composeError}
-              onStartBlank={startBlank}
               side={side}
               step={step ?? null}
               stepIndex={stepAt}
@@ -1717,7 +1644,6 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
               onSpike={toggleSpike}
               onRemoveElement={removeElement}
               abilityName={abilityName}
-              assumptions={doc.assumptions}
             />
           )}
         </aside>
