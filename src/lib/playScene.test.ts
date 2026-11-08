@@ -5,7 +5,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  AGENT_SPREAD_RADIUS,
   MAX_ZOOM,
   MIN_UTILITY_RADIUS,
   UTILITY_COLORS,
@@ -273,36 +272,20 @@ test('without a transform only dragged points are placed', () => {
   assert.deepEqual(scene.unresolved, ['A Main'])
 })
 
-test('agents on the same spot are spread on a circle about it, in element order from the top', () => {
-  const comp = ['Jett', 'Omen', 'Sova', 'Killjoy', 'KAY/O']
-  const step = stepOf(...comp.map(name => agent(name, { callout: 'Attacker Side Spawn' }, { moveTo: { callout: 'A Main' } })))
-  const scene = sceneForStep(step, MAP, 'attack')
-  const [sx, sy] = viewPointOf('Attacker Side Spawn')
-  const points = scene.agents.map(a => `${a.x.toFixed(3)},${a.y.toFixed(3)}`)
-  assert.equal(new Set(points).size, 5)
-  for (const a of scene.agents) {
-    assert.ok(Math.hypot(a.x - sx, a.y - sy) <= AGENT_SPREAD_RADIUS + 1e-6, `${a.agent} is too far from the spawn`)
-    // The arrow leaves the tile that is drawn.
-    assert.deepEqual(a.path![0], [a.x, a.y])
-  }
-  // The first element sits at the top.
-  assert.equal(scene.agents[0].agent, 'Jett')
-  close(scene.agents[0].x, sx)
-  close(scene.agents[0].y, sy - AGENT_SPREAD_RADIUS)
-})
-
-test('agents well apart are not moved, allies and enemies on one spot are spread', () => {
-  const view = { u: 0, v: 0, size: 1 }
+test('agents stand exactly where the step says, even on one spot', () => {
+  const flat: SceneMap = { transform: null, callouts: [] }
   const apart = stepOf(agent('Jett', { u: 0.5, v: 0.5 }), agent('Omen', { u: 0.6, v: 0.5 }))
-  const scene = sceneForStep(apart, { transform: null, callouts: [] }, 'attack')
-  assert.deepEqual(scene.view, view)
+  const scene = sceneForStep(apart, flat, 'attack')
+  assert.deepEqual(scene.view, { u: 0, v: 0, size: 1 })
   assert.deepEqual(scene.agents.map(a => [a.x, a.y]), [[500, 500], [600, 500]])
-  // Two on one spot: 2 x 26 apart, one above and one below.
+  // Closer than a tile: not moved apart.
+  const near = stepOf(agent('Jett', { u: 0.5, v: 0.5 }), agent('Omen', { u: 0.51, v: 0.5 }))
+  assert.deepEqual(sceneForStep(near, flat, 'attack').agents.map(a => [a.x, a.y]), [[500, 500], [510, 500]])
+  // On one spot, allies and enemies alike, and the same at any zoom.
   const together = stepOf(agent('Jett', { u: 0.5, v: 0.5 }), agent('Raze', { u: 0.5, v: 0.5 }, { team: 'enemy' }))
-  const pair = sceneForStep(together, { transform: null, callouts: [] }, 'attack').agents
-  close(pair[0].x, 500)
-  close(pair[0].y, 474)
-  close(pair[1].y, 526)
+  for (const k of [1, 1 / 3]) {
+    assert.deepEqual(sceneForStep(together, flat, 'attack', k).agents.map(a => [a.x, a.y]), [[500, 500], [500, 500]])
+  }
 })
 
 // A plain transform: u = y / 10000 + 0.5, v = x / 10000 + 0.5, so fixtures can
@@ -427,17 +410,14 @@ test('ghostAgents ignores agents that stayed, left, or cannot be placed', () => 
   assert.deepEqual(ghostAgents(before, null, MAP, 'attack'), [])
 })
 
-test('ghostAgents reads positions as written, not as spread', () => {
-  // Two agents share a spot, so the scene spreads them; when one walks off,
-  // the other is drawn somewhere else but did not move.
+test('ghostAgents leaves a ghost where a moved agent stood', () => {
   const before = stepOf(agent('Jett', { u: 0.5, v: 0.5 }), agent('Omen', { u: 0.5, v: 0.5 }))
   const after = stepOf(agent('Jett', { u: 0.5, v: 0.5 }), agent('Omen', { u: 0.8, v: 0.5 }))
   const flat: SceneMap = { transform: null, callouts: [] }
   const ghosts = ghostAgents(before, after, flat, 'attack')
   assert.deepEqual(ghosts.map(g => g.id), ['omen'])
-  // Drawn where the previous step drew it: spread below its partner.
   close(ghosts[0].x, 500)
-  close(ghosts[0].y, 500 + AGENT_SPREAD_RADIUS)
+  close(ghosts[0].y, 500)
 })
 
 const closeRect = (actual: ViewRect, expected: ViewRect) => {
@@ -588,15 +568,15 @@ test('throwOrigin copies the agent position when it stands more than 3 m from th
   assert.equal(throwOrigin(step, 'Sova', [mx + threshold - 1, my], MAP, scene), null)
   assert.equal(throwOrigin(step, 'Omen', [0, 0], MAP, scene), null)
   assert.equal(throwOrigin(null, 'Sova', [0, 0], MAP, scene), null)
-  // Measured from the position as written, not where a crowd spread draws the tile.
-  const crowd = stepOf(agent('Jett', { callout: 'A Main' }), sova)
-  const crowdScene = sceneForStep(crowd, MAP, 'attack')
-  assert.equal(throwOrigin(crowd, 'Sova', [mx + threshold - 1, my], MAP, crowdScene), null)
+  // With another agent on the same spot too.
+  const shared = stepOf(agent('Jett', { callout: 'A Main' }), sova)
+  const sharedScene = sceneForStep(shared, MAP, 'attack')
+  assert.equal(throwOrigin(shared, 'Sova', [mx + threshold - 1, my], MAP, sharedScene), null)
 })
 
 // ── Constant-size markers (§2.2) ────────────────────────────────────────────
 
-test('markerScale shrinks the crowd spread and the area floor with the zoom, and 1 changes nothing', () => {
+test('markerScale shrinks the area floor with the zoom, and 1 changes nothing', () => {
   const flat: SceneMap = { transform: null, callouts: [] }
   const crowd = stepOf(
     agent('Jett', { u: 0.5, v: 0.5 }),
@@ -607,28 +587,9 @@ test('markerScale shrinks the crowd spread and the area floor with the zoom, and
   assert.deepEqual(sceneForStep(crowd, flat, 'attack', 1), sceneForStep(crowd, flat, 'attack'))
   const k = 1 / 6
   const zoomed = sceneForStep(crowd, flat, 'attack', k)
-  close(zoomed.agents[0].y, 500 - AGENT_SPREAD_RADIUS * k)
-  close(zoomed.agents[1].y, 500 + AGENT_SPREAD_RADIUS * k)
   const [flash, smoke] = zoomed.abilities
   close(flash.r, MIN_UTILITY_RADIUS * k)
   // A real-size area does not change with the zoom.
   assert.equal(smoke.r, sceneForStep(crowd, flat, 'attack').abilities[1].r)
 })
 
-test('markerScale lets agents a tile apart at 100 % stand unspread when zoomed', () => {
-  const flat: SceneMap = { transform: null, callouts: [] }
-  // 30 units apart: closer than a tile (44) at 100 %, well apart at 300 %.
-  const step = stepOf(agent('Jett', { u: 0.5, v: 0.5 }), agent('Omen', { u: 0.53, v: 0.5 }))
-  const near = sceneForStep(step, flat, 'attack')
-  assert.notDeepEqual(near.agents.map(a => [a.x, a.y]), [[500, 500], [530, 500]])
-  const far = sceneForStep(step, flat, 'attack', 1 / 3)
-  assert.deepEqual(far.agents.map(a => [a.x, a.y]), [[500, 500], [530, 500]])
-})
-
-test('ghostAgents places the previous step with markerScale when not given it', () => {
-  const before = stepOf(agent('Jett', { u: 0.5, v: 0.5 }), agent('Omen', { u: 0.5, v: 0.5 }))
-  const after = stepOf(agent('Jett', { u: 0.5, v: 0.5 }), agent('Omen', { u: 0.8, v: 0.5 }))
-  const flat: SceneMap = { transform: null, callouts: [] }
-  const ghosts = ghostAgents(before, after, flat, 'attack', undefined, 0.5)
-  close(ghosts[0].y, 500 + AGENT_SPREAD_RADIUS * 0.5)
-})

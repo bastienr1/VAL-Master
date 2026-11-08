@@ -594,6 +594,20 @@ leaves it when nothing is selected. The map fills the window, the app's header
 and sidebar included, with floating title, view toggles, tool dock, and the
 transport (or step buttons when no replay is open).
 
+### 2.13 Exact positions and sizes
+
+An agent's tile is centred exactly on its position. Nothing moves tiles apart
+any more: the crowd spread that pushed agents closer than a tile onto a circle
+was removed on 2026-11-08, because it displaced players by up to 26 units and
+made them snap as they came near each other. Agents that really stand together
+now overlap. A new agent placed from the strip is set down clear of those
+already there, in its stored position.
+
+The toolbar's **Size** menu (`SizePicker.tsx`, `canvasSizes.ts`, per device as
+`plays.canvasSizes`): callout text S / M / L / XL (15, 18, 22, 28 units; L is
+the earlier size), **Fixed on screen** or **Grow with map** when zooming, and
+agent icons S / M / L (26, 34, 44 units; M is the default, L the earlier size).
+
 ## 3. Document v2 (`src/lib/playDoc.ts`)
 
 ```ts
@@ -787,6 +801,13 @@ Every ability (2026-11-08): the rebuilt Abyss bundle of 2026-11-02 attached
 in the signed-in app; your Sova's round 1 Shock Bolt flies along its arc and
 lands 29 m away at A Site as a 4 m blast, where before only a badge sat on
 Sova.
+
+Exact positions (2026-11-08): scrubbing Abyss round 1 from 62 s to 70 s in
+100 ms steps, 640 samples, the only large step was Jett's 21 units per 100 ms,
+which the raw track shows too. Tiles at 66 s matched the raw track within 2
+units, the scrubber's 100 ms snap. Pairs closer than a tile stayed unmoved.
+Callouts measured 15, 18, 21 and 28 px; fixed on zoom 28 px, grown 107 px; agent
+tiles 22, 28 and 36 px.
 
 Replay panel (2026-11-08): on the Abyss replay at 1600 x 1000, R1 showed
 "attacker 0-0 +20.9 s" and its kills; View took the 8 cones off and on, Utility

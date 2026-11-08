@@ -85,6 +85,7 @@ import {
   type PlacedMarker,
   type Point,
 } from '../lib/playScene'
+import { DEFAULT_CANVAS_SIZES, agentScale, calloutUnits, type CanvasSizes } from '../lib/canvasSizes'
 import type { AgentMotion } from '../lib/replayMotion'
 import { canvasSkin, hexChannels, skinDrawColor, skinMapMatrix, type CanvasSkin, type CanvasSkinId } from '../lib/canvasSkins'
 import type { ControlGrid } from '../lib/mapControl'
@@ -107,6 +108,8 @@ export interface PlayCanvasProps {
   motion?: ReadonlyMap<string, AgentMotion> | null
   /** False for an ability a replay layer hides. It stays in the step, so edits and captures keep it. */
   abilityVisible?: (id: string) => boolean
+  /** Callout text and agent icon sizes (§2.13); the defaults when not given. */
+  sizes?: CanvasSizes
   /** The canvas skin (§2.11); the default skin when not given. */
   skin?: CanvasSkinId
   /** A name under every agent tile: who played it (a replay's Riot name), else the agent. */
@@ -260,7 +263,6 @@ const HANDLE_R = 12
 const TEXT_SIZE = 24
 const TEXT_BOX_H = 34
 const UTILITY_LABEL = 20
-const CALLOUT_LABEL = 22
 const NOTE_MAX = 42
 /** The name under an agent tile (Names toggle). */
 const NAME_SIZE = 20
@@ -448,6 +450,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
     selectedId,
     showCallouts,
     showNames = false,
+    sizes = DEFAULT_CANVAS_SIZES,
     motion = null,
     abilityVisible,
     skin: skinId,
@@ -636,7 +639,13 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
   // Size is 0 until the first measure: full size then, so callouts do not flash small.
   const labelScale = fit > 0 && drawnWidth < COMPACT_LABEL_WIDTH_PX ? COMPACT_LABEL_SCALE : 1
   // 22 → 19 and 20 → 17 viewBox units on a compact canvas.
-  const calloutLabel = Math.round(CALLOUT_LABEL * labelScale)
+  const calloutLabel = Math.round(calloutUnits(sizes.callout) * labelScale)
+  // Fixed on screen unless the user asked for callouts that grow with the map.
+  const calloutK = sizes.calloutsFollowZoom ? 1 : k
+  const tileScale = agentScale(sizes.agent)
+  /** Half an agent tile as drawn, in screen-size units. The tile's centre is the agent's exact position. */
+  const half = HALF * tileScale
+  const tileSized = `scale(${k * tileScale})`
   const utilityLabel = Math.round(UTILITY_LABEL * labelScale)
   const readOnly = onChange === undefined
   const drawing = !readOnly && (pending !== null || DRAW_TOOLS.has(tool))
@@ -1143,7 +1152,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
   const tile = (name: string, ring: string) => {
     const icon = agentOf(name)?.displayIcon ?? null
     return (
-      <g transform={sized}>
+      <g transform={tileSized}>
         <rect x={-HALF} y={-HALF} width={TILE} height={TILE} rx={TILE_RX} fill={skin.tile} />
         {icon ? (
           <image
@@ -1586,7 +1595,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
         {named && (
           <g transform={sized}>
             <text
-              y={HALF + 4 + NAME_SIZE}
+              y={half + 4 + NAME_SIZE}
               textAnchor="middle"
               fontFamily={FONT}
               fontSize={NAME_SIZE}
@@ -1623,10 +1632,10 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
           style={placement(agent.x + dx, agent.y + dy, true, live?.id === agent.id)}
         >
           <rect
-            x={-HALF - pad}
-            y={-HALF - pad}
-            width={TILE + pad * 2}
-            height={TILE + pad * 2}
+            x={-half - pad}
+            y={-half - pad}
+            width={half * 2 + pad * 2}
+            height={half * 2 + pad * 2}
             rx={TILE_RX + 4}
             fill="none"
             stroke={skin.ink}
@@ -1750,7 +1759,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
     // Screen-size units about the agent (the group is scaled by `k`); the map edges in those units.
     const w = Math.max(agent.agent.length * 20 * 0.62, note.length * 18 * 0.54) + 28
     const h = note ? 64 : 38
-    const gap = HALF + 12
+    const gap = half + 12
     const edge = (n: number) => n / k
     const x = clamp(-w / 2, edge(8 - ax), edge(VIEW_SIZE - 8 - ax) - w)
     const y = gap + h > edge(VIEW_SIZE - 8 - ay) ? -gap - h : gap
@@ -1998,11 +2007,11 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
             <g
               pointerEvents="none"
               fontFamily={FONT}
-              fontSize={calloutLabel * k}
+              fontSize={calloutLabel * calloutK}
               fill={skin.callout}
               textAnchor="middle"
               {...halo}
-              strokeWidth={halo.strokeWidth * k}
+              strokeWidth={halo.strokeWidth * calloutK}
             >
               {scene.callouts.map((c, i) => (
                 <text key={`${c.name}:${i}`} x={c.x} y={c.y} dominantBaseline="central">

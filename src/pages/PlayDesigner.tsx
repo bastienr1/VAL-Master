@@ -15,6 +15,7 @@ import TheatreChrome from '../components/play/TheatreChrome'
 import ReplayTransport, { type ReplayClock, type ReplayView } from '../components/play/ReplayTransport'
 import { useGameContent, useGameContentNames } from '../hooks/useGameContent'
 import { useMediaQuery } from '../hooks/useMediaQuery'
+import { parseCanvasSizes, type CanvasSizes } from '../lib/canvasSizes'
 import { CANVAS_SKINS, canvasSkin, nextCanvasSkin, type CanvasSkinId } from '../lib/canvasSkins'
 import type { GameAgent } from '../lib/gameContent'
 import {
@@ -97,6 +98,24 @@ function writeLayout(layout: PlayLayout) {
     localStorage.setItem(LAYOUT_KEY, layout)
   } catch {
     /* a layout is not worth an error */
+  }
+}
+
+const SIZES_KEY = 'plays.canvasSizes'
+
+function readSizes(): CanvasSizes {
+  try {
+    return parseCanvasSizes(localStorage.getItem(SIZES_KEY))
+  } catch {
+    return parseCanvasSizes(null)
+  }
+}
+
+function writeSizes(sizes: CanvasSizes) {
+  try {
+    localStorage.setItem(SIZES_KEY, JSON.stringify(sizes))
+  } catch {
+    /* a size is not worth an error */
   }
 }
 
@@ -192,6 +211,8 @@ function readPlaybookOpen(): boolean {
 const LG_QUERY = '(min-width: 64rem)'
 /** The canvas column never gets narrower than this while a side panel is dragged. */
 const CANVAS_MIN_PX = 420
+/** How far apart, in image units, a new agent is set down from one already there. */
+const PLACE_CLEAR = 0.04
 
 /** The rendered width of the editor grid's column marked `data-plays-column={name}`; 0 when hidden. */
 function columnWidth(grid: HTMLElement, name: 'rail' | 'playbook' | 'drawer'): number {
@@ -470,6 +491,12 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
     setSkinIdState(next)
   }
   const skin = canvasSkin(skinId)
+  // Callout text and agent icon sizes (§2.13), remembered per device.
+  const [sizes, setSizesState] = useState<CanvasSizes>(readSizes)
+  const setSizes = (next: CanvasSizes) => {
+    writeSizes(next)
+    setSizesState(next)
+  }
   const [playing, setPlaying] = useState(false)
   const [speedMs, setSpeedMs] = useState(DEFAULT_SPEED_MS)
   /** False while an arrow key is held down: the steps flick by without the walk animation. */
@@ -898,12 +925,17 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
     // The middle of what the canvas shows, zoomed or not; the map's centre before it is mounted.
     const centre =
       canvas.current?.visibleCentre() ?? viewToImage(sceneViewport(gameMap), 500, 500, sceneTurns(gameMap, side))
+    // Set down clear of agents already there: the map shows positions exactly, so a stack would hide one.
+    const taken = shown.elements.filter((e): e is AgentElement => e.kind === 'agent')
+    const isFree = (u: number) => !taken.some(e => e.at.u !== undefined && e.at.v !== undefined && Math.hypot(e.at.u - u, e.at.v - centre.v) < PLACE_CLEAR)
+    let freeU = centre.u
+    while (!isFree(freeU) && freeU < 1 - PLACE_CLEAR) freeU += PLACE_CLEAR
     const el: AgentElement = {
       kind: 'agent',
       id: newId(),
       agent: compName ?? agent.name,
       team,
-      at: { u: centre.u, v: centre.v },
+      at: { u: freeU, v: centre.v },
     }
     if (inReplay) {
       onFrameChange(withElement(shown, el))
@@ -1439,6 +1471,8 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
         onToggleNames={toggleNames}
         showControl={showControl}
         onToggleControl={toggleControl}
+        sizes={sizes}
+        onSizes={setSizes}
         skin={skinId}
         onSkin={setSkinId}
         playbookOpen={playbookOpen}
@@ -1545,6 +1579,7 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
                 selectedId={selectedId}
                 showCallouts={showCallouts}
                 showNames={showNames}
+                sizes={sizes}
                 skin={skinId}
                 animate={inReplay ? false : animate}
                 onSelect={onCanvasSelect}
@@ -1604,6 +1639,8 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
               onToggleNames={toggleNames}
               showControl={showControl}
               onToggleControl={toggleControl}
+              sizes={sizes}
+              onSizes={setSizes}
               skin={skinId}
               onSkin={setSkinId}
               canSave={dirty && Boolean(map)}

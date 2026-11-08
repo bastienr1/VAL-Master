@@ -152,10 +152,10 @@ export interface PlacedAgent {
   spike: boolean
   /** Who played the agent (a replay's Riot name), '' when not known. */
   player: string
-  /** Where the agent is drawn: the placed point, spread apart from agents standing on the same spot. */
+  /** Where the agent is drawn: exactly the placed point, even over another agent. */
   x: number
   y: number
-  /** `at` (spread like `x`/`y`), then `via`, then `moveTo`, when there are at least two placed points. */
+  /** `at`, then `via`, then `moveTo`, when there are at least two placed points. */
   path: Point[] | null
 }
 
@@ -231,51 +231,6 @@ export interface StepScene {
 
 const SITE = /^[abc]$/i
 
-/** Agents closer than one tile (viewBox units) hide each other. */
-export const AGENT_CROWD_DISTANCE = 44
-/** Radius of the circle a crowd of agents is spread on, about its centroid. */
-export const AGENT_SPREAD_RADIUS = 26
-
-/**
- * Spreads agents standing on (nearly) the same point: groups those closer than
- * `AGENT_CROWD_DISTANCE` to each other (transitively) and puts each group of
- * two or more evenly on a circle about its centroid, in element order from
- * the top (the comp's order in a template or a blank play). A path's first
- * point moves with its agent, so the arrow leaves the tile that is visible.
- * Both distances are multiplied by `markerScale` (tiles keep their size on
- * screen as the canvas zooms, §2.2). Mutates the placed agents.
- */
-function spreadCrowds(actors: PlacedAgent[], markerScale: number) {
-  const parent = actors.map((_, i) => i)
-  const root = (i: number): number => (parent[i] === i ? i : (parent[i] = root(parent[i])))
-  for (let i = 0; i < actors.length; i++) {
-    for (let j = i + 1; j < actors.length; j++) {
-      if (Math.hypot(actors[i].x - actors[j].x, actors[i].y - actors[j].y) < AGENT_CROWD_DISTANCE * markerScale) {
-        parent[root(i)] = root(j)
-      }
-    }
-  }
-  const groups = new Map<number, PlacedAgent[]>()
-  actors.forEach((actor, i) => {
-    const key = root(i)
-    const group = groups.get(key)
-    if (group) group.push(actor)
-    else groups.set(key, [actor])
-  })
-  // A group lists its agents in the order they were placed: element order.
-  for (const group of groups.values()) {
-    if (group.length < 2) continue
-    const cx = group.reduce((sum, a) => sum + a.x, 0) / group.length
-    const cy = group.reduce((sum, a) => sum + a.y, 0) / group.length
-    group.forEach((actor, i) => {
-      const angle = -Math.PI / 2 + (i * 2 * Math.PI) / group.length
-      actor.x = cx + Math.cos(angle) * AGENT_SPREAD_RADIUS * markerScale
-      actor.y = cy + Math.sin(angle) * AGENT_SPREAD_RADIUS * markerScale
-      if (actor.path) actor.path[0] = [actor.x, actor.y]
-    })
-  }
-}
-
 /** Every callout of the map in viewBox units, for the label layer. */
 export function placeCallouts(
   map: SceneMap,
@@ -326,7 +281,7 @@ export function sceneTurns(map: SceneMap, side: PlaySceneSide): QuarterTurns {
  * a `toward` that does not resolve, although the point then still stands on
  * its first callout. Pen points are image units and always place. No step
  * gives the map alone. `markerScale` is the canvas' `1 / zoom` (§2.2
- * "Constant-size markers"): the crowd spread and the smallest area radius
+ * "Constant-size markers"): the smallest area radius
  * are multiplied by it, so they keep their size on screen; at 1 nothing
  * changes.
  */
@@ -451,7 +406,6 @@ export function sceneForStep(
     }
   }
 
-  spreadCrowds(scene.agents, markerScale)
   return scene
 }
 
@@ -530,7 +484,7 @@ export const THROW_MIN_CM = 300
  * (§2.10): a copy of the `at` of the first agent element of the step named
  * `agent` (names compared trimmed, without case), when that agent places more
  * than `THROW_MIN_CM` from the click; else null. The agent's position as
- * written, not as the crowd spread draws it. `scene` is the step placed.
+ * written. `scene` is the step placed.
  */
 export function throwOrigin(
   step: PlayStep | null | undefined,
@@ -564,7 +518,7 @@ function imagePoint(pos: PlayPos, map: SceneMap): Point | null {
 
 /**
  * The agents of `previous` that stand somewhere else in `step`, drawn where
- * `previous` drew them (crowd spread included), so the canvas can leave a
+ * `previous` drew them, so the canvas can leave a
  * faint tile behind an agent that moved. An agent is matched by element id;
  * one that is not in `step`, or that does not resolve in either step, leaves
  * nothing. "Somewhere else" is read from the positions as written, before the
