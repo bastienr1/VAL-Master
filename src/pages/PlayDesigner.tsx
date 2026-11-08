@@ -13,6 +13,7 @@ import ReplayTransport, { type ReplayClock, type ReplayView } from '../component
 import { useGameContent, useGameContentNames } from '../hooks/useGameContent'
 import { useMediaQuery } from '../hooks/useMediaQuery'
 import { abilitiesForComp } from '../lib/composeAbilities'
+import { CANVAS_SKINS, canvasSkin, nextCanvasSkin, type CanvasSkinId } from '../lib/canvasSkins'
 import { composePlay, ComposerNotConfiguredError } from '../lib/composePlay'
 import type { GameAgent } from '../lib/gameContent'
 import {
@@ -69,6 +70,25 @@ function readFlag(key: string, fallback: boolean): boolean {
     return raw === null ? fallback : raw === 'true'
   } catch {
     return fallback
+  }
+}
+
+const SKIN_KEY = 'plays.canvasSkin'
+
+/** The canvas skin picked on this device, else the default. */
+function readSkin(): CanvasSkinId {
+  try {
+    return canvasSkin(localStorage.getItem(SKIN_KEY)).id
+  } catch {
+    return canvasSkin(null).id
+  }
+}
+
+function writeSkin(skin: CanvasSkinId) {
+  try {
+    localStorage.setItem(SKIN_KEY, skin)
+  } catch {
+    /* a look is not worth an error */
   }
 }
 
@@ -414,6 +434,13 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
       writeFlag('plays.showNames', !prev)
       return !prev
     })
+  // The canvas skin (§2.11), remembered per device.
+  const [skinId, setSkinIdState] = useState<CanvasSkinId>(readSkin)
+  const setSkinId = (next: CanvasSkinId) => {
+    writeSkin(next)
+    setSkinIdState(next)
+  }
+  const skin = canvasSkin(skinId)
   const [playing, setPlaying] = useState(false)
   const [speedMs, setSpeedMs] = useState(DEFAULT_SPEED_MS)
   /** False while an arrow key is held down: the steps flick by without the walk animation. */
@@ -1225,6 +1252,10 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
         setPending(null)
         setSelectedId(null)
         setPopoverAgent(null)
+      } else if (key === 'k') {
+        const next = nextCanvasSkin(skinId, e.shiftKey ? -1 : 1)
+        setSkinId(next)
+        setToast(`Skin: ${CANVAS_SKINS[next].name}`)
       } else if (e.key === 'Delete' || e.key === 'Backspace') {
         if (!selectedId) return
         e.preventDefault()
@@ -1345,6 +1376,8 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
         onToggleNames={toggleNames}
         showControl={showControl}
         onToggleControl={toggleControl}
+        skin={skinId}
+        onSkin={setSkinId}
         playbookOpen={playbookOpen}
         onTogglePlaybook={() => {
           persistPlaybookOpen(!playbookOpen)
@@ -1368,6 +1401,8 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
 
       {replay && (
         <ReplayTransport
+          allyColor={skin.ally}
+          enemyColor={skin.enemy}
           bundle={replay.bundle}
           clock={clock}
           nameOf={replay.nameOf}
@@ -1437,6 +1472,7 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
 
         {/* The canvas fills the column inside its padding and measures itself. */}
         <div
+          style={{ backgroundColor: skin.back }}
           className="relative shrink-0 h-[70vh] lg:h-auto min-h-0 min-w-0 p-3 flex items-center justify-center overflow-hidden lg:row-start-1 lg:col-start-3"
         >
           {!registry && registryStatus === 'loading' ? (
@@ -1459,6 +1495,7 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
                 selectedId={selectedId}
                 showCallouts={showCallouts}
                 showNames={showNames}
+                skin={skinId}
                 animate={inReplay ? false : animate}
                 onSelect={onCanvasSelect}
                 onChange={inReplay ? (replayPlaying ? undefined : onFrameChange) : onCanvasChange}

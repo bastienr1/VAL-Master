@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ArrowLeft, BookOpen, Check, Ellipsis, Film, Layers, Loader2, PanelRight, Redo2, Tag, Trash2, Undo2, UserRound } from 'lucide-react'
+import type { CanvasSkinId } from '../../lib/canvasSkins'
 import type { PlaySide } from '../../lib/types'
+import SkinPicker from './SkinPicker'
 
 interface EditorToolbarProps {
   title: string
@@ -20,6 +22,9 @@ interface EditorToolbarProps {
   /** The map-control overlay (§2.9): who holds which part of the map. */
   showControl: boolean
   onToggleControl(): void
+  /** The canvas skin (§2.11). */
+  skin: CanvasSkinId
+  onSkin(skin: CanvasSkinId): void
   playbookOpen: boolean
   onTogglePlaybook(): void
   drawerOpen: boolean
@@ -59,7 +64,7 @@ const toggle = (on: boolean) =>
 /**
  * The editor's one 44 px bar (docs/plays-editor-v2.md §2.5): back link, the
  * editable title, map and side at a glance, undo / redo, Open replay for a
- * play built from a match replay (§2.8), the Callouts, Names, Control (§2.9),
+ * play built from a match replay (§2.8), the Callouts, Names, Control (§2.9), Skin (§2.11),
  * Playbook (§2.6) and Brief toggles, Save, and Delete behind an overflow menu for a saved play.
  */
 export default function EditorToolbar(props: EditorToolbarProps) {
@@ -138,6 +143,7 @@ export default function EditorToolbar(props: EditorToolbarProps) {
           <Layers className="w-3.5 h-3.5" />
           <span className="hidden md:inline">Control</span>
         </button>
+        <SkinPicker skin={props.skin} onPick={props.onSkin} buttonClass={toggle(false)} />
         <button
           type="button"
           onClick={props.onTogglePlaybook}

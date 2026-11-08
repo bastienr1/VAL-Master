@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useSyncExternalStore } from 'react'
 import { Camera, Film, Pause, Play, X } from 'lucide-react'
-import { CONTROL_COLORS } from '../PlayCanvas'
 import { averageShare, controlTimeline, type ControlShare } from '../../lib/mapControl'
 import type { ReplayBundle, ReplayRound } from '../../lib/replayBundle'
 import { formatRoundClock, roundSpan, roundTicks } from '../../lib/replayFrame'
@@ -20,6 +19,9 @@ interface ReplayTransportProps {
   bundle: ReplayBundle
   /** Where the replay is, written a few times a second while the match plays; null before the first jump. */
   clock: ValueStore<ReplayClock | null>
+  /** The canvas skin's team colours, for the track and the share readout. */
+  allyColor: string
+  enemyColor: string
   /** An agent name for a player, for the ticks' titles. Keep it stable: the ticks are memoized on it. */
   nameOf(subject: string): string
   playing: boolean
@@ -69,11 +71,7 @@ const rgba = (hex: string, alpha: number) => {
   return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`
 }
 
-const TRACK_COLORS = {
-  ally: rgba(CONTROL_COLORS.ally, TRACK_ALPHA),
-  enemy: rgba(CONTROL_COLORS.enemy, TRACK_ALPHA),
-  even: rgba(TRACK_EVEN, TRACK_ALPHA),
-}
+const TRACK_EVEN_COLOR = rgba(TRACK_EVEN, TRACK_ALPHA)
 
 /** A share as a whole percentage. */
 const percent = (fraction: number) => Math.round(fraction * 100)
@@ -86,7 +84,14 @@ const percent = (fraction: number) => Math.round(fraction * 100)
  * sample. Stops follow the thumb's centre, like the ticks, and a run of one
  * colour is a single stop.
  */
-function trackGradient(timeline: { t: number; share: ControlShare }[], span: { start: number; end: number }): string {
+function trackGradient(
+  timeline: { t: number; share: ControlShare }[],
+  span: { start: number; end: number },
+  allyColor: string,
+  enemyColor: string,
+): string {
+  const ally = rgba(allyColor, TRACK_ALPHA)
+  const enemy = rgba(enemyColor, TRACK_ALPHA)
   const length = Math.max(1, span.end - span.start)
   const at = (t: number) => {
     const f = Math.max(0, Math.min(1, (t - span.start) / length))
@@ -98,10 +103,10 @@ function trackGradient(timeline: { t: number; share: ControlShare }[], span: { s
     if (prev && prev.color === color) prev.to = to
     else runs.push({ color, from, to })
   }
-  push(TRACK_COLORS.even, span.start, timeline[0]?.t ?? span.end)
+  push(TRACK_EVEN_COLOR, span.start, timeline[0]?.t ?? span.end)
   timeline.forEach(({ t, share }, i) => {
     const lead = share.ally - share.enemy
-    const color = lead > TRACK_LEAD ? TRACK_COLORS.ally : lead < -TRACK_LEAD ? TRACK_COLORS.enemy : TRACK_COLORS.even
+    const color = lead > TRACK_LEAD ? ally : lead < -TRACK_LEAD ? enemy : TRACK_EVEN_COLOR
     push(color, t, timeline[i + 1]?.t ?? span.end)
   })
   return `linear-gradient(to right, ${runs.map(r => `${r.color} ${at(r.from)} ${at(r.to)}`).join(', ')})`
@@ -138,7 +143,11 @@ export default function ReplayTransport(props: ReplayTransportProps) {
     () => (controlMask ? controlTimeline(bundle, round, controlMask, transform) : null),
     [bundle, round, controlMask, transform],
   )
-  const track = useMemo(() => (timeline ? trackGradient(timeline, span) : null), [timeline, span])
+  const { allyColor, enemyColor } = props
+  const track = useMemo(
+    () => (timeline ? trackGradient(timeline, span, allyColor, enemyColor) : null),
+    [timeline, span, allyColor, enemyColor],
+  )
   const average = useMemo(() => (timeline && timeline.length > 0 ? averageShare(timeline) : null), [timeline])
 
   // The round shown stays in sight in a long match's row of chips.
@@ -223,10 +232,10 @@ export default function ReplayTransport(props: ReplayTransportProps) {
             title="Each team's share of the space taken, and how much of the map is taken at all"
             className="shrink-0 flex items-center gap-1.5 font-stats text-[11px] tabular-nums text-text-secondary whitespace-nowrap"
           >
-            <span aria-hidden="true" className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: CONTROL_COLORS.ally }} />
+            <span aria-hidden="true" className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: allyColor }} />
             <span>You {percent(share.ally)} %</span>
             <span aria-hidden="true" className="text-text-muted">·</span>
-            <span aria-hidden="true" className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: CONTROL_COLORS.enemy }} />
+            <span aria-hidden="true" className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: enemyColor }} />
             <span>Enemy {percent(share.enemy)} %</span>
             <span className="text-text-muted">· {percent(share.claimed)} % of the map claimed</span>
           </span>

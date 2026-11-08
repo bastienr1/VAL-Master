@@ -544,6 +544,26 @@ always means "thrown from"; a wall's extent is its `path`.
   than 3 m from the click sets `from` to that agent's position; a selected
   ability with `from` shows a handle there that drags it.
 
+### 2.11 Canvas skins
+
+Six looks for the canvas (`src/lib/canvasSkins.ts`, pure, tested): Graphite
+(the default), Teal (the original look), Blueprint (light), Radar, Sand and
+High contrast. A skin is about 25 colours: the void around the map, the map
+art's two tints, callouts, teams, the spike, tiles, name and label colours,
+selection ink, the hover card, and the 11 utility colours.
+
+The map art needs nothing per skin. `skinMapMatrix` turns its floor and wall
+colours into the `feColorMatrix` that follows the luminance and gamma passes:
+grey 0 becomes the floor, grey 1 the wall. A drawing stored in white is shown
+in the skin's ink (`skinDrawColor`), so it stays visible on the light skin
+without changing the saved play. The map-control overlay and the replay
+transport's track and share dots use the skin's team colours.
+
+The toolbar's **Skin** button opens a menu with each skin's colours; **K**
+cycles forward and **Shift K** back, with a toast naming the skin. The choice
+is per device (`plays.canvasSkin`) and is not part of a play. An unknown stored
+value falls back on the default.
+
 ## 3. Document v2 (`src/lib/playDoc.ts`)
 
 ```ts
@@ -730,6 +750,12 @@ Every ability (2026-11-08): the rebuilt Abyss bundle of 2026-11-02 attached
 in the signed-in app; your Sova's round 1 Shock Bolt flies along its arc and
 lands 29 m away at A Site as a 4 m blast, where before only a badge sat on
 Sova.
+
+Canvas skins (2026-11-08): on the Abyss replay in the signed-in app, K
+walked all six skins and wrapped, changing the backdrop, the map tint and the
+toast; the menu lists the six with the active one checked and applies a pick;
+a stored skin is applied on load; the map-control overlay repaints with the
+skin; no console errors.
 
 Walls (2026-11-08): the 0.3.0 Abyss bundle attached in the signed-in app;
 round 1's High Tide had 4 of its 12 points at 62.6 s, all 12 from 64.5 s
