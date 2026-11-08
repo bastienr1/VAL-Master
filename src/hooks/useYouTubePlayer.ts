@@ -15,6 +15,9 @@ interface UseYouTubePlayerResult {
   seek: (offsetSeconds: number) => void
   seekTo: (seconds: number) => void
   pause: () => void
+  play: () => void
+  setRate: (rate: number) => void
+  setMuted: (muted: boolean) => void
   /**
    * The playhead right now, read from the player itself. `currentTime` is only
    * polled while playing, so it misses a scrub made while paused; use this when
@@ -35,7 +38,9 @@ interface UseYouTubePlayerResult {
  * that sets its video before it drops its loading spinner would otherwise run
  * this effect one render too early, find nothing by id, and never retry.
  */
-export function useYouTubePlayer(videoId: string | null): UseYouTubePlayerResult {
+export function useYouTubePlayer(videoId: string | null, options?: { controls?: boolean }): UseYouTubePlayerResult {
+  // Read when the player is made; a caller that changes it remounts by key.
+  const showControls = options?.controls !== false
   const playerRef = useRef<YTPlayer | null>(null)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
@@ -85,6 +90,7 @@ export function useYouTubePlayer(videoId: string | null): UseYouTubePlayerResult
           modestbranding: 1,
           rel: 0,
           playsinline: 1,
+          controls: showControls ? 1 : 0,
         },
         events: {
           onReady: (event) => {
@@ -111,7 +117,7 @@ export function useYouTubePlayer(videoId: string | null): UseYouTubePlayerResult
         playerRef.current = null
       }
     }
-  }, [container, videoId])
+  }, [container, videoId, showControls])
 
   // Poll the playhead only while it is actually moving.
   useEffect(() => {
@@ -151,6 +157,19 @@ export function useYouTubePlayer(videoId: string | null): UseYouTubePlayerResult
     playerRef.current?.pauseVideo()
   }, [])
 
+  const play = useCallback(() => {
+    playerRef.current?.playVideo()
+  }, [])
+
+  const setRate = useCallback((rate: number) => {
+    playerRef.current?.setPlaybackRate(rate)
+  }, [])
+
+  const setMuted = useCallback((muted: boolean) => {
+    if (muted) playerRef.current?.mute()
+    else playerRef.current?.unMute()
+  }, [])
+
   const getCurrentTime = useCallback(() => {
     if (playerRef.current && ready) {
       try {
@@ -162,6 +181,6 @@ export function useYouTubePlayer(videoId: string | null): UseYouTubePlayerResult
 
   return {
     containerRef, ready, isPlaying, currentTime, duration, embedBlocked,
-    togglePlay, seek, seekTo, pause, getCurrentTime,
+    togglePlay, seek, seekTo, pause, play, setRate, setMuted, getCurrentTime,
   }
 }

@@ -11,6 +11,7 @@ import EditorToolbar, { type PlayLayout } from '../components/play/EditorToolbar
 import PlaybookPanel from '../components/play/PlaybookPanel'
 import { ReplayRoster } from '../components/play/ReplayPanels'
 import ReplayRoundPanel from '../components/play/ReplayRoundPanel'
+import ReplayVodPlayer from '../components/play/ReplayVodPlayer'
 import TheatreChrome from '../components/play/TheatreChrome'
 import ReplayTransport, { type ReplayClock, type ReplayView } from '../components/play/ReplayTransport'
 import { useGameContent, useGameContentNames } from '../hooks/useGameContent'
@@ -1688,6 +1689,16 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
             showDrawer ? 'block border-t lg:border-t-0 lg:border-l' : 'hidden lg:block lg:w-0'
           }`}
         >
+          {showDrawer && inReplay && replay && (
+            <ReplayVodPlayer
+              matchId={replay.matchId}
+              bundle={replay.bundle}
+              clock={clock}
+              playing={replayPlaying}
+              speed={replaySpeed}
+              onTogglePlay={toggleReplay}
+            />
+          )}
           {showDrawer && inReplay && replay && (
             <ReplayRoundPanel
               bundle={replay.bundle}
