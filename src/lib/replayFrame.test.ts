@@ -13,6 +13,7 @@ import {
   roundSide,
   roundSpan,
   roundTicks,
+  throwPairs,
   type ReplayAgentInfo,
   type ReplayAgentLookup,
 } from './replayFrame.ts'
@@ -344,6 +345,26 @@ test('a projectile with no landing draws nothing', () => {
   const bundle = utilityFixture()
   assert.equal(abilities(frameStep(bundle, 42000, lookup, T, createFrameIds())).filter(a => a.agent === 'Jett').length, 0)
   assert.equal(abilities(frameStep(bundle, 50500, lookup, T, createFrameIds())).filter(a => a.agent === 'Sova').length, 0)
+})
+
+test('a throw never pairs with the landing of another key, and Sova\'s Shock Bolt lands where it stops', () => {
+  const bundle = utilityFixture()
+  bundle.casts = []
+  bundle.effects = [
+    // Breach's flash (Q) and, 300 ms after it closes, his Aftershock's blast (C): not a pair.
+    { start: 40000, end: 40600, kind: 'other', agent: 'Breach', cls: 'Projectile_Breach_Q_ThroughWalls_Flash_C', x: 1000, y: 1000, owner: JETT },
+    { start: 40900, end: 45000, kind: 'other', agent: 'Breach', cls: 'GameObject_Breach_4_FusionBlast_C', x: 2000, y: 1000, owner: JETT },
+    // Sova's Shock Bolt: 0.8 s of flight, then the blast 20 m away.
+    { start: 50000, end: 50800, kind: 'other', agent: 'Hunter', cls: 'Projectile_Hunter_4_ExplosiveBolt_C', x: 1000, y: 1000, owner: SOVA },
+    { start: 50800, end: 54800, kind: 'other', agent: 'Hunter', cls: 'GameObject_Hunter_4_ExplosiveBolt_Explosion_C', x: 3000, y: 1000, owner: SOVA },
+  ]
+  assert.deepEqual([...throwPairs(bundle)], [[2, 3]])
+  const ids = createFrameIds()
+  const bolt = abilities(frameStep(bundle, 51000, lookup, T, ids)).filter(a => a.agent === 'Sova')
+  assert.equal(bolt.length, 1)
+  assert.equal(bolt[0].id, ids.forEffect(3))
+  assert.deepEqual({ slot: bolt[0].slot, shape: bolt[0].shape, radius: bolt[0].radius }, { slot: 'Ability1', shape: 'molly', radius: 400 })
+  nearPos(bolt[0].from, 0.6, 0.6, 'from')
 })
 
 test('four wall segments are one ability with a path along the wall, the badge halfway', () => {

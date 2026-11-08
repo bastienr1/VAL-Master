@@ -10,8 +10,8 @@ const ROLES: EffectRole[] = ['projectile', 'landing', 'placed', 'pawn', 'ignore'
 const SHAPES = ['smoke', 'flash', 'molly', 'recon', 'wall', 'trap', 'drone', 'stun', 'slow', 'ult', 'other']
 const SLOTS = ['Grenade', 'Ability1', 'Ability2', 'Ultimate']
 
-test('the table labels the 68 classes seen in the bundles', () => {
-  assert.equal(ALL_KNOWN_CLASSES.length, 68)
+test('the table labels the 216 classes seen in the bundles (reducer 0.2.0)', () => {
+  assert.equal(ALL_KNOWN_CLASSES.length, 216)
   assert.equal(new Set(ALL_KNOWN_CLASSES).size, ALL_KNOWN_CLASSES.length)
 })
 
@@ -27,14 +27,47 @@ test('every class in the table has a role and a shape, and a valid slot and radi
   }
 })
 
-test('every projectile in the table has a landing class of the same agent to pair with', () => {
-  const agentOf = (cls: string) => cls.replace(/^(Projectile|GameObject|Patch|Zone|Pawn)_/, '').replace(/^E_/, '').split('_')[0]
-  const landings = new Set(ALL_KNOWN_CLASSES.filter(c => classInfo(c).role === 'landing').map(agentOf))
+/** Throws the replay records no landing actor for: flashes that pop in the air, missiles, KAY/O's frag. */
+const NO_LANDING = new Set([
+  'Projectile_Breach_Q_ThroughWalls_Flash_C',
+  'Projectile_C_Grenadier_Flash_C',
+  'Projectile_C_Grenadier_Flash_Underhand_C',
+  'Projectile_Grenadier_Q_SemtexBasic_C',
+  'Projectile_Wraith_Q_NearsightMissile_C',
+  'Projectile_Phoenix_E_FlareCurve_Synced_C',
+  'Projectile_Phoenix_E_FlareCurve_Synced_Right_C',
+  'Projectile_Clay_X_Rocket_C',
+  'Projectile_Sequoia_Q_FragileMissile_C',
+  'Projectile_Stealth_Q_BounceFlash_C',
+  'Projectile_Paprika_Q_RedirectFlash_C',
+  'Projectile_Paprika_Q_RedirectFlash_Underhand_C',
+])
+
+test('every projectile in the table has a landing class of the same agent and key to pair with', () => {
+  // The codename: the first token after the prefix and an optional key letter (`Projectile_C_Grenadier_…`).
+  const agentOf = (cls: string) => cls.replace(/^(Projectile|GameObject|Patch|Zone|Pawn)_/i, '').replace(/^[CQEX]_/, '').split('_')[0]
+  const landings = new Set(
+    ALL_KNOWN_CLASSES.filter(c => classInfo(c).role === 'landing').map(c => `${agentOf(c)}:${classInfo(c).slot}`),
+  )
   for (const cls of ALL_KNOWN_CLASSES.filter(c => classInfo(c).role === 'projectile')) {
     assert.ok(cls.startsWith('Projectile_'), cls)
-    // Breach's flash is the one throw with no landing actor.
-    if (cls !== 'Projectile_Breach_Q_ThroughWalls_Flash_C') assert.ok(landings.has(agentOf(cls)), cls)
+    if (!NO_LANDING.has(cls)) assert.ok(landings.has(`${agentOf(cls)}:${classInfo(cls).slot}`), cls)
   }
+})
+
+test('the throws added with reducer 0.2.0: Sova\'s bolts, Raze\'s shells, KAY/O\'s knife', () => {
+  assert.deepEqual(classInfo('Projectile_Hunter_4_ExplosiveBolt_C'), { role: 'projectile', shape: 'molly', slot: 'Ability1' })
+  assert.deepEqual(classInfo('GameObject_Hunter_4_ExplosiveBolt_Explosion_C'), { role: 'landing', shape: 'molly', slot: 'Ability1' })
+  assert.deepEqual(classInfo('GameObject_Hunter_Q_SonarBolt_C'), { role: 'landing', shape: 'recon', slot: 'Ability2' })
+  assert.equal(classInfo('GameObject_Hunter_Q_SonarPing_C').role, 'ignore')
+  // Paint Shells pop where the spawner opens; the bomblets are left out.
+  assert.equal(classInfo('Projectile_Clay_4_SecondarySpawner_C').role, 'landing')
+  assert.equal(classInfo('Projectile_Clay_4_ProjectileSecondary_C').role, 'ignore')
+  // `Gameobject_` (lower o) is labelled too.
+  assert.deepEqual(classInfo('Gameobject_Grenadier_E_SuppressionPulse_C'), { role: 'landing', shape: 'stun', slot: 'Ability2' })
+  // Nanoswarm lies hidden for 30 s: no flight, the swarm where it goes off.
+  assert.equal(classInfo('Projectile_Killjoy_4_RemoteBees_MultiDetonate_C').role, 'ignore')
+  assert.equal(classInfo('GameObject_Killjoy_4_BeeSwarm_Damage_C').role, 'placed')
 })
 
 test('the hand labels: throws, slots from the casts, Sage\'s wall segments', () => {

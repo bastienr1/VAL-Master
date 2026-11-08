@@ -35,7 +35,13 @@ import duckdb
 import _env
 
 SCHEMA = 1
-REDUCER_VERSION = "0.1.0"
+REDUCER_VERSION = "0.2.0"
+# 0.2.0: effects also hold the ability actors vrfkit's keyword filter leaves out (Sova's bolts,
+#        Raze's grenades, KAY/O's knife, Fade's prowlers...), with `kind` "other".
+
+# Leaf prefixes of the actors an ability puts in the world; `Ability_` controllers and `Gun_` weapons
+# are not among them.
+ABILITY_ACTOR_PREFIXES = ("projectile_", "gameobject_", "zone_", "patch_", "pawn_")
 MAPS_URL = "https://valorant-api.com/v1/maps"
 
 # Comp_AbilityStatisticsReplicator Slot values. Not documented anywhere; derived by lining casts
@@ -570,11 +576,13 @@ def main():
 
     # ---- effects and carriers (from vrfkit's derived tables) --------------------------------
     effects, carriers = [], []
+    taken = set()  # (actor guid, open ms) of every effect row already in
     effects_path = derived / "active_effects.parquet"
     if effects_path.exists():
         for guid, cls, kind, agent, x, y, start, end in con.execute(f"""
                 select actor_net_guid, class_path, effect_type, agent, spawn_x, spawn_y, open_ms, close_ms
                 from '{effects_path.as_posix()}' order by open_ms, actor_net_guid""").fetchall():
+            taken.add((guid, start))
             effects.append({
                 "start": start, "end": end, "kind": kind, "agent": agent or None,
                 "cls": cls.rsplit(".", 1)[-1], "x": round(x), "y": round(y),
@@ -582,6 +590,45 @@ def main():
             })
     else:
         warnings.append(f"{effects_path.name} not found; effects are empty")
+
+    # vrfkit's extractor keeps only classes whose path names a smoke, a wall, a trap, fire...;
+    # Sova's ExplosiveBolt and SonarBolt, Raze's grenades, KAY/O's knife match none of those words.
+    # Every other actor an ability puts in the world (under /Game/Characters/<agent>/) is added
+    # here, each open paired with the close after it, as the extractor pairs them.
+    added = 0
+    open_rows = {}
+    for guid, t, event, path, x, y in con.execute("""
+            select actor_net_guid, time_ms, event, class_path, spawn_x, spawn_y from actors
+            where event in ('open', 'close') and class_path like '/Game/Characters/%'
+            order by actor_net_guid, time_ms, packet_id""").fetchall():
+        leaf = path.rsplit("/", 1)[-1].split(".", 1)[0]
+        if not leaf.lower().startswith(ABILITY_ACTOR_PREFIXES):
+            continue
+        if event == "open":
+            if guid in open_rows:  # reopened before closing: the first stays open-ended
+                rest = open_rows.pop(guid)
+                if (guid, rest[0]) not in taken:
+                    effects.append(rest[1] | {"end": None})
+                    added += 1
+            if x is None or y is None:
+                continue
+            open_rows[guid] = (t, {
+                "start": t, "end": None, "kind": "other", "agent": path.split("/")[3] or None,
+                "cls": path.rsplit(".", 1)[-1], "x": round(x), "y": round(y),
+                "owner": subject_of.get(instigator.get(guid)),
+            })
+        elif guid in open_rows:
+            start, row = open_rows.pop(guid)
+            if (guid, start) not in taken:
+                effects.append(row | {"end": t})
+                added += 1
+    for guid, (start, row) in open_rows.items():
+        if (guid, start) not in taken:
+            effects.append(row)
+            added += 1
+    effects.sort(key=lambda e: (e["start"], e["cls"], e["x"], e["y"]))
+    if added:
+        warnings.append(f"{added} ability actor(s) added beyond vrfkit's active effects")
     carrier_path = derived / "spike_carrier.parquet"
     if carrier_path.exists():
         for start, end, subject in con.execute(f"""
