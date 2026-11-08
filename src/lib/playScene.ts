@@ -44,20 +44,37 @@ export interface SceneMap {
 
 export type Point = [number, number]
 
+/**
+ * Drawing colour per ability shape: utility is coloured by what it does (areas,
+ * throw arcs, badge discs); who threw it is the badge ring's team colour.
+ */
+export const UTILITY_COLORS: Record<UtilityKind, string> = {
+  molly: '#F97316',
+  smoke: '#A78BFA',
+  slow: '#60A5FA',
+  flash: '#FACC15',
+  stun: '#C084FC',
+  recon: '#22D3EE',
+  trap: '#FBBF24',
+  wall: '#7DD3FC',
+  drone: '#94A3B8',
+  ult: '#F472B6',
+  other: '#CBD5E1',
+}
+
 /** Legend label and drawing colour per ability shape, shared by the canvas and any legend. */
 export const UTILITY_STYLE: Record<UtilityKind, { label: string; swatch: string }> = {
-  smoke: { label: 'Smoke', swatch: 'rgba(203,213,225,0.34)' },
-  flash: { label: 'Flash', swatch: '#FFCA3A' },
-  molly: { label: 'Molly', swatch: 'rgba(249,115,22,0.35)' },
-  recon: { label: 'Recon', swatch: '#c084fc' },
-  wall: { label: 'Wall', swatch: 'rgba(125,211,252,0.7)' },
-  trap: { label: 'Trap', swatch: '#FFCA3A' },
-  drone: { label: 'Drone', swatch: '#94A3B8' },
-  stun: { label: 'Stun', swatch: '#FFCA3A' },
-  slow: { label: 'Slow', swatch: 'rgba(96,165,250,0.35)' },
-  // Drawn in the agent's own colour when the registry has one.
-  ult: { label: 'Ultimate', swatch: '#53CADC' },
-  other: { label: 'Other', swatch: '#94A3B8' },
+  smoke: { label: 'Smoke', swatch: UTILITY_COLORS.smoke },
+  flash: { label: 'Flash', swatch: UTILITY_COLORS.flash },
+  molly: { label: 'Molly', swatch: UTILITY_COLORS.molly },
+  recon: { label: 'Recon', swatch: UTILITY_COLORS.recon },
+  wall: { label: 'Wall', swatch: UTILITY_COLORS.wall },
+  trap: { label: 'Trap', swatch: UTILITY_COLORS.trap },
+  drone: { label: 'Drone', swatch: UTILITY_COLORS.drone },
+  stun: { label: 'Stun', swatch: UTILITY_COLORS.stun },
+  slow: { label: 'Slow', swatch: UTILITY_COLORS.slow },
+  ult: { label: 'Ultimate', swatch: UTILITY_COLORS.ult },
+  other: { label: 'Other', swatch: UTILITY_COLORS.other },
 }
 
 /**

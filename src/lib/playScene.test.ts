@@ -8,6 +8,7 @@ import {
   AGENT_SPREAD_RADIUS,
   MAX_ZOOM,
   MIN_UTILITY_RADIUS,
+  UTILITY_COLORS,
   UTILITY_RADIUS_CM,
   UTILITY_STYLE,
   VIEW_SIZE,
@@ -208,7 +209,8 @@ test('ability radii take the shape default, the given radius, and a floor', () =
   assert.equal(lost.from, null)
   assert.equal(UTILITY_RADIUS_CM.slow, 300)
   close(slow.r, cmToView(300, ASCENT, view))
-  assert.deepEqual(UTILITY_STYLE.slow, { label: 'Slow', swatch: 'rgba(96,165,250,0.35)' })
+  assert.deepEqual(UTILITY_STYLE.slow, { label: 'Slow', swatch: '#60A5FA' })
+  assert.equal(UTILITY_STYLE.slow.swatch, UTILITY_COLORS.slow)
   assert.deepEqual(scene.unresolved, ['Gone'])
 })
 

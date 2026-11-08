@@ -6,8 +6,8 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { abilityShape, hasAbilityShape, SLOT_KEYS, SLOT_ORDER } from './agentAbilities.ts'
 
-test('Omen Dark Cover is a 380 smoke', () => {
-  assert.deepEqual(abilityShape('Omen', 'Ability2'), { shape: 'smoke', radius: 380 })
+test('Omen Dark Cover is a 410 smoke', () => {
+  assert.deepEqual(abilityShape('Omen', 'Ability2'), { shape: 'smoke', radius: 410 })
 })
 
 test('Sova Recon Bolt is a recon', () => {

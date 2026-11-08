@@ -457,15 +457,19 @@ vrfkit's kind. `line: true` marks wall segments.
 always means "thrown from"; a wall's extent is its `path`.
 
 **Drawing** (`PlayCanvas`):
-- Area at real size (`radius` or the shape's default) in the agent's lifted
-  colour, fill 0.28, ring 0.85.
-- **Badge**: a disc of radius 13 (viewBox units) in the agent's lifted colour
-  with a 2-unit dark ring, the official ability glyph (valorant-api
+- Colour says what the ability does (`UTILITY_COLORS`: molly orange, smoke
+  violet, slow blue, flash yellow, stun purple, recon cyan, trap amber, wall ice
+  blue, drone grey, ult pink); the agents' API colours are dark backdrop tones
+  and came out pale. Areas at their real in-game radius (valorant.fandom.com,
+  checked 2026-11-08), fill 0.30 (smoke 0.38), ring 0.85; above 15 m (map-wide
+  ultimates) a faint 0.06 fill.
+- **Badge**: a disc of radius 13 (viewBox units) in the ability's colour with
+  a 2-unit ring in the thrower's team colour (cyan ally, red enemy), the official ability glyph (valorant-api
   `displayIcon`, white) at 18 units inside, and the key letter (C Q E X) on a
   small dark tag at its top-right; no tag when the slot is unknown. It
   replaces the dark disc with an icon.
 - **Throw arc**: a quadratic curve from `from` to `at`, bowed 18 % of its
-  length to the left of travel, dashed, 2 units, the agent's colour, arrowhead
+  length to the left of travel, dashed, 2 units, the ability's colour, arrowhead
   at the landing. With `progress`: the arc at 0.55 opacity, the badge on the
   curve at that fraction, no area yet.
 - **Walls with `path`**: a 7-unit round polyline, badge at the middle.
@@ -644,7 +648,10 @@ Utility v2 (2026-11-08): all 68 effect classes in the bundles labelled;
 landing actor by design); Phoenix's molly lands a median 17.9 m from the hand,
 Brimstone's 22.7 m; arcs, badges, wall lines and the designed-play throw
 origin checked in a harness on Ascent, attack and defense. A step captured
-mid-throw keeps the throw as landed. Not yet checked in the signed-in app.
+mid-throw keeps the throw as landed. Checked in the signed-in app on the
+Pearl match of 2026-05-22, round 1: Phoenix's Hot Hands flies along a faint
+orange arc, lands as a 4.5 m fire at B Site with a red-ringed Q badge, and the
+arc drops 3 s later.
 
 Not yet verified: the phone layout, touch input and pinch zoom on a real
 touch screen.

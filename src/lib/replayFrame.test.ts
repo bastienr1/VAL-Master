@@ -143,7 +143,7 @@ test('an active smoke is an ability with the slot of the cast that put it down',
   assert.equal(smoke.length, 1)
   assert.deepEqual(
     { slot: smoke[0].slot, shape: smoke[0].shape, radius: smoke[0].radius, label: smoke[0].label, at: smoke[0].at },
-    { slot: 'Ability2', shape: 'smoke', radius: 380, label: 'Dark Cover', at: { u: 0.65, v: 0.66 } },
+    { slot: 'Ability2', shape: 'smoke', radius: 410, label: 'Dark Cover', at: { u: 0.65, v: 0.66 } },
   )
   // Just after it opens, the cast it explains is not drawn a second time.
   assert.equal(abilities(frameAt(41600)).filter(a => a.agent === 'Omen').length, 1)
@@ -166,7 +166,7 @@ test('a cast 1 s ago with no effect is an ability, 3 s ago it is not', () => {
   assert.equal(shown.length, 1)
   assert.deepEqual(
     { slot: shown[0].slot, shape: shown[0].shape, radius: shown[0].radius, label: shown[0].label, at: shown[0].at },
-    { slot: 'Ability1', shape: 'molly', radius: 200, label: 'Q', at: { u: 0.7, v: 0.6 } },
+    { slot: 'Ability1', shape: 'molly', radius: 400, label: 'Q', at: { u: 0.7, v: 0.6 } },
   )
   assert.equal(dart(52500).length, 0)
   assert.equal(dart(53000).length, 0)
@@ -313,7 +313,7 @@ test('a thrown smoke in flight is one ability at the landing, from the hand, wit
   assert.equal(flying.length, 1)
   const [el] = flying
   assert.equal(el.id, ids.forEffect(1))
-  assert.deepEqual({ slot: el.slot, shape: el.shape, radius: el.radius, label: el.label }, { slot: 'Ability2', shape: 'smoke', radius: 380, label: 'Dark Cover' })
+  assert.deepEqual({ slot: el.slot, shape: el.shape, radius: el.radius, label: el.label }, { slot: 'Ability2', shape: 'smoke', radius: 410, label: 'Dark Cover' })
   nearPos(el.at, 0.7, 0.8, 'at')
   nearPos(el.from, 0.6, 0.6, 'from')
   near(el.progress, 0.5, 'progress')

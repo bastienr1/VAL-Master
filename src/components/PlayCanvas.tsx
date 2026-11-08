@@ -44,7 +44,7 @@ import {
 } from 'react'
 import { Maximize2 } from 'lucide-react'
 import { useGameContent } from '../hooks/useGameContent'
-import { agentColor, type GameAgent, type GameMap } from '../lib/gameContent'
+import { type GameAgent, type GameMap } from '../lib/gameContent'
 import { SLOT_KEYS, abilityShape } from '../lib/agentAbilities'
 import {
   elementAt,
@@ -62,9 +62,11 @@ import {
 import {
   MAX_ZOOM,
   MIN_ZOOM,
+  UTILITY_COLORS,
   UTILITY_STYLE,
   VIEW_SIZE,
   clampCamera,
+  cmToView,
   ghostAgents,
   polylineMidpoint,
   sceneForStep,
@@ -192,25 +194,19 @@ const TILE_RX = 6
 const TILE_RING = 3
 const GHOST_OPACITY = 0.25
 
-const ABILITY_FILL = 0.28
-/**
- * Agent colours are backdrop gradients, and several (Omen, Clove, Cypher…) are
- * near-navy, so an ability drawn in them vanishes on the map. Mixing in white
- * keeps the hue and makes every agent's utility readable.
- */
-const LIFT = 0.45
-function liftColor(hex: string): string {
-  const m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex)
-  if (!m) return hex
-  const lift = (c: string) => Math.round(parseInt(c, 16) + (255 - parseInt(c, 16)) * LIFT).toString(16).padStart(2, '0')
-  return `#${lift(m[1])}${lift(m[2])}${lift(m[3])}`
-}
+/** Areas are drawn in their shape's colour (`UTILITY_COLORS`), not the agent's. */
+const ABILITY_FILL = 0.3
+/** Smokes block vision, so they read a little denser. */
+const SMOKE_FILL = 0.38
+/** Above this radius an area is drawn as an outline with a faint fill. */
+const HUGE_AREA_CM = 1500
+const HUGE_FILL = 0.06
 const ABILITY_RING = 0.85
 /** Ring of a filled shape. */
 const RING_WIDTH = 1.5
 /** Stroke of a shape that is only a ring (recon, ult, other). */
 const OUTLINE_WIDTH = 4
-/** The ability badge (§2.10): a disc in the agent's lifted colour, a dark ring, the white glyph inside. */
+/** The ability badge (§2.10): a disc in the shape's colour, a ring in the thrower's team colour, the white glyph inside. */
 const BADGE_R = 13
 const BADGE_RING = 2
 const BADGE_GLYPH = 18
@@ -1155,8 +1151,15 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
     )
   })
 
-  /** The lifted colour an agent's utility is drawn in. */
-  const utilityColor = (name: string) => liftColor(agentColor(agentOf(name)))
+  /**
+   * The team colour of whoever threw an ability: the step's agent element of
+   * that name, ally when the step has none.
+   */
+  const throwerRing = (name: string) => {
+    const key = name.trim().toLowerCase()
+    const thrower = key ? scene.agents.find(a => a.agent.trim().toLowerCase() === key) : undefined
+    return thrower?.team === 'enemy' ? ENEMY : ALLY
+  }
 
   /** The drag offset of an ability's hand: only while its `from` handle is dragged. */
   const handOffsetOf = (id: string): Point => (live && live.id === id && live.part === 'from' ? [live.dx, live.dy] : [0, 0])
@@ -1181,12 +1184,12 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
     return { at, from, path, flying, arc: showArc ? arc : null, badge }
   }
 
-  /** The badge (§2.10) about the origin: a disc in the agent's colour, the glyph, the key tag. */
+  /** The badge (§2.10) about the origin: a disc in the shape's colour ringed in the thrower's team colour, the glyph, the key tag. */
   const badgeOf = (item: PlacedAbility, color: string, icon: string | null) => {
     const key = item.slot ? SLOT_KEYS[item.slot] : null
     return (
       <g pointerEvents="none">
-        <circle r={BADGE_R} fill={color} stroke={BACKDROP} strokeWidth={BADGE_RING} />
+        <circle r={BADGE_R} fill={color} stroke={throwerRing(item.agent)} strokeWidth={BADGE_RING} />
         {icon ? (
           <image
             href={icon}
@@ -1216,11 +1219,15 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
 
   const renderAbility = (item: PlacedAbility) => {
     const agent = agentOf(item.agent)
-    const color = utilityColor(item.agent)
+    const color = UTILITY_COLORS[item.shape]
     const icon = item.slot ? (agent?.abilities.find(a => a.slot === item.slot)?.icon ?? null) : null
     const { at, path, flying, arc, badge } = abilityLayout(item)
     const { r } = item
-    const filled = { fill: color, fillOpacity: ABILITY_FILL, stroke: color, strokeOpacity: ABILITY_RING, strokeWidth: RING_WIDTH }
+    // Map-wide ultimates (KAY/O's NULL/cmd, Killjoy's Lockdown) keep their true
+    // size but only a faint wash, so they do not bury everything under them.
+    const huge = r > cmToView(HUGE_AREA_CM, map.transform, scene.view)
+    const fillOpacity = huge ? HUGE_FILL : item.shape === 'smoke' ? SMOKE_FILL : ABILITY_FILL
+    const filled = { fill: color, fillOpacity, stroke: color, strokeOpacity: ABILITY_RING, strokeWidth: RING_WIDTH }
     const ring = { fill: 'none', stroke: color, strokeOpacity: ABILITY_RING, strokeWidth: OUTLINE_WIDTH }
 
     // No area while in flight; a wall with a path is its line instead.
@@ -1760,7 +1767,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
 
   const view = scene.view
   const imageSize = VIEW_SIZE / view.size
-  const throwColors = [...new Set(scene.abilities.filter(a => a.from).map(a => utilityColor(a.agent)))]
+  const throwColors = [...new Set(scene.abilities.filter(a => a.from).map(a => UTILITY_COLORS[a.shape]))]
   const counts = `${scene.agents.length} agent${scene.agents.length === 1 ? '' : 's'}, ${scene.abilities.length} abilit${
     scene.abilities.length === 1 ? 'y' : 'ies'
   }`
@@ -1832,7 +1839,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
               <path d="M0,0L10,5L0,10Z" fill={color} />
             </marker>
           ))}
-          {/* Throw arcs' heads, one per agent colour (§2.10): the arc's opacity carries over to them. */}
+          {/* Throw arcs' heads, one per shape colour (§2.10): the arc's opacity carries over to them. */}
           {throwColors.map(color => (
             <marker
               key={color}
