@@ -209,7 +209,6 @@ test('comp is the allies in player order; side, map and texts come from the roun
   assert.equal(play.mapUuid, 'lotus-uuid')
   assert.equal(play.title, 'Round 1 · Lotus · 2026-09-29')
   assert.equal(play.doc.summary, 'Round 1 from the replay: your team won by elimination')
-  assert.equal(play.brief.split('\n').length, 2)
   assert.equal(roundToPlay(bundle, 2, lookup, T).side, 'defense')
   bundle.rounds[0].side = null
   assert.equal(roundToPlay(bundle, 1, lookup, T).side, 'attack')

@@ -38,7 +38,7 @@ a grid of three columns and a bottom row:
 ```
 
 Above the grid, one 44 px toolbar: back link, title input, map + side chips,
-undo / redo, "Brief" toggle (opens the drawer), Save, delete menu.
+undo / redo, "Step" toggle (opens the drawer), Save, delete menu.
 
 Under `lg` the rail becomes a horizontal row above the canvas, the drawer a
 full-width sheet below it, the strip stays at the bottom.
@@ -192,7 +192,8 @@ on a saved play that has elements, open on a new play. Sections:
 
 1. **From a replay** picker and **Start blank** while the play has no elements
    (the template strip that stood here was removed on 2026-11-08).
-2. **Brief**: textarea, Compose button, model line, errors, as before.
+2. A **From a replay** link once the play has something drawn. (The brief and
+   Compose were removed on 2026-11-08, see section 5.)
 3. **This step**: caption textarea; a list of the ally agents on the map this
    step with their note input and the spike dot; the abilities placed this step
    with a remove ×.
@@ -217,7 +218,7 @@ Save writes `play` as v2. Loading a v1 row runs `migratePlayDoc` (section 3).
 
 A second side panel, on the left between the rail and the canvas, so a play
 can be drawn while watching the vault guide for that map. Toggled by a
-"Playbook" button in the toolbar next to Brief; closed by default, the choice
+"Playbook" button in the toolbar next to Step; closed by default, the choice
 remembered in `localStorage` (`plays.playbookOpen`). 400 px on `lg`
 (`bg-bg-card border-r border-bg-elevated`, scrollable); under `lg` a
 full-width block above the canvas. The grid becomes
@@ -293,7 +294,7 @@ registry by the caller) and `transform` is the map transform. It returns
   replay: <winner> won by <how>", `brief` two lines describing the round so
   a recompose has context.
 
-**Editor** (`src/components/play/ReplayPicker.tsx`, at the top of the Brief
+**Editor** (`src/components/play/ReplayPicker.tsx`, at the top of the Step
 drawer while the play is empty, also reachable when the play has elements through a "From a
 replay" link that confirms replacing): a list of the user's matches that have
 a replay (`match_replays` rows for the signed-in user joined client-side with
@@ -570,15 +571,15 @@ Picked in the toolbar and remembered per device (`plays.layout`).
 
 **Analyst** is the base. With a replay open: the rail, a roster of both teams
 (who is alive, Riot names, the spike carrier), the map, a right panel with
-**Utility** (everything up now, longest time left first) and **Brief** tabs,
+**Utility** (everything up now, longest time left first) and **Step** tabs,
 and the transport along the bottom. The agent strip is hidden while the replay
 view is on and comes back in the steps view. With no replay it is the rail, the
-map, the Brief and the agent strip. Roster and utility read the frame store
+map, the Step panel and the agent strip. Roster and utility read the frame store
 (`replayPanels.ts`, pure, tested), so a playing match does not re-render the
 page. Utility that never closed counts down to the end of the round.
 
 **Study** puts the guide beside the board: the Playbook panel at
-`min(42vw, 760px)`, the Brief and the roster hidden. **New step at this
+`min(42vw, 760px)`, the Step panel and the roster hidden. **New step at this
 chapter** adds a step named after the chapter playing, with the guide's time
 as its caption.
 
@@ -669,6 +670,13 @@ stun 900, Astra Cosmic Divide wall, Harbor Reckoning stun 600, Fade Nightfall
 stun 500, Skye Seekers drone, Cypher Neural Theft other).
 
 ## 5. Composer v2 (`supabase/functions/compose-play/index.ts`, `src/lib/composePlay.ts`)
+
+> **Removed on 2026-11-08** at Bastien's request ("We don't need the feature
+> to input text for generating play"): the brief box, Compose, Start blank, the
+> assumptions list, `composePlay.ts`, `composeAbilities.ts`, `composeMerge.ts`
+> and the `compose-play` function's source are gone. The `plays.brief` and
+> `plays.composed_with` columns stay and are written empty. This section records
+> what the composer was.
 
 The function emits v2: `steps[].elements[]` of kinds `agent` (ally, at,
 moveTo?, via?, note, spike?), `ability` (agent, slot, shape, at, from?,
@@ -773,6 +781,10 @@ Every ability (2026-11-08): the rebuilt Abyss bundle of 2026-11-02 attached
 in the signed-in app; your Sova's round 1 Shock Bolt flies along its arc and
 lands 29 m away at A Site as a 4 m blast, where before only a badge sat on
 Sova.
+
+Composer removed (2026-11-08): a new play shows no brief, Compose, Start blank
+or assumptions; the replay flow and the Step tab work as before. The `plays`
+table held no rows at the time, so no brief was lost.
 
 Page layouts (2026-11-08): on the Abyss replay in the signed-in app at
 1600 x 1000. Analyst listed 4 alive per team, the 2 dead as down, and 5 utility
