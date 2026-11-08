@@ -139,9 +139,19 @@ at the canvas' top-right (−, the percentage, +, and a reset button that
 appears when zoomed) do the same about the centre. When zoomed, dragging the
 empty map with the Select tool pans, as does a middle-button drag or a drag
 with Space held under any tool; the view is clamped to the map. Zoom is view
-state only (never saved; reset when the map changes). Marker and label sizes
-are in viewBox units, so they grow with the zoom; the label-hiding rule uses
-the rendered width times the zoom.
+state only (never saved; reset when the map changes).
+
+**Constant-size markers** (2026-11-08): things with a real size on the map
+keep scaling with the zoom: utility areas, wall extents, the map control
+overlay, the map art. Everything symbolic stays the same size on screen at any
+zoom: agent tiles and their rings, ability badges and key tags, markers,
+labels (callouts, agents, abilities, text elements), the widths of throw
+arcs, arrows, pen strokes and wall lines, arrowheads, selection rings,
+handles, ghosts. Implemented as a factor `k = 1 / zoom` applied to those
+sizes; the crowd spread of coincident agents uses `k` too, so stacked agents
+stay readable when zoomed. At 100 % nothing changes. The label-hiding rule
+uses the rendered width as before (labels no longer grow, so they no longer
+need the zoom in that rule).
 
 ### 2.3 Agent strip (`src/components/play/AgentStrip.tsx`)
 
@@ -408,6 +418,76 @@ timeline (cyan where you held more, red where they did, grey when even). On a
 designed or captured step the overlay is `instantControl` of that step's
 agents. Captured steps carry no control data; it is recomputed.
 
+### 2.10 Utility v2: throws, real sizes, badges
+
+The utility layer draws what each ability is and where it went.
+
+**What the replay records** (measured over 68 bundles, 2026-11-08): a thrown
+ability is two effect actors. A `Projectile_*` spawns in the thrower's hand
+(median 15–25 cm from the cast) and lives for the flight (Sage slow 1.2 s,
+Brimstone molly 1.4 s, Jett smoke 2.5 s); the landing actor (`Patch_*`,
+`Zone_*`, or a `GameObject_*`) starts when it ends, 5–33 m away. Class names
+differ between the two (`Projectile_Phoenix_4_Molotov…` lands as
+`Patch_Phoenix_MolotovFire…`), so they pair by owner and time. Sage's wall is
+4 `Wall_Segment` actors. There are 68 effect classes in all; vrfkit's `kind`
+is coarse (Breach's flash is a "wall", Chamber's ult gun a "damage_zone").
+
+**Class table** (`src/lib/utilityClasses.ts`, pure, tested): every effect class
+seen in the bundles, hand-labelled:
+
+```ts
+export type EffectRole = 'projectile' | 'landing' | 'placed' | 'pawn' | 'ignore'
+export interface EffectClassInfo { role: EffectRole; shape: UtilityKind; radius?: number; slot?: AbilitySlot; line?: boolean }
+export function classInfo(cls: string, kind?: string): EffectClassInfo   // table first, then a prefix fallback
+```
+
+Fallback by prefix: `Projectile_` projectile, `Patch_` / `Zone_` landing,
+`GameObject_` placed, `Pawn_` pawn, `UltPointOrb` and `Gun_` ignore; shape from
+vrfkit's kind. `line: true` marks wall segments.
+
+**Frame rules** (`frameStep` in `src/lib/replayFrame.ts`):
+- A projectile is never drawn as an area. While it is in flight it pairs with
+  its landing (same owner; a landing that starts between 50 ms after the
+  projectile spawned and 1500 ms after it ends; the nearest gap wins; a landing
+  pairs once. Omen's smokes land ~0.5 s and Jett's ~1.5 s before their
+  projectile closes, hence the start-while-alive rule) and becomes an
+  `ability` at the **landing** with `from` = the hand and
+  `progress` = elapsed / flight (0…1). Without a landing it is not drawn.
+- A landing or placed effect is an `ability` at its position for its lifetime;
+  for 3 s after it landed it keeps `from` (the hand), then the arc is dropped.
+- Wall segments of one owner and class starting within 500 ms are one
+  `ability` with `path` (the points ordered along the wall) and the badge at
+  the middle.
+- Pawns as today; `ignore` classes are skipped.
+- Casts with no effect (flashes, dashes) stay a badge at the caster for 2.5 s.
+- The slot comes from the table when known, else from the cast as today.
+
+**Document** (`src/lib/playDoc.ts`): `AbilityElement` gains `progress?: number`
+(kept when in [0, 1]) and `path?: PlayPos[]` (kept when ≥ 2 points). `from`
+always means "thrown from"; a wall's extent is its `path`.
+
+**Drawing** (`PlayCanvas`):
+- Colour says what the ability does (`UTILITY_COLORS`: molly orange, smoke
+  violet, slow blue, flash yellow, stun purple, recon cyan, trap amber, wall ice
+  blue, drone grey, ult pink); the agents' API colours are dark backdrop tones
+  and came out pale. Areas at their real in-game radius (valorant.fandom.com,
+  checked 2026-11-08), fill 0.30 (smoke 0.38), ring 0.85; above 15 m (map-wide
+  ultimates) a faint 0.06 fill.
+- **Badge**: a disc of radius 13 (viewBox units) in the ability's colour with
+  a 2-unit ring in the thrower's team colour (cyan ally, red enemy), the official ability glyph (valorant-api
+  `displayIcon`, white) at 18 units inside, and the key letter (C Q E X) on a
+  small dark tag at its top-right; no tag when the slot is unknown. It
+  replaces the dark disc with an icon.
+- **Throw arc**: a quadratic curve from `from` to `at`, bowed 18 % of its
+  length to the left of travel, dashed, 2 units, the ability's colour, arrowhead
+  at the landing. With `progress`: the arc at 0.55 opacity, the badge on the
+  curve at that fraction, no area yet.
+- **Walls with `path`**: a 7-unit round polyline, badge at the middle.
+- Hover or selection shows the ability's name under the badge.
+- **Designed plays**: placing an ability whose agent stands on the map more
+  than 3 m from the click sets `from` to that agent's position; a selected
+  ability with `from` shows a handle there that drags it.
+
 ## 3. Document v2 (`src/lib/playDoc.ts`)
 
 ```ts
@@ -572,6 +652,23 @@ the readout gave "You 30 % · Enemy 70 % · 45 % of the map claimed" at R3 ·
 0:14, and the scrubber track showed the enemy's red stretch on that lost
 round. The toggle, the per-step overlay on designed steps and the average line
 were exercised in a harness by the worker.
+
+Utility v2 (2026-11-08): all 68 effect classes in the bundles labelled;
+3266 of 3826 projectiles pair with their landing (85 %; Breach's flash has no
+landing actor by design); Phoenix's molly lands a median 17.9 m from the hand,
+Brimstone's 22.7 m; arcs, badges, wall lines and the designed-play throw
+origin checked in a harness on Ascent, attack and defense. A step captured
+mid-throw keeps the throw as landed. Checked in the signed-in app on the
+Pearl match of 2026-05-22, round 1: Phoenix's Hot Hands flies along a faint
+orange arc, lands as a 4.5 m fire at B Site with a red-ringed Q badge, and the
+arc drops 3 s later.
+
+Constant-size markers (2026-11-08): measured at 100 %, 300 % and 600 % in the
+signed-in app on the same Pearl round 1, 0.5 s after the molly lands. The fire
+grows with the map (51 px across at 100 %, 309 px at 600 %) while the Phoenix
+tile stays 32 px and the Q badge 19 px, so the badge and arc sit on top of the
+fire instead of being covered by tiles. At 100 % the 85 elements of the round
+render identically to the previous commit.
 
 Not yet verified: the phone layout, touch input and pinch zoom on a real
 touch screen.

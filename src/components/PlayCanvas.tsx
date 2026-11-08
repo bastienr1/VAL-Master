@@ -24,8 +24,11 @@
  * the longer; zoomed in, the map runs edge to edge and pans. Zoom and pan
  * (§2.2) are view state, never saved and reset with the map. Every pointer
  * goes through the svg's screen matrix, so a press lands on what is drawn
- * under it at any zoom and shape. Sizes stay in viewBox units: markers,
- * labels and the inline text field grow with the map.
+ * under it at any zoom and shape. Real sizes (utility areas, wall extents,
+ * the map art and the control overlay) grow with the zoom; everything
+ * symbolic (tiles, badges, markers, labels, line widths, arrowheads,
+ * selection rings, handles, ghosts) keeps its size on screen through
+ * `k = 1 / zoom` (§2.2 "Constant-size markers"). At zoom 1, k = 1.
  */
 
 import {
@@ -44,8 +47,8 @@ import {
 } from 'react'
 import { Maximize2 } from 'lucide-react'
 import { useGameContent } from '../hooks/useGameContent'
-import { agentColor, type GameAgent, type GameMap } from '../lib/gameContent'
-import { abilityShape } from '../lib/agentAbilities'
+import { type GameAgent, type GameMap } from '../lib/gameContent'
+import { SLOT_KEYS, abilityShape } from '../lib/agentAbilities'
 import {
   elementAt,
   newId,
@@ -62,11 +65,16 @@ import {
 import {
   MAX_ZOOM,
   MIN_ZOOM,
+  UTILITY_COLORS,
   UTILITY_STYLE,
   VIEW_SIZE,
   clampCamera,
+  cmToView,
   ghostAgents,
+  polylineMidpoint,
   sceneForStep,
+  throwArc,
+  throwOrigin,
   viewBoxFor,
   viewToImage,
   zoomAbout,
@@ -189,26 +197,42 @@ const TILE_RX = 6
 const TILE_RING = 3
 const GHOST_OPACITY = 0.25
 
-const ABILITY_FILL = 0.35
-/**
- * Agent colours are backdrop gradients, and several (Omen, Clove, Cypher…) are
- * near-navy, so an ability drawn in them vanishes on the map. Mixing in white
- * keeps the hue and makes every agent's utility readable.
- */
-const LIFT = 0.45
-function liftColor(hex: string): string {
-  const m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex)
-  if (!m) return hex
-  const lift = (c: string) => Math.round(parseInt(c, 16) + (255 - parseInt(c, 16)) * LIFT).toString(16).padStart(2, '0')
-  return `#${lift(m[1])}${lift(m[2])}${lift(m[3])}`
-}
-const ABILITY_RING = 0.9
+/** Areas are drawn in their shape's colour (`UTILITY_COLORS`), not the agent's. */
+const ABILITY_FILL = 0.3
+/** Smokes block vision, so they read a little denser. */
+const SMOKE_FILL = 0.38
+/** Above this radius an area is drawn as an outline with a faint fill. */
+const HUGE_AREA_CM = 1500
+const HUGE_FILL = 0.06
+const ABILITY_RING = 0.85
 /** Ring of a filled shape. */
 const RING_WIDTH = 1.5
 /** Stroke of a shape that is only a ring (recon, ult, other). */
 const OUTLINE_WIDTH = 4
-const ABILITY_ICON = 18
-const ICON_DISC = 13
+/** The ability badge (§2.10): a disc in the shape's colour, a ring in the thrower's team colour, the white glyph inside. */
+const BADGE_R = 13
+const BADGE_RING = 2
+const BADGE_GLYPH = 18
+/** The letter drawn instead when the registry has no glyph. */
+const BADGE_LETTER = 14
+/** The key tag at the badge's top-right: an 11-unit rounded square with the C / Q / E / X letter. */
+const KEY_TAG = 11
+const KEY_TAG_RX = 2.5
+const KEY_LETTER = 8
+/** The tag's centre, on the badge's rim at 45°. */
+const KEY_TAG_AT = BADGE_R * Math.SQRT1_2
+/** The throw arc: dashed, in the agent's colour; fainter while the ability is still in flight. */
+const ARC_WIDTH = 2
+const ARC_DASH = '5 4'
+const ARC_OPACITY = 0.9
+const ARC_FLIGHT_OPACITY = 0.55
+/** The arc stops this short of a badge at the landing, so its arrowhead shows. */
+const ARC_END_GAP = BADGE_R + 2
+/** A wall's line through its path. */
+const WALL_LINE = 7
+const WALL_LINE_OPACITY = 0.9
+/** The handle at a selected ability's `from`. */
+const FROM_HANDLE_R = 10
 /** Shapes too small to read around the icon get at least this size. */
 const BURST_MIN = 28
 const TRAP_MIN = 22
@@ -339,6 +363,9 @@ const isEditable = (target: EventTarget | null) =>
   target instanceof HTMLSelectElement ||
   (target instanceof HTMLElement && target.isContentEditable)
 
+/** A dash pattern times `k`: unchanged at 1. */
+const scaleDashes = (pattern: string, k: number) => (k === 1 ? pattern : pattern.split(/\s+/).map(n => Number(n) * k).join(' '))
+
 const pointsAttr = (points: Point[], dx = 0, dy = 0) =>
   points.map(([x, y]) => `${(x + dx).toFixed(1)},${(y + dy).toFixed(1)}`).join(' ')
 
@@ -368,25 +395,36 @@ const PIN_PATH =
 /** A marker id for an arrowhead in this colour, unique to the canvas instance. */
 const colorKey = (color: string) => color.replace(/[^a-zA-Z0-9]/g, '').toLowerCase() || 'none'
 
-/** Where an ability is drawn to, from its centre: its selection ring and label sit outside it. */
-function abilityExtent(item: PlacedAbility): number {
+/** In flight (§2.10): thrown, with a progress; the badge rides the arc and no area is drawn yet. */
+const inFlight = (item: PlacedAbility): item is PlacedAbility & { from: Point; progress: number } =>
+  item.from !== null && item.progress !== null
+
+/**
+ * Where an ability is drawn to, from its centre: its selection ring sits
+ * outside it. `k` is the marker scale (1 / zoom): the badge and the smallest
+ * shapes keep their size on screen, real areas do not.
+ */
+function abilityExtent(item: PlacedAbility, k: number): number {
+  // Only the badge stands at the centre of a throw in flight or of a wall drawn along its path.
+  if (inFlight(item) || item.path) return BADGE_R * k
   switch (item.shape) {
     case 'flash':
-      return Math.max(item.r, BURST_MIN)
+      return Math.max(item.r, BURST_MIN * k)
     case 'trap':
-      return Math.max(item.r, TRAP_MIN)
+      return Math.max(item.r, TRAP_MIN * k)
     case 'drone':
-      return Math.max(item.r * 0.8, DRONE_MIN) * Math.SQRT2
+      return Math.max(item.r * 0.8, DRONE_MIN * k) * Math.SQRT2
     case 'wall':
-      return item.from ? WALL_WIDTH : Math.max(item.r * 2, WALL_BAR_MIN) / 2
+      return Math.max(item.r * 2, WALL_BAR_MIN * k) / 2
     default:
       return item.r
   }
 }
 
+/** The registry's name for the slot, else the element's label, else the shape's. */
 function abilityName(item: PlacedAbility, agent: GameAgent | null): string {
   const fromRegistry = item.slot ? agent?.abilities.find(a => a.slot === item.slot)?.name : undefined
-  return fromRegistry || UTILITY_STYLE[item.shape].label
+  return fromRegistry || item.label || UTILITY_STYLE[item.shape].label
 }
 
 // ── Component ───────────────────────────────────────────────────────────────
@@ -415,6 +453,8 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
   const tileClip = `${uid}-tile`
   const tint = `${uid}-tint`
   const arrowHead = (color: string) => `${uid}-head-${colorKey(color)}`
+  const badgeClip = `${uid}-badge`
+  const throwHead = (color: string) => `${uid}-throw-${colorKey(color)}`
 
   const { registry } = useGameContent()
   const reducedMotion = useSyncExternalStore(subscribeReducedMotion, readReducedMotion, () => false)
@@ -455,7 +495,17 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
     cameraRef.current = HOME
   }, [map.uuid])
 
-  const scene = useMemo(() => sceneForStep(step, map, side), [step, map, side])
+  /**
+   * The marker scale (§2.2 "Constant-size markers"): symbolic sizes are
+   * multiplied by it so they stay the same on screen at any zoom. Follows the
+   * committed camera, so a pinch in progress rescales when it ends.
+   */
+  const k = 1 / camera.zoom
+  /** The transform that keeps a group drawn about its own origin at its screen size; none at zoom 1. */
+  const sized = k === 1 ? undefined : `scale(${k})`
+  const scene = useMemo(() => sceneForStep(step, map, side, k), [step, map, side, k])
+  /** A dash pattern drawn in map units, kept at its screen size. */
+  const dashes = (pattern: string) => scaleDashes(pattern, k)
   // The grid may be stepped in place, so its version says when to repaint; a
   // new grid object (another round, another step) repaints too.
   const controlVersion = control?.version
@@ -466,21 +516,34 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [control, controlVersion, controlN],
   )
-  const previousScene = useMemo(() => (previous ? sceneForStep(previous, map, side) : null), [previous, map, side])
+  const previousScene = useMemo(
+    () => (previous ? sceneForStep(previous, map, side, k) : null),
+    [previous, map, side, k],
+  )
   const ghosts = useMemo(
     () => (previousScene ? ghostAgents(previous, step, map, side, previousScene) : []),
     [previousScene, previous, step, map, side],
   )
 
-  /** Element id → the viewBox points a drag moves: one for most, both ends of an arrow, a whole stroke. */
+  /**
+   * Element id → the viewBox points a drag moves: one for most, both ends of
+   * an arrow, a whole stroke; an ability's `at` then its wall path, if any.
+   */
   const anchors = useMemo(() => {
     const byId = new Map<string, Point[]>()
     for (const a of scene.agents) byId.set(a.id, [[a.x, a.y]])
-    for (const a of scene.abilities) byId.set(a.id, [[a.x, a.y]])
+    for (const a of scene.abilities) byId.set(a.id, [[a.x, a.y], ...(a.path ?? [])])
     for (const m of scene.markers) byId.set(m.id, [[m.x, m.y]])
     for (const t of scene.texts) byId.set(t.id, [[t.x, t.y]])
     for (const a of scene.arrows) byId.set(a.id, [a.from, a.to])
     for (const p of scene.pens) byId.set(p.id, p.points)
+    return byId
+  }, [scene])
+
+  /** Ability id → where it is thrown from: what its `from` handle drags. */
+  const throwFrom = useMemo(() => {
+    const byId = new Map<string, Point>()
+    for (const a of scene.abilities) if (a.from) byId.set(a.id, a.from)
     return byId
   }, [scene])
 
@@ -547,9 +610,10 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
 
   const agentOf = (name: string): GameAgent | null => registry?.agents.byName.get(name.trim().toLowerCase()) ?? null
 
-  // The map square fits the svg's shorter side at zoom 1 and grows with the zoom: labels go by its drawn width.
+  // The map square fits the svg's shorter side at zoom 1. Labels keep their
+  // size on screen at any zoom, so they go by the canvas' rendered width alone.
   const fit = Math.min(size.width, size.height)
-  const drawnWidth = fit * camera.zoom
+  const drawnWidth = fit
   const showLabels = drawnWidth >= LABEL_MIN_WIDTH_PX
   // Size is 0 until the first measure: full size then, so callouts do not flash small.
   const labelScale = fit > 0 && drawnWidth < COMPACT_LABEL_WIDTH_PX ? COMPACT_LABEL_SCALE : 1
@@ -660,6 +724,9 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
   }, [])
 
   const anchorsOf = (id: string, part: Part): Point[] => {
+    // An ability's `from` handle moves the hand alone; its body moves `at` (and a wall's path).
+    const hand = throwFrom.get(id)
+    if (hand) return part === 'from' ? [hand] : (anchors.get(id) ?? [])
     const points = anchors.get(id) ?? []
     return part === 'from' ? points.slice(0, 1) : part === 'to' ? points.slice(1, 2) : points
   }
@@ -683,8 +750,18 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
     if (!el || !points || points.length === 0) return null
     const shift = ([x, y]: Point): Point => [x + dx, y + dy]
     switch (el.kind) {
+      case 'ability': {
+        if (part === 'from') {
+          const hand = throwFrom.get(id)
+          return hand ? { ...el, from: toPos(shift(hand)) } : null
+        }
+        // `from` stays put; a wall's path goes along with its badge.
+        const wall = points.slice(1)
+        return wall.length >= 2
+          ? { ...el, at: toPos(shift(points[0])), path: wall.map(p => toPos(shift(p))) }
+          : { ...el, at: toPos(shift(points[0])) }
+      }
       case 'agent':
-      case 'ability':
       case 'marker':
       case 'text':
         return { ...el, at: toPos(shift(points[0])) }
@@ -733,6 +810,8 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
     if (pending) {
       if (!inSquare(press.at)) return
       const { shape, radius } = abilityShape(pending.agent, pending.slot)
+      // Placed more than 3 m from its agent on the map, the ability is thrown from there (§2.10).
+      const from = throwOrigin(step, pending.agent, press.at, map, scene)
       const el: AbilityElement = {
         kind: 'ability',
         id: newId(),
@@ -741,6 +820,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
         shape,
         radius,
         at: toPos(press.at),
+        ...(from ? { from } : {}),
       }
       onChange?.(withElement(step, el))
       onSelect(el.id)
@@ -1041,11 +1121,11 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
 
   const ringOf = (agent: Pick<PlacedAgent, 'team' | 'spike'>) => (agent.spike ? SPIKE : agent.team === 'enemy' ? ENEMY : ALLY)
 
-  /** An agent's square portrait tile about the origin. */
+  /** An agent's square portrait tile about the origin, at its screen size. */
   const tile = (name: string, ring: string) => {
     const icon = agentOf(name)?.displayIcon ?? null
     return (
-      <>
+      <g transform={sized}>
         <rect x={-HALF} y={-HALF} width={TILE} height={TILE} rx={TILE_RX} fill={TILE_FILL} />
         {icon ? (
           <image
@@ -1071,7 +1151,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
           </text>
         )}
         <rect x={-HALF} y={-HALF} width={TILE} height={TILE} rx={TILE_RX} fill="none" stroke={ring} strokeWidth={TILE_RING} />
-      </>
+      </g>
     )
   }
 
@@ -1081,12 +1161,12 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
     return (
       <g key={pen.id} {...interactive(pen.id, 'Pen stroke')} style={{ cursor: elementCursor }}>
         {/* Hit area: a 5 px line is hard to grab. */}
-        <polyline points={points} fill="none" stroke="transparent" strokeWidth={22} strokeLinecap="round" strokeLinejoin="round" />
+        <polyline points={points} fill="none" stroke="transparent" strokeWidth={22 * k} strokeLinecap="round" strokeLinejoin="round" />
         <polyline
           points={points}
           fill="none"
           stroke={pen.color}
-          strokeWidth={PEN_WIDTH}
+          strokeWidth={PEN_WIDTH * k}
           strokeLinecap="round"
           strokeLinejoin="round"
           pointerEvents="none"
@@ -1095,110 +1175,184 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
     )
   })
 
-  const renderAbility = (item: PlacedAbility) => {
-    const [dx, dy] = offsetOf(item.id)
-    const agent = agentOf(item.agent)
-    const color = liftColor(agentColor(agent))
-    const icon = item.slot ? (agent?.abilities.find(a => a.slot === item.slot)?.icon ?? null) : null
-    const { r } = item
-    // `from` stays put while `at` is dragged.
-    const fx = item.from ? item.from[0] - item.x - dx : 0
-    const fy = item.from ? item.from[1] - item.y - dy : 0
-    const filled = { fill: color, fillOpacity: ABILITY_FILL, stroke: color, strokeOpacity: ABILITY_RING, strokeWidth: RING_WIDTH }
-    const ring = { fill: 'none', stroke: color, strokeOpacity: ABILITY_RING, strokeWidth: OUTLINE_WIDTH }
+  /**
+   * The team colour of whoever threw an ability: the step's agent element of
+   * that name, ally when the step has none.
+   */
+  const throwerRing = (name: string) => {
+    const key = name.trim().toLowerCase()
+    const thrower = key ? scene.agents.find(a => a.agent.trim().toLowerCase() === key) : undefined
+    return thrower?.team === 'enemy' ? ENEMY : ALLY
+  }
 
-    let shape: ReactNode
-    switch (item.shape) {
-      case 'smoke':
-      case 'molly':
-      case 'slow':
-      case 'stun':
-        shape = <circle r={r} {...filled} />
-        break
-      case 'flash':
-        shape = <polygon points={burst(Math.max(r, BURST_MIN))} strokeLinejoin="round" {...filled} />
-        break
-      case 'wall':
-        if (item.from) {
-          const length = Math.hypot(fx, fy)
-          const angle = (Math.atan2(fy, fx) * 180) / Math.PI
-          shape = (
-            <rect
-              x={-WALL_WIDTH / 2}
-              y={-WALL_WIDTH / 2}
-              width={length + WALL_WIDTH}
-              height={WALL_WIDTH}
-              rx={WALL_WIDTH / 2}
-              transform={`rotate(${angle.toFixed(2)})`}
-              {...filled}
-            />
-          )
-        } else {
-          const length = Math.max(r * 2, WALL_BAR_MIN)
-          shape = (
-            <rect x={-length / 2} y={-WALL_WIDTH / 2} width={length} height={WALL_WIDTH} rx={WALL_WIDTH / 2} {...filled} />
-          )
+  /** The drag offset of an ability's hand: only while its `from` handle is dragged. */
+  const handOffsetOf = (id: string): Point => (live && live.id === id && live.part === 'from' ? [live.dx, live.dy] : [0, 0])
+
+  /**
+   * An ability as drawn now, the drag in progress included: its landing, its
+   * hand, its wall line, its throw arc and where the badge stands (on the arc
+   * in flight, at the middle of a wall's path, else at the landing).
+   */
+  const abilityLayout = (item: PlacedAbility) => {
+    const [dx, dy] = offsetOf(item.id)
+    const at: Point = [item.x + dx, item.y + dy]
+    const [hx, hy] = handOffsetOf(item.id)
+    const from: Point | null = item.from ? [item.from[0] + hx, item.from[1] + hy] : null
+    const path = item.path ? item.path.map(([x, y]): Point => [x + dx, y + dy]) : null
+    const flying = inFlight(item)
+    // Landed, the badge covers the landing: the arc stops at its rim so the arrowhead shows.
+    const arc = from ? throwArc(from, at, flying ? 0 : ARC_END_GAP * k) : null
+    const badge: Point = flying && arc ? arc.pointAt(item.progress ?? 0) : path ? (polylineMidpoint(path) ?? at) : at
+    // A throw shorter than the badge has nothing to show between hand and landing.
+    const showArc = from !== null && Math.hypot(at[0] - from[0], at[1] - from[1]) > BADGE_R * 2 * k
+    return { at, from, path, flying, arc: showArc ? arc : null, badge }
+  }
+
+  /** The badge (§2.10) about the origin: a disc in the shape's colour ringed in the thrower's team colour, the glyph, the key tag. */
+  const badgeOf = (item: PlacedAbility, color: string, icon: string | null) => {
+    const key = item.slot ? SLOT_KEYS[item.slot] : null
+    return (
+      <g pointerEvents="none" transform={sized}>
+        <circle r={BADGE_R} fill={color} stroke={throwerRing(item.agent)} strokeWidth={BADGE_RING} />
+        {icon ? (
+          <image
+            href={icon}
+            x={-BADGE_GLYPH / 2}
+            y={-BADGE_GLYPH / 2}
+            width={BADGE_GLYPH}
+            height={BADGE_GLYPH}
+            preserveAspectRatio="xMidYMid meet"
+            clipPath={`url(#${badgeClip})`}
+          />
+        ) : (
+          <text textAnchor="middle" dominantBaseline="central" fontFamily={FONT} fontWeight="bold" fontSize={BADGE_LETTER} fill={WHITE}>
+            {UTILITY_STYLE[item.shape].label.slice(0, 1)}
+          </text>
+        )}
+        {key && (
+          <g transform={`translate(${KEY_TAG_AT.toFixed(2)} ${(-KEY_TAG_AT).toFixed(2)})`}>
+            <rect x={-KEY_TAG / 2} y={-KEY_TAG / 2} width={KEY_TAG} height={KEY_TAG} rx={KEY_TAG_RX} fill={BACKDROP} />
+            <text textAnchor="middle" dominantBaseline="central" fontFamily={FONT} fontWeight="bold" fontSize={KEY_LETTER} fill={WHITE}>
+              {key}
+            </text>
+          </g>
+        )}
+      </g>
+    )
+  }
+
+  const renderAbility = (item: PlacedAbility) => {
+    const agent = agentOf(item.agent)
+    const color = UTILITY_COLORS[item.shape]
+    const icon = item.slot ? (agent?.abilities.find(a => a.slot === item.slot)?.icon ?? null) : null
+    const { at, path, flying, arc, badge } = abilityLayout(item)
+    const { r } = item
+    // Map-wide ultimates (KAY/O's NULL/cmd, Killjoy's Lockdown) keep their true
+    // size but only a faint wash, so they do not bury everything under them.
+    const huge = r > cmToView(HUGE_AREA_CM, map.transform, scene.view)
+    const fillOpacity = huge ? HUGE_FILL : item.shape === 'smoke' ? SMOKE_FILL : ABILITY_FILL
+    // The area is real size; its outline is a line and keeps its width on screen.
+    const filled = { fill: color, fillOpacity, stroke: color, strokeOpacity: ABILITY_RING, strokeWidth: RING_WIDTH * k }
+    const ring = { fill: 'none', stroke: color, strokeOpacity: ABILITY_RING, strokeWidth: OUTLINE_WIDTH * k }
+
+    // No area while in flight; a wall with a path is its line instead.
+    let shape: ReactNode = null
+    if (!flying && !path) {
+      switch (item.shape) {
+        case 'smoke':
+        case 'molly':
+        case 'slow':
+        case 'stun':
+          shape = <circle r={r} {...filled} />
+          break
+        case 'flash':
+          shape = <polygon points={burst(Math.max(r, BURST_MIN * k))} strokeLinejoin="round" {...filled} />
+          break
+        case 'wall': {
+          // Real length; the bar's thickness is a line width.
+          const length = Math.max(r * 2, WALL_BAR_MIN * k)
+          const thick = WALL_WIDTH * k
+          shape = <rect x={-length / 2} y={-thick / 2} width={length} height={thick} rx={thick / 2} {...filled} />
+          break
         }
-        break
-      case 'trap':
-        shape = <polygon points={diamond(Math.max(r, TRAP_MIN))} strokeLinejoin="round" {...filled} />
-        break
-      case 'drone': {
-        const h = Math.max(r * 0.8, DRONE_MIN)
-        shape = <rect x={-h} y={-h} width={h * 2} height={h * 2} rx={4} {...filled} />
-        break
+        case 'trap':
+          shape = <polygon points={diamond(Math.max(r, TRAP_MIN * k))} strokeLinejoin="round" {...filled} />
+          break
+        case 'drone': {
+          const h = Math.max(r * 0.8, DRONE_MIN * k)
+          shape = <rect x={-h} y={-h} width={h * 2} height={h * 2} rx={4 * k} {...filled} />
+          break
+        }
+        case 'recon':
+          shape = <circle r={r} {...ring} />
+          break
+        case 'ult':
+          shape = (
+            <>
+              <circle r={r} {...filled} strokeWidth={OUTLINE_WIDTH * k} />
+              <circle r={r * 0.7} {...ring} />
+            </>
+          )
+          break
+        default:
+          shape = <circle r={r} {...ring} strokeDasharray={`${k} ${9 * k}`} strokeLinecap="round" />
       }
-      case 'recon':
-        shape = <circle r={r} {...ring} />
-        break
-      case 'ult':
-        shape = (
-          <>
-            <circle r={r} {...filled} strokeWidth={OUTLINE_WIDTH} />
-            <circle r={r * 0.7} {...ring} />
-          </>
-        )
-        break
-      default:
-        shape = <circle r={r} {...ring} strokeDasharray="1 9" strokeLinecap="round" />
     }
 
     const name = abilityName(item, agent)
+    const note = item.label && item.label !== name ? `: ${item.label}` : ''
     return (
       <g
         key={item.id}
-        {...interactive(item.id, `${name}${item.agent ? ` (${item.agent})` : ''}${item.label ? `: ${item.label}` : ''}`)}
-        style={{ ...placement(item.x + dx, item.y + dy), cursor: elementCursor }}
+        {...interactive(item.id, `${name}${item.agent ? ` (${item.agent})` : ''}${note}`)}
+        style={{ cursor: elementCursor }}
       >
-        {item.from && item.shape !== 'wall' && (
-          <line
-            x1={fx}
-            y1={fy}
-            x2={0}
-            y2={0}
+        {shape && (
+          <g style={placement(at[0], at[1])}>
+            {/* Hit area: rings and small shapes are hard to grab. */}
+            <circle r={Math.max(item.shape === 'wall' ? 0 : abilityExtent(item, k), HIT_R * k)} fill="transparent" />
+            {shape}
+          </g>
+        )}
+        {arc && (
+          <path
+            d={arc.d}
+            fill="none"
             stroke={color}
-            strokeOpacity={ABILITY_RING}
-            strokeWidth={3}
-            strokeDasharray="10 8"
+            strokeWidth={ARC_WIDTH * k}
+            strokeDasharray={dashes(ARC_DASH)}
+            opacity={flying ? ARC_FLIGHT_OPACITY : ARC_OPACITY}
+            markerEnd={`url(#${throwHead(color)})`}
             pointerEvents="none"
           />
         )}
-        {/* Hit area: rings and small shapes are hard to grab. */}
-        <circle r={Math.max(item.shape === 'wall' ? 0 : abilityExtent(item), HIT_R)} fill="transparent" />
-        {shape}
-        {icon && (
-          <g pointerEvents="none">
-            <circle r={ICON_DISC} fill={BACKDROP} fillOpacity={0.85} />
-            <image
-              href={icon}
-              x={-ABILITY_ICON / 2}
-              y={-ABILITY_ICON / 2}
-              width={ABILITY_ICON}
-              height={ABILITY_ICON}
-              preserveAspectRatio="xMidYMid meet"
+        {path && (
+          <>
+            {/* Hit area: the whole wall grabs, not only its badge. */}
+            <polyline
+              points={pointsAttr(path)}
+              fill="none"
+              stroke="transparent"
+              strokeWidth={22 * k}
+              strokeLinecap="round"
+              strokeLinejoin="round"
             />
-          </g>
+            <polyline
+              points={pointsAttr(path)}
+              fill="none"
+              stroke={color}
+              strokeOpacity={WALL_LINE_OPACITY}
+              strokeWidth={WALL_LINE * k}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              pointerEvents="none"
+            />
+          </>
         )}
+        <g style={placement(badge[0], badge[1])}>
+          {!shape && <circle r={HIT_R * k} fill="transparent" />}
+          {badgeOf(item, color, icon)}
+        </g>
       </g>
     )
   }
@@ -1209,11 +1363,11 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
     const line = { x1: arrow.from[0] + fdx, y1: arrow.from[1] + fdy, x2: arrow.to[0] + tdx, y2: arrow.to[1] + tdy }
     return (
       <g key={arrow.id} {...interactive(arrow.id, 'Arrow')} style={{ cursor: elementCursor }}>
-        <line {...line} stroke="transparent" strokeWidth={24} strokeLinecap="round" />
+        <line {...line} stroke="transparent" strokeWidth={24 * k} strokeLinecap="round" />
         <line
           {...line}
           stroke={arrow.color}
-          strokeWidth={ARROW_WIDTH}
+          strokeWidth={ARROW_WIDTH * k}
           strokeLinecap="round"
           markerEnd={`url(#${arrowHead(arrow.color)})`}
           pointerEvents="none"
@@ -1234,7 +1388,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
         points={pointsAttr(points)}
         fill="none"
         stroke={color}
-        strokeWidth={PATH_WIDTH}
+        strokeWidth={PATH_WIDTH * k}
         strokeLinejoin="round"
         strokeLinecap="round"
         markerEnd={`url(#${arrowHead(color)})`}
@@ -1308,8 +1462,10 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
         {...interactive(marker.id, marker.label ? `${name}: ${marker.label}` : name)}
         style={{ ...placement(marker.x + dx, marker.y + dy), cursor: elementCursor }}
       >
-        {shape}
-        {smallLabel(marker.label, labelY)}
+        <g transform={sized}>
+          {shape}
+          {smallLabel(marker.label, labelY)}
+        </g>
       </g>
     )
   }
@@ -1332,21 +1488,23 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
         {...interactive(t.id, `Text: ${value}`)}
         style={{ ...placement(t.x + dx, t.y + dy), cursor: elementCursor }}
       >
-        <rect x={-w / 2} y={-TEXT_BOX_H / 2} width={w} height={TEXT_BOX_H} fill="transparent" />
-        {!(editing && editorText?.id === t.id) && (
-          <text
-            textAnchor="middle"
-            dominantBaseline="central"
-            fontFamily={FONT}
-            fontSize={TEXT_SIZE}
-            fontWeight={600}
-            fill={t.color}
-            pointerEvents="none"
-            {...HALO}
-          >
-            {value}
-          </text>
-        )}
+        <g transform={sized}>
+          <rect x={-w / 2} y={-TEXT_BOX_H / 2} width={w} height={TEXT_BOX_H} fill="transparent" />
+          {!(editing && editorText?.id === t.id) && (
+            <text
+              textAnchor="middle"
+              dominantBaseline="central"
+              fontFamily={FONT}
+              fontSize={TEXT_SIZE}
+              fontWeight={600}
+              fill={t.color}
+              pointerEvents="none"
+              {...HALO}
+            >
+              {value}
+            </text>
+          )}
+        </g>
       </g>
     )
   })
@@ -1375,7 +1533,10 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
 
   // ── Selection ───────────────────────────────────────────────────────────
 
+  /** A selection outline drawn at screen size about an origin already scaled by `k`. */
   const dashed = { fill: 'none', stroke: WHITE, strokeWidth: 3, strokeDasharray: '8 6' } as const
+  /** The same outline drawn in map units (around real-size things): its line and dashes keep their size on screen. */
+  const dashedMap = { fill: 'none', stroke: WHITE, strokeWidth: 3 * k, strokeDasharray: dashes('8 6') } as const
 
   const selection = (): ReactNode => {
     if (!selectedId) return null
@@ -1398,35 +1559,36 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
             fill="none"
             stroke={WHITE}
             strokeWidth={3}
+            transform={sized}
           />
         </g>
       )
     }
     const ability = scene.abilities.find(a => a.id === selectedId)
     if (ability) {
-      const [dx, dy] = offsetOf(ability.id)
-      if (ability.shape === 'wall' && ability.from) {
-        const fx = ability.from[0] - ability.x - dx
-        const fy = ability.from[1] - ability.y - dy
-        const pad = WALL_WIDTH / 2 + 6
-        const angle = (Math.atan2(fy, fx) * 180) / Math.PI
-        return (
-          <g key={`sel:${ability.id}`} pointerEvents="none" style={placement(ability.x + dx, ability.y + dy)}>
-            <rect
-              x={-pad}
-              y={-pad}
-              width={Math.hypot(fx, fy) + pad * 2}
-              height={pad * 2}
-              rx={pad}
-              transform={`rotate(${angle.toFixed(2)})`}
-              {...dashed}
-            />
-          </g>
-        )
-      }
+      const { at, from, path, flying, badge } = abilityLayout(ability)
+      // Round the area at the landing; round the badge alone in flight or on a wall's path.
+      const [cx, cy] = flying || path ? badge : at
       return (
-        <g key={`sel:${ability.id}`} pointerEvents="none" style={placement(ability.x + dx, ability.y + dy)}>
-          <circle r={abilityExtent(ability) + 8} {...dashed} />
+        <g key={`sel:${ability.id}`}>
+          <g pointerEvents="none" style={placement(cx, cy)}>
+            <circle r={abilityExtent(ability, k) + 8 * k} {...dashedMap} />
+          </g>
+          {from && (
+            // The hand: the select tool drags it to move `from`.
+            <circle
+              data-id={ability.id}
+              data-part="from"
+              cx={from[0]}
+              cy={from[1]}
+              r={FROM_HANDLE_R * k}
+              fill={BACKDROP}
+              stroke={WHITE}
+              strokeWidth={3 * k}
+              pointerEvents={selecting ? undefined : 'none'}
+              style={{ cursor: elementCursor }}
+            />
+          )}
         </g>
       )
     }
@@ -1437,7 +1599,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
       const r = marker.type === 'pin' ? PIN_R + 18 : marker.type === 'spike' ? SPIKE_R + 8 : ENEMY_R + 8
       return (
         <g key={`sel:${marker.id}`} pointerEvents="none" style={placement(marker.x + dx, marker.y + dy)}>
-          <circle cy={cy} r={r} {...dashed} />
+          <circle cy={cy} r={r} {...dashed} transform={sized} />
         </g>
       )
     }
@@ -1449,7 +1611,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
       const h = TEXT_BOX_H + 10
       return (
         <g key={`sel:${text.id}`} pointerEvents="none" style={placement(text.x + dx, text.y + dy)}>
-          <rect x={-w / 2} y={-h / 2} width={w} height={h} rx={8} {...dashed} />
+          <rect x={-w / 2} y={-h / 2} width={w} height={h} rx={8} {...dashed} transform={sized} />
         </g>
       )
     }
@@ -1458,7 +1620,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
       const [dx, dy] = offsetOf(pen.id)
       const xs = pen.points.map(p => p[0] + dx)
       const ys = pen.points.map(p => p[1] + dy)
-      const pad = 10
+      const pad = 10 * k
       const x0 = Math.min(...xs) - pad
       const y0 = Math.min(...ys) - pad
       return (
@@ -1468,9 +1630,9 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
           y={y0}
           width={Math.max(...xs) + pad - x0}
           height={Math.max(...ys) + pad - y0}
-          rx={8}
+          rx={8 * k}
           pointerEvents="none"
-          {...dashed}
+          {...dashedMap}
         />
       )
     }
@@ -1491,10 +1653,10 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
                 data-part={part}
                 cx={x + dx}
                 cy={y + dy}
-                r={HANDLE_R}
+                r={HANDLE_R * k}
                 fill={BACKDROP}
                 stroke={WHITE}
-                strokeWidth={3}
+                strokeWidth={3 * k}
                 pointerEvents={selecting ? undefined : 'none'}
                 style={{ cursor: elementCursor }}
               />
@@ -1513,22 +1675,26 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
     const ax = agent.x + dx
     const ay = agent.y + dy
     const note = truncate(agent.note, NOTE_MAX)
+    // Screen-size units about the agent (the group is scaled by `k`); the map edges in those units.
     const w = Math.max(agent.agent.length * 20 * 0.62, note.length * 18 * 0.54) + 28
     const h = note ? 64 : 38
     const gap = HALF + 12
-    const left = clamp(ax - w / 2, 8, VIEW_SIZE - 8 - w)
-    const top = ay + gap + h > VIEW_SIZE - 8 ? ay - gap - h : ay + gap
+    const edge = (n: number) => n / k
+    const x = clamp(-w / 2, edge(8 - ax), edge(VIEW_SIZE - 8 - ax) - w)
+    const y = gap + h > edge(VIEW_SIZE - 8 - ay) ? -gap - h : gap
     return (
       <g key={`label:${agent.id}`} style={placement(ax, ay, true, live?.id === agent.id)}>
-        <rect x={left - ax} y={top - ay} width={w} height={h} rx={10} fill="#111827" stroke="#242938" strokeWidth={1} />
-        <text x={left - ax + 14} y={top - ay + 26} fontFamily={FONT} fontSize={20} fontWeight={600} fill="#F1F5F9" {...HALO}>
-          {agent.agent}
-        </text>
-        {note && (
-          <text x={left - ax + 14} y={top - ay + 52} fontFamily={FONT} fontSize={18} fill="#94A3B8" {...HALO}>
-            {note}
+        <g transform={sized}>
+          <rect x={x} y={y} width={w} height={h} rx={10} fill="#111827" stroke="#242938" strokeWidth={1} />
+          <text x={x + 14} y={y + 26} fontFamily={FONT} fontSize={20} fontWeight={600} fill="#F1F5F9" {...HALO}>
+            {agent.agent}
           </text>
-        )}
+          {note && (
+            <text x={x + 14} y={y + 52} fontFamily={FONT} fontSize={18} fill="#94A3B8" {...HALO}>
+              {note}
+            </text>
+          )}
+        </g>
       </g>
     )
   }
@@ -1539,10 +1705,13 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
     for (const agent of scene.agents) if (shown.has(agent.id)) labels.push(agentLabel(agent))
     for (const ability of scene.abilities) {
       if (!shown.has(ability.id)) continue
-      const [dx, dy] = offsetOf(ability.id)
+      // Under the badge, wherever it stands.
+      const [bx, by] = abilityLayout(ability).badge
       labels.push(
-        <g key={`label:${ability.id}`} style={placement(ability.x + dx, ability.y + dy)}>
-          {smallLabel(abilityName(ability, agentOf(ability.agent)), abilityExtent(ability) + 10 + utilityLabel)}
+        <g key={`label:${ability.id}`} style={placement(bx, by)}>
+          <g transform={sized}>
+            {smallLabel(abilityName(ability, agentOf(ability.agent)), BADGE_R + BADGE_RING + 4 + utilityLabel)}
+          </g>
         </g>,
       )
     }
@@ -1554,13 +1723,13 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
   if (draft?.kind === 'pen') {
     draftLayer =
       draft.points.length === 1 ? (
-        <circle cx={draft.points[0][0]} cy={draft.points[0][1]} r={PEN_WIDTH / 2} fill={WHITE} />
+        <circle cx={draft.points[0][0]} cy={draft.points[0][1]} r={(PEN_WIDTH / 2) * k} fill={WHITE} />
       ) : (
         <polyline
           points={pointsAttr(draft.points)}
           fill="none"
           stroke={WHITE}
-          strokeWidth={PEN_WIDTH}
+          strokeWidth={PEN_WIDTH * k}
           strokeLinecap="round"
           strokeLinejoin="round"
         />
@@ -1573,7 +1742,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
         x2={draft.to[0]}
         y2={draft.to[1]}
         stroke={WHITE}
-        strokeWidth={ARROW_WIDTH}
+        strokeWidth={ARROW_WIDTH * k}
         strokeLinecap="round"
         markerEnd={`url(#${arrowHead(WHITE)})`}
       />
@@ -1590,48 +1759,51 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
     const h = 44
     const id = editorText.id
     editor = (
-      <foreignObject
-        x={editorText.x + dx - w / 2}
-        y={editorText.y + dy - h / 2}
-        width={w}
-        height={h}
-        // Until it is opened, the field waits unseen and lets presses through to the text, so it can be dragged.
-        style={{ pointerEvents: editing ? 'auto' : 'none', opacity: editing ? 1 : 0, overflow: 'visible' }}
-      >
-        <input
-          ref={inputRef}
-          value={value}
-          aria-label="Text"
-          tabIndex={editing ? 0 : -1}
-          onChange={e => setTextDraft({ id, value: e.target.value })}
-          onFocus={() => {
-            if (editingId !== id) startEditing(id)
-          }}
-          onBlur={commitText}
-          onKeyDown={e => {
-            if (e.key === 'Enter') {
-              e.preventDefault()
-              e.currentTarget.blur()
-            } else if (e.key === 'Escape') {
-              skipBlurRef.current = true
-              e.currentTarget.blur()
-            }
-          }}
-          style={{
-            width: '100%',
-            height: '100%',
-            boxSizing: 'border-box',
-            padding: '0 10px',
-            borderRadius: 8,
-            border: `2px solid ${ALLY}`,
-            background: 'rgba(11, 18, 32, 0.9)',
-            color: editorText.color,
-            font: `600 ${TEXT_SIZE}px ${FONT}`,
-            textAlign: 'center',
-            outline: 'none',
-          }}
-        />
-      </foreignObject>
+      // At screen size about the text, like the text it edits.
+      <g transform={`translate(${editorText.x + dx} ${editorText.y + dy})${sized ? ` ${sized}` : ''}`}>
+        <foreignObject
+          x={-w / 2}
+          y={-h / 2}
+          width={w}
+          height={h}
+          // Until it is opened, the field waits unseen and lets presses through to the text, so it can be dragged.
+          style={{ pointerEvents: editing ? 'auto' : 'none', opacity: editing ? 1 : 0, overflow: 'visible' }}
+        >
+          <input
+            ref={inputRef}
+            value={value}
+            aria-label="Text"
+            tabIndex={editing ? 0 : -1}
+            onChange={e => setTextDraft({ id, value: e.target.value })}
+            onFocus={() => {
+              if (editingId !== id) startEditing(id)
+            }}
+            onBlur={commitText}
+            onKeyDown={e => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                e.currentTarget.blur()
+              } else if (e.key === 'Escape') {
+                skipBlurRef.current = true
+                e.currentTarget.blur()
+              }
+            }}
+            style={{
+              width: '100%',
+              height: '100%',
+              boxSizing: 'border-box',
+              padding: '0 10px',
+              borderRadius: 8,
+              border: `2px solid ${ALLY}`,
+              background: 'rgba(11, 18, 32, 0.9)',
+              color: editorText.color,
+              font: `600 ${TEXT_SIZE}px ${FONT}`,
+              textAlign: 'center',
+              outline: 'none',
+            }}
+          />
+        </foreignObject>
+      </g>
     )
   }
 
@@ -1639,6 +1811,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
 
   const view = scene.view
   const imageSize = VIEW_SIZE / view.size
+  const throwColors = [...new Set(scene.abilities.filter(a => a.from).map(a => UTILITY_COLORS[a.shape]))]
   const counts = `${scene.agents.length} agent${scene.agents.length === 1 ? '' : 's'}, ${scene.abilities.length} abilit${
     scene.abilities.length === 1 ? 'y' : 'ies'
   }`
@@ -1682,6 +1855,10 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
           <clipPath id={tileClip}>
             <rect x={-HALF} y={-HALF} width={TILE} height={TILE} rx={TILE_RX} />
           </clipPath>
+          {/* The glyph inside a badge drawn about its own origin, held inside the ring. */}
+          <clipPath id={badgeClip}>
+            <circle r={BADGE_R - BADGE_RING / 2} />
+          </clipPath>
           <filter id={tint} colorInterpolationFilters="sRGB">
             <feColorMatrix type="matrix" values={LUMINANCE_MATRIX} />
             <feComponentTransfer>
@@ -1702,6 +1879,22 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
               markerHeight={3.5}
               markerUnits="strokeWidth"
               orient="auto-start-reverse"
+            >
+              <path d="M0,0L10,5L0,10Z" fill={color} />
+            </marker>
+          ))}
+          {/* Throw arcs' heads, one per shape colour (§2.10): the arc's opacity carries over to them. */}
+          {throwColors.map(color => (
+            <marker
+              key={color}
+              id={throwHead(color)}
+              viewBox="0 0 10 10"
+              refX={8}
+              refY={5}
+              markerWidth={5}
+              markerHeight={5}
+              markerUnits="strokeWidth"
+              orient="auto"
             >
               <path d="M0,0L10,5L0,10Z" fill={color} />
             </marker>
@@ -1733,10 +1926,11 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
             <g
               pointerEvents="none"
               fontFamily={FONT}
-              fontSize={calloutLabel}
+              fontSize={calloutLabel * k}
               fill={CALLOUT_COLOR}
               textAnchor="middle"
               {...HALO}
+              strokeWidth={HALO.strokeWidth * k}
             >
               {scene.callouts.map((c, i) => (
                 <text key={`${c.name}:${i}`} x={c.x} y={c.y} dominantBaseline="central">

@@ -105,6 +105,10 @@ export interface AbilityElement {
   radius?: number
   /** "Heaven smoke", "Flash over A Main". */
   label?: string
+  /** While in flight (a replay throw): how far along from `from` to `at` it is, 0…1. No area is drawn yet. */
+  progress?: number
+  /** A wall's extent: its points in order along the wall (at least 2); the canvas puts the badge at the path's middle. */
+  path?: PlayPos[]
 }
 
 export interface PenElement {
@@ -466,6 +470,10 @@ function parseElements(
         if (radius !== null && radius > 0) el.radius = radius
         const label = text(e.label)
         if (label) el.label = label
+        const progress = finite(e.progress)
+        if (progress !== null && progress >= 0 && progress <= 1) el.progress = progress
+        const path = list(e.path).map(parsePos).filter((pos): pos is PlayPos => pos !== null)
+        if (path.length >= 2) el.path = path
         elements.push(el)
         break
       }

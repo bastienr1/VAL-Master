@@ -158,7 +158,7 @@ test('a cast becomes its ability where its smoke stands, while the smoke is up',
   assert.equal(cast.length, 1)
   assert.deepEqual(
     { agent: cast[0].agent, slot: cast[0].slot, shape: cast[0].shape, radius: cast[0].radius, label: cast[0].label, at: cast[0].at },
-    { agent: 'Omen', slot: 'Ability2', shape: 'smoke', radius: 380, label: 'Dark Cover', at: { u: 0.65, v: 0.66 } },
+    { agent: 'Omen', slot: 'Ability2', shape: 'smoke', radius: 410, label: 'Dark Cover', at: { u: 0.65, v: 0.66 } },
   )
   // Carried while the smoke is up (to 70 s), gone after.
   assert.equal(abilities(doc.steps[2]).filter(a => a.slot !== null).length, 1)
