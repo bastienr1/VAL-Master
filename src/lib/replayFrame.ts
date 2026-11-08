@@ -265,6 +265,8 @@ function buildPlan(effects: ReplayEffect[]): EffectPlan {
       for (const l of own.landings) {
         const lands = effects[l].start
         if (lands < start) continue
+        // Labelled with different keys: another ability's landing (a Breach flash and his Aftershock).
+        if (info[p].slot && info[l].slot && info[p].slot !== info[l].slot) continue
         const gap = lands - end
         const nearEnd = gap >= -LAND_EARLY_MS && gap <= LAND_LATE_MS
         const whileAlive = lands >= start + MIN_FLIGHT_MS && lands <= end

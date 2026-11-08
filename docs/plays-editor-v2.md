@@ -444,6 +444,29 @@ differ between the two (`Projectile_Phoenix_4_Molotov…` lands as
 4 `Wall_Segment` actors. There are 68 effect classes in all; vrfkit's `kind`
 is coarse (Breach's flash is a "wall", Chamber's ult gun a "damage_zone").
 
+**Every ability, reducer 0.2.0** (2026-11-08): those 68 classes were only what
+vrfkit's `extract_active_effects.py` keeps, classes whose path names a smoke, a
+wall, a trap, fire, a drone… Sova's `ExplosiveBolt` and `SonarBolt`, Raze's
+grenades, KAY/O's knife, Fade's Haunt and Seize, Skye's hawk, Reyna's Leer
+and more matched none of those words, so their casts showed only as a badge on
+the thrower. `scripts/replay/vrf_to_minimap.py` (reducer 0.2.0) now also adds
+every `Projectile_` / `GameObject_` / `Zone_` / `Patch_` / `Pawn_` actor under
+`/Game/Characters/<agent>/` from the export's actor table (open paired with the
+next close, owner by `Instigator`, `kind` "other"), leaving the rest of the
+bundle byte-identical. The 68 bundles were rebuilt (all pass Gate 2; the old
+ones are kept in `<VAL_REPLAY_HOME>\backup-reducer-0.1.0`): 216 classes, all
+labelled. A throw pairs only with a landing labelled with the same key, so a
+Breach flash no longer takes his Aftershock's blast. Measured with the app's
+own pairing over every cast: Sova's Shock Bolt lands 328 of 328, Recon Bolt 424
+of 427, Raze's Paint Shells 499 of 500, Fade's Haunt 762 of 767, KAY/O's
+ZERO/point 193 of 193, Reyna's Leer 777 of 777. Still drawn as a badge on the
+thrower, because the replay records no actor where they end: flashes that pop
+in the air (KAY/O, Breach, Phoenix, Omen's Paranoia, Yoru, Hush), KAY/O's frag,
+Raze's rocket, Iso's Undercut, and self-casts (dashes, Reyna, Neon, Chamber's
+guns). The app's bundles in Storage update on the next Match Library visit with
+the replay folder linked (each rebuilt bundle is larger, which triggers the
+re-attach).
+
 **Class table** (`src/lib/utilityClasses.ts`, pure, tested): every effect class
 seen in the bundles, hand-labelled:
 
@@ -681,6 +704,11 @@ grows with the map (51 px across at 100 %, 309 px at 600 %) while the Phoenix
 tile stays 32 px and the Q badge 19 px, so the badge and arc sit on top of the
 fire instead of being covered by tiles. At 100 % the 85 elements of the round
 render identically to the previous commit.
+
+Every ability (2026-11-08): the rebuilt Abyss bundle of 2026-11-02 attached
+in the signed-in app; your Sova's round 1 Shock Bolt flies along its arc and
+lands 29 m away at A Site as a 4 m blast, where before only a badge sat on
+Sova.
 
 Names (2026-11-08): on the same Pearl match in the signed-in app, all 10
 players got their Riot names from Henrik (all 10 PUUIDs match, also checked
