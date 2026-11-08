@@ -2,7 +2,7 @@ import { useSyncExternalStore } from 'react'
 import { Bomb } from 'lucide-react'
 import type { CanvasSkin } from '../../lib/canvasSkins'
 import type { PlayStep } from '../../lib/playDoc'
-import { rosterOf, utilityUp, type RosterPlayer, type RosterRow } from '../../lib/replayPanels'
+import { rosterOf, type RosterPlayer, type RosterRow } from '../../lib/replayPanels'
 import type { ValueStore } from '../../lib/valueStore'
 import AgentIcon from './AgentIcon'
 
@@ -45,33 +45,5 @@ export function ReplayRoster({ frames, players, skin }: { frames: Frames; player
       <Team title="Your team" color={skin.ally} rows={rows.filter(r => r.team === 'ally')} />
       <Team title="Enemy" color={skin.enemy} rows={rows.filter(r => r.team === 'enemy')} />
     </div>
-  )
-}
-
-/** Analyst layout's right panel (§2.12): the utility up now, each with the time it has left. */
-export function UtilityNow({ frames, skin }: { frames: Frames; skin: CanvasSkin }) {
-  const frame = useSyncExternalStore(frames.subscribe, frames.get)
-  const rows = utilityUp(frame?.step)
-  return (
-    <section className="p-4 space-y-3">
-      <h2 className={heading}>Utility up now</h2>
-      {rows.length === 0 ? (
-        <p className="text-sm text-text-secondary">Nothing is up at this moment.</p>
-      ) : (
-        <ul className="space-y-2.5">
-          {rows.map(u => (
-            <li key={u.id}>
-              <div className="flex items-baseline justify-between gap-2 text-sm">
-                <span className="truncate text-text-primary">{u.name}</span>
-                <span className="shrink-0 text-xs text-text-secondary">{u.agent}</span>
-              </div>
-              <div className="mt-1 h-1 rounded-full bg-bg-primary overflow-hidden">
-                <div className="h-full rounded-full" style={{ width: `${Math.round(u.life * 100)}%`, backgroundColor: skin.utility[u.shape] }} />
-              </div>
-            </li>
-          ))}
-        </ul>
-      )}
-    </section>
   )
 }

@@ -570,11 +570,17 @@ value falls back on the default.
 Picked in the toolbar and remembered per device (`plays.layout`).
 
 **Analyst** is the base. With a replay open: the rail, a roster of both teams
-(who is alive, Riot names, the spike carrier), the map, a right panel with
-**Utility** (everything up now, longest time left first) and **Step** tabs,
-and the transport along the bottom. The agent strip is hidden while the replay
+(who is alive, Riot names, the spike carrier), the map, the VOD review's replay
+panel on the right (`ReplayRoundPanel.tsx`: the round and score, the layer
+toggles, every round to jump to, the round's kills, each jumping to 2 s before
+it), and the transport along the bottom, which leaves the round chips to the
+panel while it is open. The layers are the VOD review's own choice
+(`replayLayers.ts`): View and Trails are drawn from the tracks
+(`replayMotion.ts`), Utility and Pawns hide abilities without taking them out
+of the step, so an edit or a capture keeps them, and My side off keeps
+attackers at the bottom. The agent strip is hidden while the replay
 view is on and comes back in the steps view. With no replay it is the rail, the
-map, the Step panel and the agent strip. Roster and utility read the frame store
+map, the Step panel and the agent strip. The roster reads the frame store
 (`replayPanels.ts`, pure, tested), so a playing match does not re-render the
 page. Utility that never closed counts down to the end of the round.
 
@@ -781,6 +787,12 @@ Every ability (2026-11-08): the rebuilt Abyss bundle of 2026-11-02 attached
 in the signed-in app; your Sova's round 1 Shock Bolt flies along its arc and
 lands 29 m away at A Site as a 4 m blast, where before only a badge sat on
 Sova.
+
+Replay panel (2026-11-08): on the Abyss replay at 1600 x 1000, R1 showed
+"attacker 0-0 +20.9 s" and its kills; View took the 8 cones off and on, Utility
+the 7 abilities, Trails added 8 paths; My side off turned the map 180 degrees on
+a defense round (R13); a kill row jumped to 2 s before it and a round cell to
+its barrier.
 
 Composer removed (2026-11-08): a new play shows no brief, Compose, Start blank
 or assumptions; the replay flow and the Step tab work as before. The `plays`

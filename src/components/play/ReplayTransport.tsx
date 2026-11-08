@@ -19,6 +19,8 @@ interface ReplayTransportProps {
   bundle: ReplayBundle
   /** Where the replay is, written a few times a second while the match plays; null before the first jump. */
   clock: ValueStore<ReplayClock | null>
+  /** False while the replay panel lists the rounds. */
+  showRounds?: boolean
   /** Floating over the map in Theatre mode: no border, no average line. */
   floating?: boolean
   /** The canvas skin's team colours, for the track and the share readout. */
@@ -161,6 +163,7 @@ export default function ReplayTransport(props: ReplayTransportProps) {
   return (
     <div className={props.floating ? '' : 'shrink-0 border-t border-bg-elevated bg-bg-secondary'}>
       <div className="h-14 flex items-center gap-3 px-3 min-w-0 overflow-x-auto">
+        {props.showRounds !== false && (
         <div
           ref={chips}
           role="group"
@@ -191,6 +194,7 @@ export default function ReplayTransport(props: ReplayTransportProps) {
             </button>
           ))}
         </div>
+        )}
 
         <button
           type="button"
