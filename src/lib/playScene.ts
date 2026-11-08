@@ -238,14 +238,15 @@ export const AGENT_SPREAD_RADIUS = 26
  * two or more evenly on a circle about its centroid, in element order from
  * the top (the comp's order in a template or a blank play). A path's first
  * point moves with its agent, so the arrow leaves the tile that is visible.
- * Mutates the placed agents.
+ * Both distances are multiplied by `markerScale` (tiles keep their size on
+ * screen as the canvas zooms, §2.2). Mutates the placed agents.
  */
-function spreadCrowds(actors: PlacedAgent[]) {
+function spreadCrowds(actors: PlacedAgent[], markerScale: number) {
   const parent = actors.map((_, i) => i)
   const root = (i: number): number => (parent[i] === i ? i : (parent[i] = root(parent[i])))
   for (let i = 0; i < actors.length; i++) {
     for (let j = i + 1; j < actors.length; j++) {
-      if (Math.hypot(actors[i].x - actors[j].x, actors[i].y - actors[j].y) < AGENT_CROWD_DISTANCE) {
+      if (Math.hypot(actors[i].x - actors[j].x, actors[i].y - actors[j].y) < AGENT_CROWD_DISTANCE * markerScale) {
         parent[root(i)] = root(j)
       }
     }
@@ -264,8 +265,8 @@ function spreadCrowds(actors: PlacedAgent[]) {
     const cy = group.reduce((sum, a) => sum + a.y, 0) / group.length
     group.forEach((actor, i) => {
       const angle = -Math.PI / 2 + (i * 2 * Math.PI) / group.length
-      actor.x = cx + Math.cos(angle) * AGENT_SPREAD_RADIUS
-      actor.y = cy + Math.sin(angle) * AGENT_SPREAD_RADIUS
+      actor.x = cx + Math.cos(angle) * AGENT_SPREAD_RADIUS * markerScale
+      actor.y = cy + Math.sin(angle) * AGENT_SPREAD_RADIUS * markerScale
       if (actor.path) actor.path[0] = [actor.x, actor.y]
     })
   }
@@ -320,9 +321,17 @@ export function sceneTurns(map: SceneMap, side: PlaySceneSide): QuarterTurns {
  * its callout name reported in `unresolved` (an arrow needs both ends); so is
  * a `toward` that does not resolve, although the point then still stands on
  * its first callout. Pen points are image units and always place. No step
- * gives the map alone.
+ * gives the map alone. `markerScale` is the canvas' `1 / zoom` (§2.2
+ * "Constant-size markers"): the crowd spread and the smallest area radius
+ * are multiplied by it, so they keep their size on screen; at 1 nothing
+ * changes.
  */
-export function sceneForStep(step: PlayStep | null | undefined, map: SceneMap, side: PlaySceneSide): StepScene {
+export function sceneForStep(
+  step: PlayStep | null | undefined,
+  map: SceneMap,
+  side: PlaySceneSide,
+  markerScale = 1,
+): StepScene {
   const view = sceneViewport(map)
   const turns = sceneTurns(map, side)
   const scene: StepScene = {
@@ -401,7 +410,7 @@ export function sceneForStep(step: PlayStep | null | undefined, map: SceneMap, s
           label: el.label ?? '',
           x: at[0],
           y: at[1],
-          r: Math.max(MIN_UTILITY_RADIUS, cmToView(cm, map.transform, view)),
+          r: Math.max(MIN_UTILITY_RADIUS * markerScale, cmToView(cm, map.transform, view)),
           from,
           progress,
           path: path.length >= 2 ? path : null,
@@ -436,7 +445,7 @@ export function sceneForStep(step: PlayStep | null | undefined, map: SceneMap, s
     }
   }
 
-  spreadCrowds(scene.agents)
+  spreadCrowds(scene.agents, markerScale)
   return scene
 }
 
@@ -555,22 +564,25 @@ function imagePoint(pos: PlayPos, map: SceneMap): Point | null {
  * nothing. "Somewhere else" is read from the positions as written, before the
  * crowd spread, so an agent that stayed put does not leave a ghost just
  * because a neighbour walked away. `before` is `previous` already placed, when
- * the caller has it.
+ * the caller has it; otherwise it is placed with `markerScale` (see
+ * `sceneForStep`).
  */
 export function ghostAgents(
   previous: PlayStep | null | undefined,
   step: PlayStep | null | undefined,
   map: SceneMap,
   side: PlaySceneSide,
-  before: StepScene = sceneForStep(previous, map, side),
+  before?: StepScene,
+  markerScale = 1,
 ): PlacedAgent[] {
   if (!previous || !step) return []
+  const placed = before ?? sceneForStep(previous, map, side, markerScale)
   const now = new Map<string, Point | null>()
   for (const el of step.elements) if (el.kind === 'agent') now.set(el.id, imagePoint(el.at, map))
   const then = new Map<string, Point | null>()
   for (const el of previous.elements) if (el.kind === 'agent') then.set(el.id, imagePoint(el.at, map))
 
-  return before.agents.filter(agent => {
+  return placed.agents.filter(agent => {
     const a = then.get(agent.id)
     const b = now.get(agent.id)
     return a != null && b != null && Math.hypot(a[0] - b[0], a[1] - b[1]) > SAME_PLACE

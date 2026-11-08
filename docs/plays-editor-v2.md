@@ -139,9 +139,19 @@ at the canvas' top-right (−, the percentage, +, and a reset button that
 appears when zoomed) do the same about the centre. When zoomed, dragging the
 empty map with the Select tool pans, as does a middle-button drag or a drag
 with Space held under any tool; the view is clamped to the map. Zoom is view
-state only (never saved; reset when the map changes). Marker and label sizes
-are in viewBox units, so they grow with the zoom; the label-hiding rule uses
-the rendered width times the zoom.
+state only (never saved; reset when the map changes).
+
+**Constant-size markers** (2026-11-08): things with a real size on the map
+keep scaling with the zoom: utility areas, wall extents, the map control
+overlay, the map art. Everything symbolic stays the same size on screen at any
+zoom: agent tiles and their rings, ability badges and key tags, markers,
+labels (callouts, agents, abilities, text elements), the widths of throw
+arcs, arrows, pen strokes and wall lines, arrowheads, selection rings,
+handles, ghosts. Implemented as a factor `k = 1 / zoom` applied to those
+sizes; the crowd spread of coincident agents uses `k` too, so stacked agents
+stay readable when zoomed. At 100 % nothing changes. The label-hiding rule
+uses the rendered width as before (labels no longer grow, so they no longer
+need the zoom in that rule).
 
 ### 2.3 Agent strip (`src/components/play/AgentStrip.tsx`)
 
@@ -652,6 +662,13 @@ mid-throw keeps the throw as landed. Checked in the signed-in app on the
 Pearl match of 2026-05-22, round 1: Phoenix's Hot Hands flies along a faint
 orange arc, lands as a 4.5 m fire at B Site with a red-ringed Q badge, and the
 arc drops 3 s later.
+
+Constant-size markers (2026-11-08): measured at 100 %, 300 % and 600 % in the
+signed-in app on the same Pearl round 1, 0.5 s after the molly lands. The fire
+grows with the map (51 px across at 100 %, 309 px at 600 %) while the Phoenix
+tile stays 32 px and the Q badge 19 px, so the badge and arc sit on top of the
+fire instead of being covered by tiles. At 100 % the 85 elements of the round
+render identically to the previous commit.
 
 Not yet verified: the phone layout, touch input and pinch zoom on a real
 touch screen.

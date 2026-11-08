@@ -593,3 +593,42 @@ test('throwOrigin copies the agent position when it stands more than 3 m from th
   const crowdScene = sceneForStep(crowd, MAP, 'attack')
   assert.equal(throwOrigin(crowd, 'Sova', [mx + threshold - 1, my], MAP, crowdScene), null)
 })
+
+// ── Constant-size markers (§2.2) ────────────────────────────────────────────
+
+test('markerScale shrinks the crowd spread and the area floor with the zoom, and 1 changes nothing', () => {
+  const flat: SceneMap = { transform: null, callouts: [] }
+  const crowd = stepOf(
+    agent('Jett', { u: 0.5, v: 0.5 }),
+    agent('Omen', { u: 0.5, v: 0.5 }),
+    ability('flash', { u: 0.2, v: 0.2 }, { radius: 1 }),
+    ability('smoke', { u: 0.3, v: 0.3 }),
+  )
+  assert.deepEqual(sceneForStep(crowd, flat, 'attack', 1), sceneForStep(crowd, flat, 'attack'))
+  const k = 1 / 6
+  const zoomed = sceneForStep(crowd, flat, 'attack', k)
+  close(zoomed.agents[0].y, 500 - AGENT_SPREAD_RADIUS * k)
+  close(zoomed.agents[1].y, 500 + AGENT_SPREAD_RADIUS * k)
+  const [flash, smoke] = zoomed.abilities
+  close(flash.r, MIN_UTILITY_RADIUS * k)
+  // A real-size area does not change with the zoom.
+  assert.equal(smoke.r, sceneForStep(crowd, flat, 'attack').abilities[1].r)
+})
+
+test('markerScale lets agents a tile apart at 100 % stand unspread when zoomed', () => {
+  const flat: SceneMap = { transform: null, callouts: [] }
+  // 30 units apart: closer than a tile (44) at 100 %, well apart at 300 %.
+  const step = stepOf(agent('Jett', { u: 0.5, v: 0.5 }), agent('Omen', { u: 0.53, v: 0.5 }))
+  const near = sceneForStep(step, flat, 'attack')
+  assert.notDeepEqual(near.agents.map(a => [a.x, a.y]), [[500, 500], [530, 500]])
+  const far = sceneForStep(step, flat, 'attack', 1 / 3)
+  assert.deepEqual(far.agents.map(a => [a.x, a.y]), [[500, 500], [530, 500]])
+})
+
+test('ghostAgents places the previous step with markerScale when not given it', () => {
+  const before = stepOf(agent('Jett', { u: 0.5, v: 0.5 }), agent('Omen', { u: 0.5, v: 0.5 }))
+  const after = stepOf(agent('Jett', { u: 0.5, v: 0.5 }), agent('Omen', { u: 0.8, v: 0.5 }))
+  const flat: SceneMap = { transform: null, callouts: [] }
+  const ghosts = ghostAgents(before, after, flat, 'attack', undefined, 0.5)
+  close(ghosts[0].y, 500 + AGENT_SPREAD_RADIUS * 0.5)
+})
