@@ -14,6 +14,7 @@ import {
   roundSpan,
   roundTicks,
   throwPairs,
+  trackAt,
   type ReplayAgentInfo,
   type ReplayAgentLookup,
 } from './replayFrame.ts'
@@ -365,6 +366,80 @@ test('a throw never pairs with the landing of another key, and Sova\'s Shock Bol
   assert.equal(bolt[0].id, ids.forEffect(3))
   assert.deepEqual({ slot: bolt[0].slot, shape: bolt[0].shape, radius: bolt[0].radius }, { slot: 'Ability1', shape: 'molly', radius: 400 })
   nearPos(bolt[0].from, 0.6, 0.6, 'from')
+})
+
+test('trackAt interpolates between samples and holds the ends', () => {
+  const track: [number, number, number][] = [[100, 0, 0], [200, 1000, 0], [400, 1000, 2000]]
+  assert.deepEqual(trackAt(track, 50), [0, 0])
+  assert.deepEqual(trackAt(track, 150), [500, 0])
+  assert.deepEqual(trackAt(track, 300), [1000, 1000])
+  assert.deepEqual(trackAt(track, 900), [1000, 2000])
+})
+
+test('a wall built point by point grows with its points, the badge halfway, and counts down its life', () => {
+  const bundle = utilityFixture()
+  bundle.casts = []
+  bundle.effects = [
+    {
+      start: 60000, end: 80000, kind: 'other', agent: 'Mage', cls: 'GameObject_Mage_Q_WallManager_C', x: 0, y: 0, owner: SOVA,
+      points: [[60300, 0, 0], [60500, 1000, 0], [60700, 2000, 0]],
+    },
+  ]
+  const ids = createFrameIds()
+  const wall = (t: number) => abilities(frameStep(bundle, t, lookup, T, ids))[0]
+  // One point so far: no line yet, the badge where the wall starts.
+  const early = wall(60400)
+  assert.equal(early.path, undefined)
+  nearPos(early.at, 0.5, 0.5, 'early at')
+  const growing = wall(60600)
+  assert.equal(growing.path?.length, 2)
+  near(growing.life, 0.97, 'life')
+  const built = wall(61000)
+  assert.equal(built.path?.length, 3)
+  nearPos(built.at, 0.5, 0.6, 'badge halfway')
+  assert.equal(built.shape, 'wall')
+  near(wall(70000).life, 0.5, 'life halfway')
+  assert.equal(abilities(frameStep(bundle, 80500, lookup, T, ids)).length, 0)
+})
+
+test('Neon\'s Fast Lane is drawn along its runner\'s track', () => {
+  const bundle = utilityFixture()
+  bundle.casts = []
+  bundle.effects = [
+    { start: 60000, end: 66000, kind: 'other', agent: 'Sprinter', cls: 'GameObject_Sprinter_4_Tunnel_C', x: 0, y: 0, owner: JETT },
+    {
+      start: 60000, end: 60400, kind: 'other', agent: 'Sprinter', cls: 'Projectile_Neon_C_Tunnel_Cosmetic_C', x: 0, y: 0, owner: JETT,
+      track: [[60000, 0, 0], [60200, 1000, 0], [60400, 2000, 0]],
+    },
+  ]
+  const lane = abilities(frameStep(bundle, 61000, lookup, T, createFrameIds()))
+  // The runner itself is never drawn.
+  assert.equal(lane.length, 1)
+  assert.equal(lane[0].path?.length, 3)
+  nearPos(lane[0].at, 0.5, 0.6, 'badge halfway')
+})
+
+test('a flash with no landing rides its own track, then shows where it popped for a second', () => {
+  const bundle = utilityFixture()
+  bundle.casts = []
+  bundle.effects = [
+    {
+      start: 50000, end: 51000, kind: 'other', agent: 'Grenadier', cls: 'Projectile_C_Grenadier_Flash_C', x: 0, y: 0, owner: JETT,
+      track: [[50000, 0, 0], [50500, 1000, 0], [51000, 2000, 0]],
+    },
+  ]
+  const ids = createFrameIds()
+  const flash = (t: number) => abilities(frameStep(bundle, t, lookup, T, ids))
+  const flying = flash(50250)[0]
+  assert.equal(flying.id, ids.forEffect(0))
+  assert.equal(flying.shape, 'flash')
+  nearPos(flying.at, 0.5, 0.55, 'in flight')
+  nearPos(flying.from, 0.5, 0.5, 'from')
+  assert.equal(flying.progress, 1)
+  const popped = flash(51500)[0]
+  nearPos(popped.at, 0.5, 0.7, 'popped')
+  assert.equal(popped.progress, undefined)
+  assert.equal(flash(52100).length, 0)
 })
 
 test('four wall segments are one ability with a path along the wall, the badge halfway', () => {

@@ -467,6 +467,26 @@ guns). The app's bundles in Storage update on the next Match Library visit with
 the replay folder linked (each rebuilt bundle is larger, which triggers the
 re-attach).
 
+**Walls, flights and time left, reducer 0.3.0** (2026-11-08): effects may carry
+`points` and `track`, both `[t, x, y]` rows inside the effect's life.
+`points` are what a wall's manager adds as the wall forms: Harbor's High Tide
+(`MulticastAddAnchor`, 8–16 points over ~1.6 s), Viper's Toxic Screen and
+Phoenix's Blaze (`MulticastAddSmokeScreenPoint`). `track` is a projectile's or
+a pawn's replicated movement, a sample per 100 ms at most and the last one
+kept. Over the 68 rebuilt bundles: 70 of 70 High Tides, 58 of 58 Toxic
+Screens and 240 of 240 Blazes have their shape; 12,405 of 15,163 projectiles
+have a track. Neon's tunnel points are an RPC vrfkit does not decode, so Fast
+Lane is drawn along its runner's track (`traces` in the class table: the
+cosmetic runner covers the lane's 24–35 m in ~0.4 s).
+
+On the board: a wall is the part of its line already built, the badge halfway
+along it, growing point by point, until the wall closes. A projectile with no
+landing actor (a flash that pops in the air, a missile) rides its own track,
+then shows where it ended for 1 s. A pawn (a drone, a bot) stands where its
+track has it. Every replay utility with an end carries `life` (1…0) and the
+badge draws it as a ring in the utility's colour, emptying clockwise from the
+top; a captured step keeps neither `life` nor `progress`.
+
 **Class table** (`src/lib/utilityClasses.ts`, pure, tested): every effect class
 seen in the bundles, hand-labelled:
 
@@ -709,6 +729,11 @@ Every ability (2026-11-08): the rebuilt Abyss bundle of 2026-11-02 attached
 in the signed-in app; your Sova's round 1 Shock Bolt flies along its arc and
 lands 29 m away at A Site as a 4 m blast, where before only a badge sat on
 Sova.
+
+Walls (2026-11-08): the 0.3.0 Abyss bundle attached in the signed-in app;
+round 1's High Tide had 4 of its 12 points at 62.6 s, all 12 from 64.5 s
+along its curve from A Security through A Site, the ring at 97 %, 87 % and
+17 % (78 s), and was gone after 81.3 s, when the wall closed.
 
 Names (2026-11-08): on the same Pearl match in the signed-in app, all 10
 players got their Riot names from Henrik (all 10 PUUIDs match, also checked

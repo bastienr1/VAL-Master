@@ -89,6 +89,14 @@ export interface ReplayEffect {
   x: number
   y: number
   owner: string | null
+  /**
+   * Reducer 0.3.0: what a wall is built of, each point as the game added it,
+   * as [t, x, y] (Harbor's High Tide, Viper's Toxic Screen, Phoenix's Blaze,
+   * Neon's Fast Lane).
+   */
+  points?: Array<[number, number, number]>
+  /** Reducer 0.3.0: where a projectile or a pawn went, [t, x, y] at most every 100 ms, the last one kept. */
+  track?: Array<[number, number, number]>
 }
 
 export interface ReplaySpike {
