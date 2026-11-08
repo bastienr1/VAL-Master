@@ -7,8 +7,10 @@ import AgentStrip, { type AgentRole } from '../components/play/AgentStrip'
 import { SplitterHandle, useSplitter } from '../components/ColumnSplitter'
 import BriefDrawer, { type ComposeFailure } from '../components/play/BriefDrawer'
 import EditorRail from '../components/play/EditorRail'
-import EditorToolbar from '../components/play/EditorToolbar'
+import EditorToolbar, { type PlayLayout } from '../components/play/EditorToolbar'
 import PlaybookPanel from '../components/play/PlaybookPanel'
+import { ReplayRoster, UtilityNow } from '../components/play/ReplayPanels'
+import TheatreChrome from '../components/play/TheatreChrome'
 import ReplayTransport, { type ReplayClock, type ReplayView } from '../components/play/ReplayTransport'
 import { useGameContent, useGameContentNames } from '../hooks/useGameContent'
 import { useMediaQuery } from '../hooks/useMediaQuery'
@@ -61,6 +63,8 @@ import { getReplayBundle } from '../lib/replays'
 import { fetchPlayerNames } from '../lib/replayNames'
 import type { ReplayPlay } from '../lib/replayToPlay'
 import type { PlaySide } from '../lib/types'
+import { formatTime } from '../lib/youtube'
+import type { RosterPlayer } from '../lib/replayPanels'
 import { createValueStore, type ValueStore } from '../lib/valueStore'
 
 /** A boolean kept per device; the fallback when storage is blocked or empty. */
@@ -70,6 +74,27 @@ function readFlag(key: string, fallback: boolean): boolean {
     return raw === null ? fallback : raw === 'true'
   } catch {
     return fallback
+  }
+}
+
+const LAYOUT_KEY = 'plays.layout'
+/** The guide's column in the Study layout. */
+const STUDY_PLAYBOOK_WIDTH = 'min(42vw, 760px)'
+
+/** The layout picked on this device; Analyst is the base. */
+function readLayout(): PlayLayout {
+  try {
+    return localStorage.getItem(LAYOUT_KEY) === 'study' ? 'study' : 'analyst'
+  } catch {
+    return 'analyst'
+  }
+}
+
+function writeLayout(layout: PlayLayout) {
+  try {
+    localStorage.setItem(LAYOUT_KEY, layout)
+  } catch {
+    /* a layout is not worth an error */
   }
 }
 
@@ -412,6 +437,18 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
   const [popoverAgent, setPopoverAgent] = useState<string | null>(null)
   const [drawerOpen, setDrawerOpen] = useState(!loadId)
   const [playbookOpen, setPlaybookOpen] = useState(readPlaybookOpen)
+  // The page's layout (§2.12), remembered per device; Theatre goes over it, for the visit only.
+  const [layout, setLayoutState] = useState<PlayLayout>(readLayout)
+  const setLayout = (next: PlayLayout) => {
+    writeLayout(next)
+    setLayoutState(next)
+  }
+  const [theatre, setTheatre] = useState(false)
+  const study = layout === 'study' && !theatre
+  const showPlaybook = !theatre && (study || playbookOpen)
+  const showDrawer = !theatre && !study && drawerOpen
+  /** What the right panel shows while a replay plays. */
+  const [drawerTab, setDrawerTab] = useState<'utility' | 'brief'>('utility')
   // On by default, saved plays included: the callout names are how a play is read. Remembered per device.
   const [showCallouts, setShowCalloutsState] = useState(() => readFlag('plays.showCallouts', true))
   const setShowCallouts = (next: boolean | ((prev: boolean) => boolean)) =>
@@ -496,14 +533,14 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
   const editorGrid = useRef<HTMLDivElement>(null)
   const playbookRoom = useCallback(() => {
     const grid = editorGrid.current
-    if (!grid || !isLg || !playbookOpen) return Number.POSITIVE_INFINITY
-    return grid.clientWidth - columnWidth(grid, 'rail') - (drawerOpen ? columnWidth(grid, 'drawer') : 0)
-  }, [isLg, playbookOpen, drawerOpen])
+    if (!grid || !isLg || !showPlaybook) return Number.POSITIVE_INFINITY
+    return grid.clientWidth - columnWidth(grid, 'rail') - (showDrawer ? columnWidth(grid, 'drawer') : 0)
+  }, [isLg, showPlaybook, showDrawer])
   const drawerRoom = useCallback(() => {
     const grid = editorGrid.current
-    if (!grid || !isLg || !drawerOpen) return Number.POSITIVE_INFINITY
-    return grid.clientWidth - columnWidth(grid, 'rail') - (playbookOpen ? columnWidth(grid, 'playbook') : 0)
-  }, [isLg, playbookOpen, drawerOpen])
+    if (!grid || !isLg || !showDrawer) return Number.POSITIVE_INFINITY
+    return grid.clientWidth - columnWidth(grid, 'rail') - (showPlaybook ? columnWidth(grid, 'playbook') : 0)
+  }, [isLg, showPlaybook, showDrawer])
   const playbookSplit = useSplitter({
     initialWidth: 400,
     minWidth: 280,
@@ -524,8 +561,8 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
     available: drawerRoom,
     label: 'Resize the brief',
   })
-  const playbookSized = isLg && playbookOpen
-  const drawerSized = isLg && drawerOpen
+  const playbookSized = isLg && showPlaybook && !study
+  const drawerSized = isLg && showDrawer
 
   const doc = history.present
   const map = mapPick || (loadId ? '' : (mapNames[0] ?? ''))
@@ -735,6 +772,19 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
     if (!step || stepCount >= MAX_STEPS) return
     const at = stepAt + 1
     const added = copyStep(step, STEP_NAMES[side][at] ?? `Step ${at + 1}`)
+    commitWith(d => ({ ...d, steps: [...d.steps.slice(0, at), added, ...d.steps.slice(at)] }))
+    setPlaying(false)
+    setStepIndex(at)
+  }
+
+  /** The Study layout's button: a new step after this one, named after the guide's chapter. */
+  const newStepAtChapter = (title: string, seconds: number) => {
+    if (!step || stepCount >= MAX_STEPS) {
+      setToast(`A play holds at most ${MAX_STEPS} steps`)
+      return
+    }
+    const at = stepAt + 1
+    const added = { ...copyStep(step, truncate(title, 40)), caption: `Guide ${formatTime(seconds)}: ${title}` }
     commitWith(d => ({ ...d, steps: [...d.steps.slice(0, at), added, ...d.steps.slice(at)] }))
     setPlaying(false)
     setStepIndex(at)
@@ -1045,6 +1095,8 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
     if (title === UNTITLED) setTitle(truncate(`${mapName ?? 'Match'} · ${bundle.match.recordedAt.slice(0, 10)} · from replay`, TITLE_MAX))
     setReplay(open)
     setReplayLink(matchId)
+    setDrawerOpen(true)
+    setDrawerTab('utility')
     setReplayPlaying(false)
     setPlaying(false)
     setLive(null)
@@ -1249,9 +1301,12 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
       }
       if (e.altKey) return
       if (e.key === 'Escape') {
+        if (theatre && !selectedId && !pending && !popoverAgent) setTheatre(false)
         setPending(null)
         setSelectedId(null)
         setPopoverAgent(null)
+      } else if (key === 'f') {
+        setTheatre(t => !t)
       } else if (key === 'k') {
         const next = nextCanvasSkin(skinId, e.shiftKey ? -1 : 1)
         setSkinId(next)
@@ -1358,10 +1413,54 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
     )
   }
 
+  /** The match's players for the roster; read each render, as the Riot names land after the bundle. */
+  const rosterPlayers = (): RosterPlayer[] =>
+    replay
+      ? replay.bundle.players.map(p => {
+          const playerName = replay.players.get(p.subject)
+          return {
+            subject: p.subject,
+            elementId: replay.ids.forSubject(p.subject),
+            agent: replay.nameOf(p.subject),
+            team: p.team === 'ALLY' ? ('ally' as const) : ('enemy' as const),
+            ...(playerName ? { playerName } : {}),
+          }
+        })
+      : []
+
+  const transport = replay ? (
+    <ReplayTransport
+      floating={theatre}
+      allyColor={skin.ally}
+      enemyColor={skin.enemy}
+      bundle={replay.bundle}
+      clock={clock}
+      nameOf={replay.nameOf}
+      playing={replayPlaying}
+      onTogglePlay={toggleReplay}
+      speed={replaySpeed}
+      onSpeed={setReplaySpeed}
+      onSeek={ms => seekReplay(ms, currentRound(replay))}
+      onRound={jumpToRound}
+      controlMask={replayMask}
+      transform={replay.transform}
+      canCapture={isPristine(doc, side) || stepCount < MAX_STEPS}
+      onCapture={() => capture()}
+      view={view}
+      onBackToReplay={backToReplay}
+      onExit={exitReplay}
+    />
+  ) : null
+
   return (
     // The app's main column pads its pages; the editor takes the whole area under the 57 px header.
-    <div className="-mx-4 -my-6 h-[calc(100vh-57px)] flex flex-col bg-bg-primary">
+    // Theatre mode covers the app's own header and sidebar as well.
+    <div className={theatre ? 'fixed inset-0 z-50 flex flex-col bg-bg-primary' : '-mx-4 -my-6 h-[calc(100vh-57px)] flex flex-col bg-bg-primary'}>
+      {!theatre && (
       <EditorToolbar
+        layout={layout}
+        onLayout={setLayout}
+        onTheatre={() => setTheatre(true)}
         title={title}
         onTitle={setTitle}
         map={map}
@@ -1394,39 +1493,18 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
         onSave={save}
         onDelete={savedId ? remove : undefined}
       />
+      )}
 
       {error && (
         <div className="shrink-0 border-b border-val-red/25 bg-val-red/10 text-val-red text-sm px-3 py-1.5">{error}</div>
       )}
 
-      {replay && (
-        <ReplayTransport
-          allyColor={skin.ally}
-          enemyColor={skin.enemy}
-          bundle={replay.bundle}
-          clock={clock}
-          nameOf={replay.nameOf}
-          playing={replayPlaying}
-          onTogglePlay={toggleReplay}
-          speed={replaySpeed}
-          onSpeed={setReplaySpeed}
-          onSeek={ms => seekReplay(ms, currentRound(replay))}
-          onRound={jumpToRound}
-          controlMask={replayMask}
-          transform={replay.transform}
-          canCapture={isPristine(doc, side) || stepCount < MAX_STEPS}
-          onCapture={() => capture()}
-          view={view}
-          onBackToReplay={backToReplay}
-          onExit={exitReplay}
-        />
-      )}
-
       <div
         ref={editorGrid}
-        className="flex-1 min-h-0 flex flex-col overflow-y-auto lg:overflow-hidden lg:grid lg:grid-cols-[112px_auto_minmax(0,1fr)_auto] lg:grid-rows-[minmax(0,1fr)_64px]"
+        className="flex-1 min-h-0 flex flex-col overflow-y-auto lg:overflow-hidden lg:grid lg:grid-cols-[auto_auto_minmax(0,1fr)_auto] lg:grid-rows-[minmax(0,1fr)_auto]"
       >
-        <aside data-plays-column="rail" className="shrink-0 min-h-0 bg-bg-secondary border-b border-bg-elevated lg:border-b-0 lg:border-r lg:row-start-1 lg:col-start-1">
+        <aside data-plays-column="rail" className={`shrink-0 min-h-0 bg-bg-secondary border-b border-bg-elevated lg:border-b-0 lg:border-r lg:row-start-1 lg:col-start-1 ${theatre ? 'hidden' : 'lg:flex'}`}>
+          <div className="lg:w-[112px] lg:shrink-0 lg:h-full">
           <EditorRail
             mapNames={mapNames}
             map={map}
@@ -1454,20 +1532,26 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
             onClearStep={clearStep}
             onClearAll={clearAll}
           />
+          </div>
+          {inReplay && !study && (
+            <div className="hidden lg:block lg:w-52 lg:shrink-0 lg:border-l lg:border-bg-elevated lg:overflow-y-auto">
+              <ReplayRoster frames={frames} players={rosterPlayers} skin={skin} />
+            </div>
+          )}
         </aside>
 
         {/* Rail, playbook, canvas, drawer (§2.6). Under lg a block between the rail and the canvas. */}
         {/* On lg its width is the splitter's (written during a drag, committed on release); the column is auto. */}
         <aside
           ref={playbookSplit.panelProps.ref}
-          style={playbookSized ? playbookSplit.panelProps.style : undefined}
+          style={isLg && study ? { width: STUDY_PLAYBOOK_WIDTH } : playbookSized ? playbookSplit.panelProps.style : undefined}
           data-plays-column="playbook"
           className={`shrink-0 min-h-0 bg-bg-card border-bg-elevated lg:row-start-1 lg:col-start-2 lg:overflow-y-auto lg:overflow-x-hidden ${
-            playbookOpen ? 'block border-b lg:border-b-0 lg:border-r' : 'hidden'
+            showPlaybook ? 'block border-b lg:border-b-0 lg:border-r' : 'hidden'
           }`}
         >
           {/* Keyed by map: a new map starts the panel's hooks fresh instead of showing the last map's rows. */}
-          {playbookOpen && map && <PlaybookPanel key={map} map={map} />}
+          {showPlaybook && map && <PlaybookPanel key={map} map={map} onNewStep={study ? newStepAtChapter : undefined} />}
         </aside>
 
         {/* The canvas fills the column inside its padding and measures itself. */}
@@ -1478,7 +1562,7 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
           {!registry && registryStatus === 'loading' ? (
             <div className="absolute inset-3 rounded-xl bg-bg-card animate-pulse" aria-hidden="true" />
           ) : gameMap && mapDrawable && step ? (
-            <div className={`absolute inset-3 transition-opacity ${composing ? 'opacity-60 pointer-events-none' : ''}`}>
+            <div className={`absolute transition-opacity ${theatre ? 'inset-x-0 top-0 bottom-20' : 'inset-3'} ${composing ? 'opacity-60 pointer-events-none' : ''}`}>
               {/* In the replay view: the frame from its store (the edited copy once paused and
                   changed), no ghosts, no walk, read-only while the match plays. */}
               <FrameCanvas
@@ -1503,7 +1587,7 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
                 onUnresolved={setUnresolved}
               />
               {toast && (
-                <div className="absolute top-2 left-1/2 -translate-x-1/2 pointer-events-none">
+                <div className={`absolute ${theatre ? 'top-16' : 'top-2'} left-1/2 -translate-x-1/2 pointer-events-none`}>
                   <span
                     role="status"
                     className="inline-block whitespace-nowrap rounded-full border border-val-cyan/25 bg-bg-primary/85 px-3 py-1 text-[11px] font-medium text-val-cyan"
@@ -1543,6 +1627,31 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
           )}
         </div>
 
+        {theatre && (
+          <div className="fixed inset-0 z-[55] pointer-events-none">
+            <TheatreChrome
+              title={title}
+              onExit={() => setTheatre(false)}
+              showCallouts={showCallouts}
+              onToggleCallouts={() => setShowCallouts(s => !s)}
+              showNames={showNames}
+              onToggleNames={toggleNames}
+              showControl={showControl}
+              onToggleControl={toggleControl}
+              skin={skinId}
+              onSkin={setSkinId}
+              canSave={dirty && Boolean(map)}
+              saving={saving}
+              onSave={save}
+              tool={tool}
+              onTool={chooseTool}
+              steps={replay ? null : doc.steps.map(st => ({ id: st.id, name: st.name }))}
+              stepIndex={stepAt}
+              onPickStep={pickStep}
+            />
+          </div>
+        )}
+
         {/* The splitters share their panel's grid cell, laid over its inner edge: they neither
             scroll with the panel's content nor take a column of their own. Painted after the
             canvas so the half of the grip over the canvas column stays on top. */}
@@ -1562,10 +1671,29 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
           style={drawerSized ? drawerSplit.panelProps.style : undefined}
           data-plays-column="drawer"
           className={`min-h-0 bg-bg-card border-bg-elevated lg:row-start-1 lg:col-start-4 lg:overflow-y-auto lg:overflow-x-hidden ${
-            drawerOpen ? 'block border-t lg:border-t-0 lg:border-l' : 'hidden lg:block lg:w-0'
+            showDrawer ? 'block border-t lg:border-t-0 lg:border-l' : 'hidden lg:block lg:w-0'
           }`}
         >
-          {drawerOpen && (
+          {showDrawer && inReplay && (
+            <div role="tablist" aria-label="Right panel" className="flex gap-1 p-2 border-b border-bg-elevated">
+              {(['utility', 'brief'] as const).map(tab => (
+                <button
+                  key={tab}
+                  type="button"
+                  role="tab"
+                  aria-selected={drawerTab === tab}
+                  onClick={() => setDrawerTab(tab)}
+                  className={`flex-1 px-2 py-1 rounded-md text-xs font-medium capitalize transition-colors ${
+                    drawerTab === tab ? 'bg-val-cyan/15 text-val-cyan' : 'text-text-secondary hover:text-text-primary hover:bg-bg-elevated/60'
+                  }`}
+                >
+                  {tab}
+                </button>
+              ))}
+            </div>
+          )}
+          {showDrawer && inReplay && drawerTab === 'utility' && <UtilityNow frames={frames} skin={skin} />}
+          {showDrawer && !(inReplay && drawerTab === 'utility') && (
             <BriefDrawer
               isEmpty={empty}
               map={map}
@@ -1594,7 +1722,15 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
           )}
         </aside>
 
-        <div className="sticky bottom-0 z-20 shrink-0 lg:static lg:row-start-2 lg:col-start-1 lg:col-span-4">
+        {theatre && transport && (
+          <div className="fixed left-1/2 -translate-x-1/2 bottom-3 z-[60] w-[min(1180px,calc(100vw-24px))] rounded-xl border border-bg-elevated bg-bg-secondary/95 backdrop-blur-sm">
+            {transport}
+          </div>
+        )}
+        <div className={`sticky bottom-0 z-20 shrink-0 lg:static lg:row-start-2 lg:col-start-1 lg:col-span-4 ${theatre ? 'hidden' : ''}`}>
+          {!theatre && transport}
+          {!inReplay && (
+          <div className="lg:h-16">
           <AgentStrip
             agents={registryAgents}
             role={role}
@@ -1607,6 +1743,8 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
             hint={hint}
             enabled={Boolean(gameMap && mapDrawable) && !(inReplay && replayPlaying)}
           />
+          </div>
+          )}
         </div>
       </div>
     </div>

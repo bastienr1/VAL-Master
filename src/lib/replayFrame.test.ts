@@ -419,6 +419,15 @@ test('Neon\'s Fast Lane is drawn along its runner\'s track', () => {
   nearPos(lane[0].at, 0.5, 0.6, 'badge halfway')
 })
 
+test('utility that never closed counts down to the end of the round', () => {
+  const bundle = utilityFixture()
+  bundle.casts = []
+  const { end } = roundSpan(bundle, roundAt(bundle, 60000))
+  bundle.effects = [{ start: 60000, end: null, kind: 'smoke', agent: 'Smonk', cls: 'GameObject_Smonk_NewSmoke_C', x: 0, y: 0, owner: SOVA }]
+  const halfway = 60000 + (end - 60000) / 2
+  near(abilities(frameStep(bundle, halfway, lookup, T, createFrameIds()))[0].life, 0.5, 'life')
+})
+
 test('a flash with no landing rides its own track, then shows where it popped for a second', () => {
   const bundle = utilityFixture()
   bundle.casts = []

@@ -1,11 +1,17 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ArrowLeft, BookOpen, Check, Ellipsis, Film, Layers, Loader2, PanelRight, Redo2, Tag, Trash2, Undo2, UserRound } from 'lucide-react'
+import { ArrowLeft, BookOpen, Check, Ellipsis, Film, GraduationCap, Layers, LayoutDashboard, Loader2, Maximize2, PanelRight, Redo2, Tag, Trash2, Undo2, UserRound } from 'lucide-react'
 import type { CanvasSkinId } from '../../lib/canvasSkins'
 import type { PlaySide } from '../../lib/types'
 import SkinPicker from './SkinPicker'
 
+export type PlayLayout = 'analyst' | 'study'
+
 interface EditorToolbarProps {
+  /** The page's layout (§2.12), and Theatre mode on top of it. */
+  layout: PlayLayout
+  onLayout(layout: PlayLayout): void
+  onTheatre(): void
   title: string
   onTitle(title: string): void
   map: string
@@ -101,6 +107,18 @@ export default function EditorToolbar(props: EditorToolbarProps) {
           <Redo2 className="w-4 h-4" />
         </button>
         <span aria-hidden="true" className="w-px h-5 bg-bg-elevated mx-1" />
+        <div role="group" aria-label="Layout" className="flex items-center gap-0.5">
+          <button type="button" onClick={() => props.onLayout('analyst')} aria-pressed={props.layout === 'analyst'} aria-label="Analyst layout" title="Analyst layout" className={toggle(props.layout === 'analyst')}>
+            <LayoutDashboard className="w-3.5 h-3.5" />
+          </button>
+          <button type="button" onClick={() => props.onLayout('study')} aria-pressed={props.layout === 'study'} aria-label="Study layout" title="Study layout: the guide beside the board" className={toggle(props.layout === 'study')}>
+            <GraduationCap className="w-3.5 h-3.5" />
+          </button>
+          <button type="button" onClick={props.onTheatre} aria-label="Theatre mode" title="Theatre mode (F)" className={toggle(false)}>
+            <Maximize2 className="w-3.5 h-3.5" />
+          </button>
+        </div>
+        <span aria-hidden="true" className="w-px h-5 bg-bg-elevated mx-1" />
         {props.onOpenReplay && (
           <button
             type="button"
@@ -144,6 +162,8 @@ export default function EditorToolbar(props: EditorToolbarProps) {
           <span className="hidden md:inline">Control</span>
         </button>
         <SkinPicker skin={props.skin} onPick={props.onSkin} buttonClass={toggle(false)} />
+        {props.layout === 'analyst' && (
+          <>
         <button
           type="button"
           onClick={props.onTogglePlaybook}
@@ -167,6 +187,8 @@ export default function EditorToolbar(props: EditorToolbarProps) {
             <span aria-label="Not composed yet" className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-val-cyan" />
           )}
         </button>
+          </>
+        )}
         <button
           type="button"
           onClick={props.onSave}

@@ -19,6 +19,8 @@ interface ReplayTransportProps {
   bundle: ReplayBundle
   /** Where the replay is, written a few times a second while the match plays; null before the first jump. */
   clock: ValueStore<ReplayClock | null>
+  /** Floating over the map in Theatre mode: no border, no average line. */
+  floating?: boolean
   /** The canvas skin's team colours, for the track and the share readout. */
   allyColor: string
   enemyColor: string
@@ -157,9 +159,15 @@ export default function ReplayTransport(props: ReplayTransportProps) {
   }, [round.n])
 
   return (
-    <div className="shrink-0 border-b border-bg-elevated bg-bg-secondary">
+    <div className={props.floating ? '' : 'shrink-0 border-t border-bg-elevated bg-bg-secondary'}>
       <div className="h-14 flex items-center gap-3 px-3 min-w-0 overflow-x-auto">
-        <div ref={chips} role="group" aria-label="Rounds" className="flex items-center gap-0.5 min-w-0 max-w-[40%] overflow-x-auto shrink">
+        <div
+          ref={chips}
+          role="group"
+          aria-label="Rounds"
+          style={props.floating ? { scrollbarWidth: 'none' } : undefined}
+          className={`flex items-center gap-0.5 min-w-0 ${props.floating ? 'max-w-[32%]' : 'max-w-[40%]'} overflow-x-auto shrink`}
+        >
           {bundle.rounds.map(r => (
             <button
               key={r.n}
@@ -281,7 +289,7 @@ export default function ReplayTransport(props: ReplayTransportProps) {
           <span>Exit replay</span>
         </button>
       </div>
-      {average && (
+      {average && !props.floating && (
         <p className="px-3 pb-1 text-[11px] text-text-muted truncate">
           Of the space taken, your team held {percent(average.ally)} % on average ({percent(average.claimed)} % of the map was claimed).
         </p>

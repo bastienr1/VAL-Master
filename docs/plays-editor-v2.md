@@ -564,6 +564,29 @@ cycles forward and **Shift K** back, with a toast naming the skin. The choice
 is per device (`plays.canvasSkin`) and is not part of a play. An unknown stored
 value falls back on the default.
 
+### 2.12 Page layouts
+
+Picked in the toolbar and remembered per device (`plays.layout`).
+
+**Analyst** is the base. With a replay open: the rail, a roster of both teams
+(who is alive, Riot names, the spike carrier), the map, a right panel with
+**Utility** (everything up now, longest time left first) and **Brief** tabs,
+and the transport along the bottom. The agent strip is hidden while the replay
+view is on and comes back in the steps view. With no replay it is the rail, the
+map, the Brief and the agent strip. Roster and utility read the frame store
+(`replayPanels.ts`, pure, tested), so a playing match does not re-render the
+page. Utility that never closed counts down to the end of the round.
+
+**Study** puts the guide beside the board: the Playbook panel at
+`min(42vw, 760px)`, the Brief and the roster hidden. **New step at this
+chapter** adds a step named after the chapter playing, with the guide's time
+as its caption.
+
+**Theatre** goes over either one, for the visit only: **F** toggles it, **Esc**
+leaves it when nothing is selected. The map fills the window, the app's header
+and sidebar included, with floating title, view toggles, tool dock, and the
+transport (or step buttons when no replay is open).
+
 ## 3. Document v2 (`src/lib/playDoc.ts`)
 
 ```ts
@@ -750,6 +773,12 @@ Every ability (2026-11-08): the rebuilt Abyss bundle of 2026-11-02 attached
 in the signed-in app; your Sova's round 1 Shock Bolt flies along its arc and
 lands 29 m away at A Site as a 4 m blast, where before only a badge sat on
 Sova.
+
+Page layouts (2026-11-08): on the Abyss replay in the signed-in app at
+1600 x 1000. Analyst listed 4 alive per team, the 2 dead as down, and 5 utility
+rows by time left, the transport at the bottom. F opened Theatre (the map 1600
+wide, no app header or rail), Esc left it. Study gave the guide 672 px and the
+map 719 px, and a chapter made a step named after it. No console errors.
 
 Canvas skins (2026-11-08): on the Abyss replay in the signed-in app, K
 walked all six skins and wrapped, changing the backdrop, the map tint and the
