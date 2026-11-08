@@ -28,7 +28,7 @@ import {
   type ControlGrid,
   type ControlShare,
 } from '../lib/mapControl'
-import { useMapMask } from '../lib/mapMask'
+import { useMapMask, useSightGrid } from '../lib/mapMask'
 import {
   copyStep,
   elementAt,
@@ -618,6 +618,7 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
   const replayMask = controlMaskFor(replay)
   const pawnIds = useMemo(() => (replay ? pawnEffectIds(replay.bundle, replay.ids) : null), [replay])
   const { cones: coneLayer, trails: trailLayer, utility: utilityLayer, pawns: pawnLayer } = layers
+  const sight = useSightGrid(replay && coneLayer ? gameMap : null)
   const abilityVisible = useCallback(
     (id: string) => (pawnIds?.has(id) ? pawnLayer : utilityLayer),
     [pawnIds, pawnLayer, utilityLayer],
@@ -625,9 +626,9 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
   const motionAt = useMemo(
     () =>
       replay && (coneLayer || trailLayer)
-        ? (t: number) => frameMotion(replay.bundle, t, replay.transform, replay.ids, { cones: coneLayer, trails: trailLayer })
+        ? (t: number) => frameMotion(replay.bundle, t, replay.transform, replay.ids, { cones: coneLayer, trails: trailLayer, sight })
         : null,
-    [replay, coneLayer, trailLayer],
+    [replay, coneLayer, trailLayer, sight],
   )
 
   /** What Save writes: the doc, with the match it was built from. */

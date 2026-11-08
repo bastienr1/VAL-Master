@@ -18,6 +18,7 @@
 import { useEffect, useState } from 'react'
 import type { GameMap } from './gameContent'
 import { CONTROL_N } from './mapControl'
+import { SIGHT_N, sightGridFromPixels, type SightGrid } from './sightGrid'
 
 /** Alpha above this (0..255) makes a cell playable. */
 const PLAYABLE_ALPHA = 40
@@ -117,4 +118,56 @@ export function useMapMaskInfo(map: MaskMap | null | undefined): LoadedMapMask |
 /** The map's playable mask once loaded; null while loading and right after the map changes. */
 export function useMapMask(map: MaskMap | null | undefined): Uint8Array | null {
   return useMapMaskInfo(map)?.mask ?? null
+}
+
+const sightCache = new Map<string, Promise<SightGrid | null>>()
+
+/** What blocks sight on a map, from its minimap's pixels; null when they cannot be read. Never rejects. */
+function loadSightGrid(map: MaskMap): Promise<SightGrid | null> {
+  const hit = sightCache.get(map.uuid)
+  if (hit) return hit
+  const src = map.displayIcon
+  const promise = !src
+    ? Promise.resolve(null)
+    : new Promise<SightGrid | null>(resolve => {
+        const img = new Image()
+        img.crossOrigin = 'anonymous'
+        img.decoding = 'async'
+        img.onload = () => {
+          try {
+            const canvas = document.createElement('canvas')
+            canvas.width = SIGHT_N
+            canvas.height = SIGHT_N
+            const ctx = canvas.getContext('2d')
+            if (!ctx) throw new Error('no 2d context')
+            ctx.drawImage(img, 0, 0, SIGHT_N, SIGHT_N)
+            resolve(sightGridFromPixels(ctx.getImageData(0, 0, SIGHT_N, SIGHT_N).data, SIGHT_N))
+          } catch {
+            console.warn(`mapMask: the walls of map ${map.uuid} cannot be read; view cones stay short.`)
+            resolve(null)
+          }
+        }
+        img.onerror = () => resolve(null)
+        img.src = maskUrl(src)
+      })
+  sightCache.set(map.uuid, promise)
+  return promise
+}
+
+/** The map's sight grid once loaded; null while loading, right after the map changes, or when it cannot be read. */
+export function useSightGrid(map: MaskMap | null | undefined): SightGrid | null {
+  const [loaded, setLoaded] = useState<{ uuid: string; grid: SightGrid | null } | null>(null)
+  const uuid = map?.uuid
+  const displayIcon = map?.displayIcon ?? null
+  useEffect(() => {
+    if (!uuid) return
+    let cancelled = false
+    void loadSightGrid({ uuid, displayIcon }).then(grid => {
+      if (!cancelled) setLoaded({ uuid, grid })
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [uuid, displayIcon])
+  return loaded && loaded.uuid === uuid ? loaded.grid : null
 }

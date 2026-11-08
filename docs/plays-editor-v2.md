@@ -576,7 +576,11 @@ toggles, every round to jump to, the round's kills, each jumping to 2 s before
 it), and the transport along the bottom, which leaves the round chips to the
 panel while it is open. The layers are the VOD review's own choice
 (`replayLayers.ts`): View and Trails are drawn from the tracks
-(`replayMotion.ts`), Utility and Pawns hide abilities without taking them out
+(`replayMotion.ts`). A view cone is 49 sight lines across its 48 degrees, each
+running until a wall or the edge of the map stops it (`sightGrid.ts`: the
+1024 px minimap, transparent or bright-outlined pixels block). While the walls
+are not loaded, or cannot be read, cones reach 9 m. Boxes outlined in the art
+block like walls, and smokes do not block. Then Utility and Pawns hide abilities without taking them out
 of the step, so an edit or a capture keeps them, and My side off keeps
 attackers at the bottom. The agent strip is hidden while the replay
 view is on and comes back in the steps view. With no replay it is the rail, the
@@ -802,6 +806,9 @@ Every ability (2026-11-08): the rebuilt Abyss bundle of 2026-11-02 attached
 in the signed-in app; your Sova's round 1 Shock Bolt flies along its arc and
 lands 29 m away at A Site as a 4 m blast, where before only a badge sat on
 Sova.
+
+View cones (2026-11-08): on Abyss and Pearl replays each ray's reach varied from
+12 to 421 map units with the walls in the way; about 3 ms per frame.
 
 Player name sizes (2026-11-08): on the Abyss replay, names measured 13, 16, 20
 and 26 px, centred under the tile; fixed stayed 20 px at 400 % zoom, grown 76 px.

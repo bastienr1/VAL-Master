@@ -1,6 +1,6 @@
 /**
  * The replay layers the Plays canvas draws beside a frame (docs/plays-editor-v2.md
- * §2.12): each player's view cone and last 3 seconds of path, and which
+ * §2.12): each player's view cone, stopped by the map's walls, and last 3 seconds of path, and which
  * abilities are pawns. Kept out of the frame itself, so a captured step holds
  * none of it.
  *
@@ -10,6 +10,7 @@
 import type { ReplayBundle } from './replayBundle.ts'
 import type { FrameIds } from './replayFrame.ts'
 import { playerStateAt, sampleIndex, worldToImage, type MapTransform } from './replayScene.ts'
+import { castRay, type SightGrid } from './sightGrid.ts'
 import { classInfo } from './utilityClasses.ts'
 
 export interface ImagePoint {
@@ -20,14 +21,17 @@ export interface ImagePoint {
 export interface AgentMotion {
   /** Where the player stands, the frame of reference for `cone`. */
   at: ImagePoint
-  /** The view wedge's far edge, three points; null with the View layer off. */
-  cone: [ImagePoint, ImagePoint, ImagePoint] | null
+  /** The view wedge's far edge, left to right, each point where a sight line stops; null with the View layer off. */
+  cone: ImagePoint[] | null
   /** The last 3 seconds, oldest first; null with the Trails layer off. */
   trail: ImagePoint[] | null
 }
 
 const CONE_HALF_RAD = 0.42 // about a 48° wedge
-const CONE_REACH_CM = 900
+/** Sight lines across the wedge: one a degree. */
+const CONE_RAYS = 49
+/** The reach while the map's walls are not known; with them sight runs until a wall stops it. */
+const CONE_FALLBACK_CM = 900
 const TRAIL_MS = 3000
 
 const image = (transform: MapTransform, x: number, y: number): ImagePoint => {
@@ -41,7 +45,7 @@ export function frameMotion(
   t: number,
   transform: MapTransform,
   ids: FrameIds,
-  want: { cones: boolean; trails: boolean },
+  want: { cones: boolean; trails: boolean; sight?: SightGrid | null },
 ): Map<string, AgentMotion> {
   const motion = new Map<string, AgentMotion>()
   if (!want.cones && !want.trails) return motion
@@ -52,8 +56,14 @@ export function frameMotion(
     let cone: AgentMotion['cone'] = null
     if (want.cones) {
       const rad = (state.yaw * Math.PI) / 180
-      const edge = (angle: number) => image(transform, state.x + Math.cos(angle) * CONE_REACH_CM, state.y + Math.sin(angle) * CONE_REACH_CM)
-      cone = [edge(rad - CONE_HALF_RAD), edge(rad), edge(rad + CONE_HALF_RAD)]
+      const from = image(transform, state.x, state.y)
+      cone = []
+      for (let i = 0; i < CONE_RAYS; i++) {
+        const angle = rad - CONE_HALF_RAD + (2 * CONE_HALF_RAD * i) / (CONE_RAYS - 1)
+        // Through the map transform, so the rays turn the way the map does.
+        const far = image(transform, state.x + Math.cos(angle) * CONE_FALLBACK_CM, state.y + Math.sin(angle) * CONE_FALLBACK_CM)
+        cone.push(want.sight ? castRay(want.sight, from.u, from.v, far.u - from.u, far.v - from.v) : far)
+      }
     }
     let trail: ImagePoint[] | null = null
     if (want.trails) {

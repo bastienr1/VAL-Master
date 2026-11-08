@@ -7,6 +7,7 @@ import assert from 'node:assert/strict'
 import type { ReplayBundle } from './replayBundle.ts'
 import { createFrameIds } from './replayFrame.ts'
 import { frameMotion, pawnEffectIds } from './replayMotion.ts'
+import type { SightGrid } from './sightGrid.ts'
 
 // World x → v, world y → u, 10 000 cm across the image.
 const T = { xMultiplier: 0.0001, yMultiplier: 0.0001, xScalarToAdd: 0.5, yScalarToAdd: 0.5 }
@@ -31,19 +32,39 @@ const bundle = {
   ],
 } as unknown as ReplayBundle
 
-test('a cone reaches 9 m along the player\'s view, its ends either side, and a player with no track has none', () => {
+const SIGHT_N = 100
+/** A free grid with a vertical wall at u = 0.7. */
+const walled = (): SightGrid => {
+  const blocked = new Uint8Array(SIGHT_N * SIGHT_N)
+  for (let v = 0; v < SIGHT_N; v++) {
+    blocked[v * SIGHT_N + 70] = 1
+    blocked[v * SIGHT_N + 71] = 1
+  }
+  return { n: SIGHT_N, blocked }
+}
+
+test('without the map\'s walls a cone reaches 9 m, spread either side of the view, and a player with no track has none', () => {
   const ids = createFrameIds()
   const motion = frameMotion(bundle, 1000, T, ids, { cones: true, trails: false })
   assert.deepEqual([...motion.keys()], [ids.forSubject('p1')])
   const m = motion.get(ids.forSubject('p1'))!
   assert.equal(m.trail, null)
-  const [left, ahead, right] = m.cone!
-  // Looking along +x: straight ahead is 900 cm further along that axis.
-  const dist = (p: { u: number; v: number }) => Math.hypot(p.u - m.at.u, p.v - m.at.v)
-  near(dist(ahead), 0.09)
-  near(dist(left), 0.09)
-  near(dist(right), 0.09)
-  assert.notEqual(left.u, right.u)
+  assert.equal(m.cone!.length, 49)
+  for (const p of m.cone!) near(Math.hypot(p.u - m.at.u, p.v - m.at.v), 0.09)
+  assert.notEqual(m.cone![0].u, m.cone![48].u)
+})
+
+test('with the walls every sight line runs until a wall or the edge stops it', () => {
+  const ids = createFrameIds()
+  // Looking along +y (yaw 90), which is +u in this transform, at the wall at u = 0.7.
+  const looking = structuredClone(bundle)
+  looking.tracks.byPlayer.p1 = [[0, 0, 0, 90, 1, null], [1000, 0, 0, 90, 1, null]]
+  const m = frameMotion(looking, 1000, T, ids, { cones: true, trails: false, sight: walled() }).get(ids.forSubject('p1'))!
+  const middle = m.cone![24]
+  assert.ok(middle.u < 0.7 && middle.u > 0.68, `stops at the wall, at ${middle.u}`)
+  near(middle.v, m.at.v)
+  // Past 9 m: 0.2 of the map is 20 m here.
+  assert.ok(Math.hypot(middle.u - m.at.u, middle.v - m.at.v) > 0.09)
 })
 
 test('a trail holds the last 3 seconds, oldest first', () => {
