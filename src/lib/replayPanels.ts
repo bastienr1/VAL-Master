@@ -1,12 +1,11 @@
 /**
- * What the Analyst layout's side panels read from a replay frame
- * (docs/plays-editor-v2.md §2.12): who is alive, and the utility up now with
- * how much of its life is left.
+ * What the Analyst layout's roster reads from a replay frame
+ * (docs/plays-editor-v2.md §2.12): who is alive, and who carries the spike.
  *
  * Pure, types only, so `node --test` can type-check it.
  */
 
-import type { AbilityElement, AgentElement, PlayStep, Team, UtilityKind } from './playDoc.ts'
+import type { AgentElement, PlayStep, Team } from './playDoc.ts'
 
 /** One player of the match, as the roster lists them. */
 export interface RosterPlayer {
@@ -33,21 +32,4 @@ export function rosterOf(players: RosterPlayer[], step: PlayStep | null | undefi
     const element = agents.get(player.elementId)
     return { ...player, alive: element !== undefined, spike: element?.spike === true }
   })
-}
-
-export interface UtilityRow {
-  id: string
-  name: string
-  agent: string
-  shape: UtilityKind
-  /** 1…0, how much of its life is left. */
-  life: number
-}
-
-/** The landed utility of this frame with a known life, the longest left first. In-flight throws and bare cast badges are left out. */
-export function utilityUp(step: PlayStep | null | undefined): UtilityRow[] {
-  return (step?.elements ?? [])
-    .filter((e): e is AbilityElement & { life: number } => e.kind === 'ability' && e.life !== undefined && e.progress === undefined)
-    .map(e => ({ id: e.id, name: e.label || e.agent, agent: e.agent, shape: e.shape, life: e.life }))
-    .sort((a, b) => b.life - a.life || a.id.localeCompare(b.id))
 }

@@ -9,7 +9,8 @@ import StepDrawer from '../components/play/StepDrawer'
 import EditorRail from '../components/play/EditorRail'
 import EditorToolbar, { type PlayLayout } from '../components/play/EditorToolbar'
 import PlaybookPanel from '../components/play/PlaybookPanel'
-import { ReplayRoster, UtilityNow } from '../components/play/ReplayPanels'
+import { ReplayRoster } from '../components/play/ReplayPanels'
+import ReplayRoundPanel from '../components/play/ReplayRoundPanel'
 import TheatreChrome from '../components/play/TheatreChrome'
 import ReplayTransport, { type ReplayClock, type ReplayView } from '../components/play/ReplayTransport'
 import { useGameContent, useGameContentNames } from '../hooks/useGameContent'
@@ -62,7 +63,10 @@ import { fetchPlayerNames } from '../lib/replayNames'
 import type { ReplayPlay } from '../lib/replayToPlay'
 import type { PlaySide } from '../lib/types'
 import { formatTime } from '../lib/youtube'
+import { readLayers, writeLayers, type LayerKey, type Layers } from '../lib/replayLayers'
+import { frameMotion, pawnEffectIds } from '../lib/replayMotion'
 import type { RosterPlayer } from '../lib/replayPanels'
+import type { AgentMotion } from '../lib/replayMotion'
 import { createValueStore, type ValueStore } from '../lib/valueStore'
 
 /** A boolean kept per device; the fallback when storage is blocked or empty. */
@@ -347,15 +351,20 @@ function FrameCanvas({
   edited,
   step,
   control,
+  motionAt,
   ref,
   ...props
-}: PlayCanvasProps & {
+}: Omit<PlayCanvasProps, 'motion'> & {
   frames: ValueStore<ReplayFrame | null> | null
   edited?: PlayStep | null
+  /** A replay's view cones and trails at a replay time, when any layer asks for them. */
+  motionAt?: ((t: number) => ReadonlyMap<string, AgentMotion>) | null
   ref?: Ref<PlayCanvasHandle>
 }) {
   const frame = useSyncExternalStore(frames?.subscribe ?? noSubscribe, () => frames?.get() ?? null)
-  return <PlayCanvas ref={ref} {...props} step={edited ?? frame?.step ?? step} control={frame ? frame.control : control} />
+  const replayMs = frame?.step.replayMs
+  const motion = useMemo(() => (motionAt && replayMs !== undefined ? motionAt(replayMs) : null), [motionAt, replayMs])
+  return <PlayCanvas ref={ref} {...props} motion={motion} step={edited ?? frame?.step ?? step} control={frame ? frame.control : control} />
 }
 
 /**
@@ -424,8 +433,14 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
   const study = layout === 'study' && !theatre
   const showPlaybook = !theatre && (study || playbookOpen)
   const showDrawer = !theatre && !study && drawerOpen
-  /** What the right panel shows while a replay plays. */
-  const [drawerTab, setDrawerTab] = useState<'utility' | 'step'>('utility')
+  // The replay map's layers, the same choice as the VOD review's.
+  const [layers, setLayers] = useState<Layers>(readLayers)
+  const toggleLayer = (key: LayerKey) =>
+    setLayers(prev => {
+      const next = { ...prev, [key]: !prev[key] }
+      writeLayers(next)
+      return next
+    })
   // On by default, saved plays included: the callout names are how a play is read. Remembered per device.
   const [showCallouts, setShowCalloutsState] = useState(() => readFlag('plays.showCallouts', true))
   const setShowCallouts = (next: boolean | ((prev: boolean) => boolean)) =>
@@ -574,6 +589,19 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
     return own && own !== gameMap ? null : mask
   }
   const replayMask = controlMaskFor(replay)
+  const pawnIds = useMemo(() => (replay ? pawnEffectIds(replay.bundle, replay.ids) : null), [replay])
+  const { cones: coneLayer, trails: trailLayer, utility: utilityLayer, pawns: pawnLayer } = layers
+  const abilityVisible = useCallback(
+    (id: string) => (pawnIds?.has(id) ? pawnLayer : utilityLayer),
+    [pawnIds, pawnLayer, utilityLayer],
+  )
+  const motionAt = useMemo(
+    () =>
+      replay && (coneLayer || trailLayer)
+        ? (t: number) => frameMotion(replay.bundle, t, replay.transform, replay.ids, { cones: coneLayer, trails: trailLayer })
+        : null,
+    [replay, coneLayer, trailLayer],
+  )
 
   /** What Save writes: the doc, with the match it was built from. */
   const savedDoc: PlayDoc = replayLink ? { ...doc, replay: { matchId: replayLink } } : doc
@@ -1059,7 +1087,6 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
     setReplay(open)
     setReplayLink(matchId)
     setDrawerOpen(true)
-    setDrawerTab('utility')
     setReplayPlaying(false)
     setPlaying(false)
     setLive(null)
@@ -1367,6 +1394,7 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
   const transport = replay ? (
     <ReplayTransport
       floating={theatre}
+      showRounds={!(inReplay && showDrawer)}
       allyColor={skin.ally}
       enemyColor={skin.enemy}
       bundle={replay.bundle}
@@ -1420,6 +1448,7 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
         }}
         drawerOpen={drawerOpen}
         onToggleDrawer={() => setDrawerOpen(o => !o)}
+        drawerLabel={inReplay ? 'Rounds' : 'Step'}
         onOpenReplay={replayLink && !replay && registry ? openReplay : undefined}
         openingReplay={openingReplay}
         canSave={dirty && Boolean(map)}
@@ -1505,8 +1534,10 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
                 frames={inReplay ? frames : null}
                 edited={inReplay ? live?.step : null}
                 control={stepControl}
+                motionAt={inReplay ? motionAt : null}
+                abilityVisible={inReplay ? abilityVisible : undefined}
                 map={gameMap}
-                side={side}
+                side={inReplay && !layers.flip ? 'attack' : side}
                 step={step}
                 previous={inReplay ? null : previous}
                 tool={tool}
@@ -1609,26 +1640,18 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
             showDrawer ? 'block border-t lg:border-t-0 lg:border-l' : 'hidden lg:block lg:w-0'
           }`}
         >
-          {showDrawer && inReplay && (
-            <div role="tablist" aria-label="Right panel" className="flex gap-1 p-2 border-b border-bg-elevated">
-              {(['utility', 'step'] as const).map(tab => (
-                <button
-                  key={tab}
-                  type="button"
-                  role="tab"
-                  aria-selected={drawerTab === tab}
-                  onClick={() => setDrawerTab(tab)}
-                  className={`flex-1 px-2 py-1 rounded-md text-xs font-medium capitalize transition-colors ${
-                    drawerTab === tab ? 'bg-val-cyan/15 text-val-cyan' : 'text-text-secondary hover:text-text-primary hover:bg-bg-elevated/60'
-                  }`}
-                >
-                  {tab}
-                </button>
-              ))}
-            </div>
+          {showDrawer && inReplay && replay && (
+            <ReplayRoundPanel
+              bundle={replay.bundle}
+              clock={clock}
+              nameOf={replay.nameOf}
+              layers={layers}
+              onToggleLayer={toggleLayer}
+              onRound={jumpToRound}
+              onSeek={(ms, round) => seekReplay(ms, round)}
+            />
           )}
-          {showDrawer && inReplay && drawerTab === 'utility' && <UtilityNow frames={frames} skin={skin} />}
-          {showDrawer && !(inReplay && drawerTab === 'utility') && (
+          {showDrawer && !inReplay && (
             <StepDrawer
               isEmpty={empty}
               map={map}

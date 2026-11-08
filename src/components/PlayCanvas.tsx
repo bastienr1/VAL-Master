@@ -63,6 +63,7 @@ import {
   type TextElement,
 } from '../lib/playDoc'
 import {
+  imageToView,
   MAX_ZOOM,
   MIN_ZOOM,
   UTILITY_STYLE,
@@ -84,6 +85,7 @@ import {
   type PlacedMarker,
   type Point,
 } from '../lib/playScene'
+import type { AgentMotion } from '../lib/replayMotion'
 import { canvasSkin, hexChannels, skinDrawColor, skinMapMatrix, type CanvasSkin, type CanvasSkinId } from '../lib/canvasSkins'
 import type { ControlGrid } from '../lib/mapControl'
 import type { PlaySide } from '../lib/types'
@@ -101,6 +103,10 @@ export interface PlayCanvasProps {
   pending: { agent: string; slot: AbilitySlot } | null
   selectedId: string | null
   showCallouts: boolean
+  /** A replay's view cones and trails, by agent element id (§2.12). */
+  motion?: ReadonlyMap<string, AgentMotion> | null
+  /** False for an ability a replay layer hides. It stays in the step, so edits and captures keep it. */
+  abilityVisible?: (id: string) => boolean
   /** The canvas skin (§2.11); the default skin when not given. */
   skin?: CanvasSkinId
   /** A name under every agent tile: who played it (a replay's Riot name), else the agent. */
@@ -442,6 +448,8 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
     selectedId,
     showCallouts,
     showNames = false,
+    motion = null,
+    abilityVisible,
     skin: skinId,
     animate,
     onSelect,
@@ -510,7 +518,10 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
   const k = 1 / camera.zoom
   /** The transform that keeps a group drawn about its own origin at its screen size; none at zoom 1. */
   const sized = k === 1 ? undefined : `scale(${k})`
-  const scene = useMemo(() => sceneForStep(step, map, side, k), [step, map, side, k])
+  const scene = useMemo(() => {
+    const built = sceneForStep(step, map, side, k)
+    return abilityVisible ? { ...built, abilities: built.abilities.filter(a => abilityVisible(a.id)) } : built
+  }, [step, map, side, k, abilityVisible])
   /** A dash pattern drawn in map units, kept at its screen size. */
   const dashes = (pattern: string) => scaleDashes(pattern, k)
   // The grid may be stepped in place, so its version says when to repaint; a
@@ -1536,6 +1547,28 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
     </g>
   ))
 
+  // A replay's view cones and trails, under everything the player placed: about the tile as it is drawn now.
+  const motionLayer = motion
+    ? scene.agents.flatMap(agent => {
+        const m = motion.get(agent.id)
+        if (!m) return []
+        const [dx, dy] = offsetOf(agent.id)
+        const origin = imageToView(scene.view, m.at.u, m.at.v, scene.turns)
+        const shift = (p: { u: number; v: number }) => {
+          const [x, y] = imageToView(scene.view, p.u, p.v, scene.turns)
+          return `${(x - origin[0] + agent.x + dx).toFixed(1)},${(y - origin[1] + agent.y + dy).toFixed(1)}`
+        }
+        const color = agent.team === 'enemy' ? skin.enemy : skin.ally
+        const here = `${(agent.x + dx).toFixed(1)},${(agent.y + dy).toFixed(1)}`
+        return [
+          m.trail && m.trail.length > 0 ? (
+            <polyline key={`trail:${agent.id}`} points={[...m.trail.map(shift), here].join(' ')} fill="none" stroke={color} strokeOpacity={0.35} strokeWidth={3 * k} strokeLinejoin="round" strokeLinecap="round" />
+          ) : null,
+          m.cone ? <polygon key={`cone:${agent.id}`} points={[here, ...m.cone.map(shift)].join(' ')} fill={color} fillOpacity={0.16} /> : null,
+        ]
+      })
+    : null
+
   const agentTiles = scene.agents.map(agent => {
     const [dx, dy] = offsetOf(agent.id)
     const label = `${agent.agent}${agent.player ? ` (${agent.player})` : ''}${agent.team === 'enemy' ? ' (enemy)' : ''}${
@@ -1997,6 +2030,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
           <g>{pens}</g>
           <g>{scene.abilities.map(renderAbility)}</g>
           <g>{arrows}</g>
+          {motionLayer && <g pointerEvents="none">{motionLayer}</g>}
           <g>{paths}</g>
           <g>{scene.markers.filter(m => m.type === 'spike').map(renderMarker)}</g>
           <g>{scene.markers.filter(m => m.type !== 'spike').map(renderMarker)}</g>

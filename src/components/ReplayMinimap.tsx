@@ -26,6 +26,8 @@ import {
   weaponLabel,
 } from '../lib/replaySync'
 
+import { LAYERS, readLayers, writeLayers, type LayerKey, type Layers } from '../lib/replayLayers'
+
 interface ReplayMinimapProps {
   bundle: ReplayBundle
   /** Video seconds at the R1 barrier drop; null until the match is synced. */
@@ -57,27 +59,6 @@ const EFFECT_STYLE: Record<string, { radius: number; fill: string }> = {
   slow: { radius: 260, fill: 'rgba(96,165,250,0.25)' },
   damage_zone: { radius: 300, fill: 'rgba(249,115,22,0.3)' },
   recon: { radius: 80, fill: 'rgba(192,132,252,0.6)' },
-}
-
-const LAYERS = [
-  { key: 'cones', label: 'View', title: 'Where each player is looking' },
-  { key: 'utility', label: 'Utility', title: 'Smokes, walls, traps and other placed abilities' },
-  { key: 'pawns', label: 'Pawns', title: 'Cameras, drones and other things agents control' },
-  { key: 'trails', label: 'Trails', title: 'The last 3 seconds of each player’s path' },
-  { key: 'flip', label: 'My side', title: 'On: your team always starts from the bottom, so the map turns when sides change. Off: attackers always start from the bottom' },
-] as const
-type LayerKey = (typeof LAYERS)[number]['key']
-type Layers = Record<LayerKey, boolean>
-
-const LAYERS_KEY = 'vodReview.mapLayers'
-const DEFAULT_LAYERS: Layers = { cones: true, utility: true, pawns: true, trails: false, flip: true }
-
-function readLayers(): Layers {
-  try {
-    return { ...DEFAULT_LAYERS, ...JSON.parse(localStorage.getItem(LAYERS_KEY) ?? '{}') }
-  } catch {
-    return DEFAULT_LAYERS
-  }
 }
 
 function loadImage(src: string): Promise<HTMLImageElement | null> {
@@ -493,9 +474,7 @@ function ReplayMinimap({
   const toggleLayer = (key: LayerKey) => {
     setLayers(prev => {
       const next = { ...prev, [key]: !prev[key] }
-      try {
-        localStorage.setItem(LAYERS_KEY, JSON.stringify(next))
-      } catch { /* a full or blocked store only costs the preference */ }
+      writeLayers(next)
       return next
     })
   }

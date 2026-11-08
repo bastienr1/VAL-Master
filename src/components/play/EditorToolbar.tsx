@@ -35,6 +35,8 @@ interface EditorToolbarProps {
   onTogglePlaybook(): void
   drawerOpen: boolean
   onToggleDrawer(): void
+  /** What the right panel holds now: "Step", or "Rounds" while a replay plays. */
+  drawerLabel: string
   /** Given for a play built from a match replay while its replay is not open: **Open replay** (§2.8). */
   onOpenReplay?: () => void
   /** The replay's bundle is loading. */
@@ -176,11 +178,11 @@ export default function EditorToolbar(props: EditorToolbarProps) {
           type="button"
           onClick={props.onToggleDrawer}
           aria-pressed={drawerOpen}
-          title={drawerOpen ? 'Hide the step panel' : 'Show the step panel'}
+          title={`${drawerOpen ? 'Hide' : 'Show'} the ${props.drawerLabel.toLowerCase()} panel`}
           className={toggle(drawerOpen)}
         >
           <PanelRight className="w-3.5 h-3.5" />
-          <span>Step</span>
+          <span>{props.drawerLabel}</span>
         </button>
           </>
         )}
