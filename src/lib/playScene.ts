@@ -521,9 +521,7 @@ function imagePoint(pos: PlayPos, map: SceneMap): Point | null {
  * `previous` drew them, so the canvas can leave a
  * faint tile behind an agent that moved. An agent is matched by element id;
  * one that is not in `step`, or that does not resolve in either step, leaves
- * nothing. "Somewhere else" is read from the positions as written, before the
- * crowd spread, so an agent that stayed put does not leave a ghost just
- * because a neighbour walked away. `before` is `previous` already placed, when
+ * nothing. "Somewhere else" is read from the positions as written. `before` is `previous` already placed, when
  * the caller has it; otherwise it is placed with `markerScale` (see
  * `sceneForStep`).
  */
