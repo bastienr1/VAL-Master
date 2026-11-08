@@ -101,6 +101,8 @@ export interface PlayCanvasProps {
   pending: { agent: string; slot: AbilitySlot } | null
   selectedId: string | null
   showCallouts: boolean
+  /** A name under every agent tile: who played it (a replay's Riot name), else the agent. */
+  showNames?: boolean
   /** False while scrubbing fast, and for a replay's frames. */
   animate: boolean
   onSelect(id: string | null): void
@@ -257,6 +259,9 @@ const TEXT_BOX_H = 34
 const UTILITY_LABEL = 20
 const CALLOUT_LABEL = 22
 const NOTE_MAX = 42
+/** The name under an agent tile (Names toggle). */
+const NAME_SIZE = 20
+const NAME_MAX = 16
 /** Below this rendered width (px) ability, marker and agent labels hide. */
 const LABEL_MIN_WIDTH_PX = 280
 /** Below this rendered width (px) callout and small labels are set 15% smaller, so they stay rather than crowd. */
@@ -439,6 +444,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
     pending,
     selectedId,
     showCallouts,
+    showNames = false,
     animate,
     onSelect,
     onChange,
@@ -1517,9 +1523,11 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
 
   const agentTiles = scene.agents.map(agent => {
     const [dx, dy] = offsetOf(agent.id)
-    const label = `${agent.agent}${agent.team === 'enemy' ? ' (enemy)' : ''}${agent.spike ? ', spike carrier' : ''}${
-      agent.note ? `: ${agent.note}` : ''
-    }`
+    const label = `${agent.agent}${agent.player ? ` (${agent.player})` : ''}${agent.team === 'enemy' ? ' (enemy)' : ''}${
+      agent.spike ? ', spike carrier' : ''
+    }${agent.note ? `: ${agent.note}` : ''}`
+    // The hover / selection card already names the agent; the small name would sit under it.
+    const named = showNames && showLabels && agent.id !== hoverId && agent.id !== selectedId
     return (
       <g
         key={agent.id}
@@ -1527,6 +1535,22 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
         style={{ ...placement(agent.x + dx, agent.y + dy, true, live?.id === agent.id), cursor: elementCursor }}
       >
         {tile(agent.agent, ringOf(agent))}
+        {named && (
+          <g transform={sized}>
+            <text
+              y={HALF + 4 + NAME_SIZE}
+              textAnchor="middle"
+              fontFamily={FONT}
+              fontSize={NAME_SIZE}
+              fontWeight={600}
+              fill={agent.team === 'enemy' ? '#FCA5A5' : '#E2E8F0'}
+              pointerEvents="none"
+              {...HALO}
+            >
+              {truncate(agent.player || agent.agent, NAME_MAX)}
+            </text>
+          </g>
+        )}
       </g>
     )
   })

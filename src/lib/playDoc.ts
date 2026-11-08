@@ -89,6 +89,8 @@ export interface AgentElement {
   note?: string
   /** The spike carrier this step (attack only). */
   spike?: boolean
+  /** Who played the agent: the Riot name, without the tag, on agents taken from a match replay. */
+  player?: string
 }
 
 export interface AbilityElement {
@@ -448,6 +450,8 @@ function parseElements(
         const note = text(e.note)
         if (note) el.note = note
         if (e.spike === true) el.spike = true
+        const player = text(e.player)
+        if (player) el.player = player
         elements.push(el)
         break
       }

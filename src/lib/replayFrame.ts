@@ -368,6 +368,8 @@ export function frameStep(
   transform: MapTransform,
   ids: FrameIds,
   round: ReplayRound = roundAt(bundle, t),
+  /** Who played each subject (Riot name), when known: put on the agent as `player`. */
+  playerName?: (subject: string) => string | undefined,
 ): PlayStep {
   const playerBySubject = new Map(bundle.players.map(p => [p.subject, p]))
   const infoOfSubject = (subject: string | null) => {
@@ -389,6 +391,8 @@ export function frameStep(
     placed.add(key)
     const el: AgentElement = { kind: 'agent', id: ids.forSubject(player.subject), agent, team, at: imagePos(transform, state.x, state.y) }
     if (bundle.spike.carriers.some(c => c.player === player.subject && c.from <= t && t < c.to)) el.spike = true
+    const name = playerName?.(player.subject)
+    if (name) el.player = name
     elements.push(el)
   }
 
