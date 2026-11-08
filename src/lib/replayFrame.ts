@@ -82,6 +82,10 @@ const LAND_LATE_MS = 1_500
 const MIN_FLIGHT_MS = 50
 /** A landing keeps its throw arc this long. */
 const ARC_KEPT_MS = 3_000
+/** How long a projectile with no landing actor (a flash popping in the air) shows where it ended. */
+const POP_SHOWN_MS = 1_000
+/** A runner and the wall it draws start within this of each other. */
+const TRACER_MS = 300
 /** Wall segments of one owner and class starting within this time of the first are one wall. */
 const WALL_GROUP_MS = 500
 const UNKNOWN_AGENT = 'Agent'
@@ -216,6 +220,8 @@ interface EffectPlan {
   walls: Map<number, number[]>
   /** Every segment index of a wall → the wall's first segment index. */
   wallOf: Map<number, number>
+  /** A wall with no points of its own → the runner whose track draws it. */
+  tracerOf: Map<number, number>
 }
 
 // Built once per bundle, like the deaths.
@@ -304,7 +310,19 @@ function buildPlan(effects: ReplayEffect[]): EffectPlan {
     walls.set(head, alongWall(members, effects))
     for (const m of members) wallOf.set(m, head)
   }
-  return { info, landingOf, throwOf, walls, wallOf }
+  // A runner's track draws the wall of its owner that starts with it (Neon's Fast Lane).
+  const tracerOf = new Map<number, number>()
+  effects.forEach((e, i) => {
+    if (!info[i].traces || !e.track || e.track.length < 2 || e.owner === null) return
+    let best = -1
+    effects.forEach((w, j) => {
+      if (w.owner !== e.owner || info[j].shape !== 'wall' || info[j].role === 'ignore' || tracerOf.has(j)) return
+      if (Math.abs(w.start - e.start) > TRACER_MS) return
+      if (best < 0 || Math.abs(w.start - e.start) < Math.abs(effects[best].start - e.start)) best = j
+    })
+    if (best >= 0) tracerOf.set(best, i)
+  })
+  return { info, landingOf, throwOf, walls, wallOf, tracerOf }
 }
 
 /** A wall's segments in order: along the line through the two that lie farthest apart. */
@@ -324,6 +342,26 @@ function alongWall(members: number[], effects: ReplayEffect[]): number[] {
   }
   const along = (i: number) => (effects[i].x - a.x) * (b.x - a.x) + (effects[i].y - a.y) * (b.y - a.y)
   return [...members].sort((i, j) => along(i) - along(j) || i - j)
+}
+
+/** Where a track ([t, x, y] in time order) has its actor at `t`: interpolated, clamped to its ends. */
+export function trackAt(track: ReadonlyArray<readonly [number, number, number]>, t: number): [number, number] {
+  const first = track[0]
+  const last = track[track.length - 1]
+  if (t <= first[0]) return [first[1], first[2]]
+  if (t >= last[0]) return [last[1], last[2]]
+  let k = 1
+  while (track[k][0] < t) k++
+  const [t0, x0, y0] = track[k - 1]
+  const [t1, x1, y1] = track[k]
+  const f = t1 > t0 ? (t - t0) / (t1 - t0) : 1
+  return [x0 + (x1 - x0) * f, y0 + (y1 - y0) * f]
+}
+
+/** How much of a life from `start` to `end` is left at `t`, 1…0; null for a life of no length. */
+function lifeLeft(start: number, end: number, t: number): number | null {
+  if (end <= start) return null
+  return clamp01((end - t) / (end - start))
 }
 
 /** The point halfway along a polyline. */
@@ -402,6 +440,11 @@ export function frameStep(
   const plan = planOf(bundle)
   const effects = bundle.effects
   const posOf = (e: ReplayEffect) => imagePos(transform, e.x, e.y)
+  /** Where a tracked actor is at `t`: between its two samples around it, else at the nearer end. */
+  const trackPos = (track: ReadonlyArray<readonly [number, number, number]>, at: number): PlayPos => {
+    const [x, y] = trackAt(track, at)
+    return imagePos(transform, x, y)
+  }
   // Up at t, opened during this round; one that never closed lasts the round.
   const upAt = (e: ReplayEffect) => e.start >= round.buyStartMs && e.start <= t && (e.end === null || e.end >= t)
 
@@ -443,9 +486,21 @@ export function frameStep(
     if (role === 'ignore') return
 
     if (role === 'projectile') {
-      // In flight: drawn at its landing, from the hand, under the landing's id. Without a landing, not at all.
+      // In flight: drawn at its landing, from the hand, under the landing's id.
       const l = plan.landingOf.get(index)
-      if (l === undefined) return
+      if (l === undefined) {
+        // No landing actor (a flash that pops in the air, a missile): the badge rides the
+        // projectile's own track, then the area shows where it ended for a moment. No track, nothing.
+        const track = effect.track
+        if (!track || track.length < 2 || effect.end === null) return
+        if (effect.start < round.buyStartMs || t < effect.start || t >= effect.end + POP_SHOWN_MS) return
+        const el = abilityOf(index, [effect], ids.forEffect(index), trackPos(track, t))
+        el.from = posOf(effect)
+        if (t < effect.end) el.progress = 1
+        shown.push(effect)
+        elements.push(el)
+        return
+      }
       const landing = effects[l]
       if (effect.start < round.buyStartMs || t < effect.start || t >= landing.start) return
       const el = abilityOf(l, [effect, landing], ids.forEffect(l), posOf(landing), index)
@@ -465,6 +520,11 @@ export function frameStep(
       const points = up.map(posOf)
       const el = abilityOf(index, up, ids.forEffect(index), midway(points))
       if (points.length >= 2) el.path = points
+      const ends = up.map(e => e.end)
+      if (ends.every((end): end is number => end !== null)) {
+        const life = lifeLeft(Math.min(...up.map(e => e.start)), Math.max(...ends), t)
+        if (life !== null) el.life = life
+      }
       shown.push(...up)
       elements.push(el)
       return
@@ -473,9 +533,20 @@ export function frameStep(
     if (!upAt(effect)) return
     const thrown = plan.throwOf.get(index)
     const projectile = thrown !== undefined ? effects[thrown] : null
-    const el = abilityOf(index, projectile ? [effect, projectile] : [effect], ids.forEffect(index), posOf(effect), thrown)
+    // A pawn (a drone, a bot) is where its track has it now; a wall built point by point is
+    // the part already built, the badge halfway along it.
+    const tracer = plan.tracerOf.get(index)
+    const shape = plan.info[index].shape === 'wall' ? (effect.points ?? (tracer !== undefined ? effects[tracer].track : undefined) ?? []) : []
+    const formed = shape.filter(([at]) => at <= t).map(([, x, y]) => imagePos(transform, x, y))
+    const at = formed.length >= 2 ? midway(formed) : effect.track && effect.track.length > 0 ? trackPos(effect.track, t) : posOf(effect)
+    const el = abilityOf(index, projectile ? [effect, projectile] : [effect], ids.forEffect(index), at, thrown)
+    if (formed.length >= 2) el.path = formed
     // Just landed: the arc from the hand stays a moment.
     if (projectile && t - effect.start < ARC_KEPT_MS) el.from = posOf(projectile)
+    if (effect.end !== null) {
+      const life = lifeLeft(effect.start, effect.end, t)
+      if (life !== null) el.life = life
+    }
     shown.push(effect)
     if (projectile) shown.push(projectile)
     elements.push(el)

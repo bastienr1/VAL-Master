@@ -35,13 +35,20 @@ import duckdb
 import _env
 
 SCHEMA = 1
-REDUCER_VERSION = "0.2.0"
+REDUCER_VERSION = "0.3.0"
 # 0.2.0: effects also hold the ability actors vrfkit's keyword filter leaves out (Sova's bolts,
 #        Raze's grenades, KAY/O's knife, Fade's prowlers...), with `kind` "other".
+# 0.3.0: effects may carry `points` (a wall's shape, point by point, timed) and `track` (a
+#        projectile's or a pawn's movement), both as [t, x, y] rows.
 
 # Leaf prefixes of the actors an ability puts in the world; `Ability_` controllers and `Gun_` weapons
 # are not among them.
 ABILITY_ACTOR_PREFIXES = ("projectile_", "gameobject_", "zone_", "patch_", "pawn_")
+# The calls a wall's manager makes as the wall forms, one point each.
+WALL_POINT_FIELDS = ("MulticastAddAnchor.Translation", "MulticastAddSmokeScreenPoint.Translation",
+                     "MulticastAddTunnelPoint.Translation")
+# Spacing of the kept samples of a projectile's or a pawn's movement.
+TRACK_MS = 100
 MAPS_URL = "https://valorant-api.com/v1/maps"
 
 # Comp_AbilityStatisticsReplicator Slot values. Not documented anywhere; derived by lining casts
@@ -586,7 +593,7 @@ def main():
             effects.append({
                 "start": start, "end": end, "kind": kind, "agent": agent or None,
                 "cls": cls.rsplit(".", 1)[-1], "x": round(x), "y": round(y),
-                "owner": subject_of.get(instigator.get(guid)),
+                "owner": subject_of.get(instigator.get(guid)), "_guid": guid,
             })
     else:
         warnings.append(f"{effects_path.name} not found; effects are empty")
@@ -615,7 +622,7 @@ def main():
             open_rows[guid] = (t, {
                 "start": t, "end": None, "kind": "other", "agent": path.split("/")[3] or None,
                 "cls": path.rsplit(".", 1)[-1], "x": round(x), "y": round(y),
-                "owner": subject_of.get(instigator.get(guid)),
+                "owner": subject_of.get(instigator.get(guid)), "_guid": guid,
             })
         elif guid in open_rows:
             start, row = open_rows.pop(guid)
@@ -629,6 +636,67 @@ def main():
     effects.sort(key=lambda e: (e["start"], e["cls"], e["x"], e["y"]))
     if added:
         warnings.append(f"{added} ability actor(s) added beyond vrfkit's active effects")
+
+    # Shapes and paths, as [t, x, y] rows inside the effect's life:
+    # - `points`: what a wall is built of, each point as the game adds it (Harbor's High Tide
+    #   anchors, Viper's and Phoenix's screen points, Neon's tunnel points).
+    # - `track`: where a projectile or a pawn went (its replicated movement), one sample per
+    #   TRACK_MS at most, and the last one always.
+    by_guid = {}
+    for effect in effects:
+        by_guid.setdefault(effect["_guid"], []).append(effect)
+
+    def owning(guid, t):
+        """The effect row of that actor alive at t."""
+        for effect in by_guid.get(guid, ()):
+            if effect["start"] <= t and (effect["end"] is None or t <= effect["end"]):
+                return effect
+        return None
+
+    point_rows = 0
+    for guid, t, value in con.execute(f"""
+            select actor_net_guid, time_ms, value_str from fields
+            where field_name in ({",".join(f"'{name}'" for name in WALL_POINT_FIELDS)}) and value_str is not null
+            order by time_ms, packet_id""").fetchall():
+        effect = owning(guid, t)
+        vec = parse_vec(value)
+        if effect is None or not vec:
+            continue
+        effect.setdefault("points", []).append([t, round(vec[0]), round(vec[1])])
+        point_rows += 1
+
+    moving = [g for g, rows in by_guid.items()
+              if any(r["cls"].lower().startswith(("projectile_", "pawn_")) for r in rows)]
+    track_rows = 0
+    if moving:
+        last = {}
+        for guid, t, value in con.execute(f"""
+                select actor_net_guid, time_ms, value_str from fields
+                where field_name = 'ReplicatedMovement' and value_str is not null
+                  and actor_net_guid in ({",".join(str(g) for g in moving)})
+                order by time_ms, packet_id""").fetchall():
+            effect = owning(guid, t)
+            if effect is None:
+                continue
+            location = (json.loads(value).get("location") or {})
+            if location.get("x") is None or location.get("y") is None:
+                continue
+            sample = [t, round(location["x"]), round(location["y"])]
+            track = effect.setdefault("track", [])
+            if track and t - track[-1][0] < TRACK_MS:
+                last[id(effect)] = sample  # held back: kept only if it turns out to be the last
+                continue
+            track.append(sample)
+            last.pop(id(effect), None)
+            track_rows += 1
+        for effect in effects:
+            held = last.get(id(effect))
+            if held and effect.get("track") and held[0] > effect["track"][-1][0]:
+                effect["track"].append(held)
+                track_rows += 1
+    for effect in effects:
+        del effect["_guid"]
+    warnings.append(f"{point_rows} wall point(s), {track_rows} track sample(s) on effects")
     carrier_path = derived / "spike_carrier.parquet"
     if carrier_path.exists():
         for start, end, subject in con.execute(f"""

@@ -214,6 +214,10 @@ const OUTLINE_WIDTH = 4
 /** The ability badge (§2.10): a disc in the shape's colour, a ring in the thrower's team colour, the white glyph inside. */
 const BADGE_R = 13
 const BADGE_RING = 2
+/** The time-left ring around a replay frame's badge: its radius, width and length. */
+const LIFE_R = BADGE_R + BADGE_RING + 3.5
+const LIFE_WIDTH = 3
+const LIFE_LENGTH = 2 * Math.PI * LIFE_R
 const BADGE_GLYPH = 18
 /** The letter drawn instead when the registry has no glyph. */
 const BADGE_LETTER = 14
@@ -1220,6 +1224,20 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
     return (
       <g pointerEvents="none" transform={sized}>
         <circle r={BADGE_R} fill={color} stroke={throwerRing(item.agent)} strokeWidth={BADGE_RING} />
+        {item.life !== null && (
+          // Time left on a replay frame: a ring outside the badge, full when it starts, emptying clockwise from the top.
+          <g transform="rotate(-90)">
+            <circle r={LIFE_R} fill="none" stroke={BACKDROP} strokeOpacity={0.7} strokeWidth={LIFE_WIDTH + 2} />
+            <circle
+              r={LIFE_R}
+              fill="none"
+              stroke={color}
+              strokeWidth={LIFE_WIDTH}
+              strokeLinecap="round"
+              strokeDasharray={`${(LIFE_LENGTH * item.life).toFixed(2)} ${LIFE_LENGTH.toFixed(2)}`}
+            />
+          </g>
+        )}
         {icon ? (
           <image
             href={icon}

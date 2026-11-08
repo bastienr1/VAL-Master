@@ -40,6 +40,8 @@ export interface EffectClassInfo {
   slot?: AbilitySlot
   /** One segment of a wall: segments of one cast are drawn as one `path`. */
   line?: boolean
+  /** Never drawn itself, but its track draws the wall of its owner that starts with it (Neon's Fast Lane). */
+  traces?: boolean
 }
 
 const C: AbilitySlot = 'Grenade'
@@ -355,7 +357,8 @@ const TABLE: Record<string, EffectClassInfo> = {
   // Fast Lane, at its start; the runners are left out.
   GameObject_Sprinter_4_Tunnel_C: placed('wall', C),
   Projectile_Neon_C_Tunnel_C: ignore('wall'),
-  Projectile_Neon_C_Tunnel_Cosmetic_C: ignore('wall'),
+  // The lane's runner: its track draws Fast Lane (the tunnel's own points are not decoded).
+  Projectile_Neon_C_Tunnel_Cosmetic_C: { role: 'ignore', shape: 'wall', traces: true },
   // Relay Bolt: thrown, then the sphere where it comes down.
   Projectile_Sprinter_4_GroundStrike_C: p('stun', Q),
   GameObject_Sprinter_Q_ElectricSphere_C: l('stun', Q),

@@ -111,6 +111,8 @@ export interface AbilityElement {
   progress?: number
   /** A wall's extent: its points in order along the wall (at least 2); the canvas puts the badge at the path's middle. */
   path?: PlayPos[]
+  /** A replay frame's utility: how much of its life is left, 1…0 (a ring on the badge). Not kept in a strat. */
+  life?: number
 }
 
 export interface PenElement {
@@ -478,6 +480,8 @@ function parseElements(
         if (progress !== null && progress >= 0 && progress <= 1) el.progress = progress
         const path = list(e.path).map(parsePos).filter((pos): pos is PlayPos => pos !== null)
         if (path.length >= 2) el.path = path
+        const life = finite(e.life)
+        if (life !== null && life >= 0 && life <= 1) el.life = life
         elements.push(el)
         break
       }

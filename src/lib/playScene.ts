@@ -175,6 +175,8 @@ export interface PlacedAbility {
   progress: number | null
   /** A wall's line, at least two placed points; the badge sits at its middle by length. */
   path: Point[] | null
+  /** How much of its life is left, 1…0, on a replay frame; null otherwise. */
+  life: number | null
 }
 
 export interface PlacedPen {
@@ -417,6 +419,7 @@ export function sceneForStep(
           from,
           progress,
           path: path.length >= 2 ? path : null,
+          life: typeof el.life === 'number' && Number.isFinite(el.life) ? clamp01(el.life) : null,
         })
         break
       }

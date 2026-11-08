@@ -966,10 +966,12 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
     const fitted = fitComp(pristine ? [] : doc.comp, {
       ...source,
       // A throw caught mid-air is kept as thrown: the strat shows where it lands, not the frame.
+      // A strat shows intent, not a frame: a throw in flight is kept landed, and no time-left ring.
       elements: source.elements.map(el => {
-        if (el.kind !== 'ability' || el.progress === undefined) return el
-        const { progress: _inFlight, ...landed } = el
+        if (el.kind !== 'ability' || (el.progress === undefined && el.life === undefined)) return el
+        const { progress: _inFlight, life: _timeLeft, ...landed } = el
         void _inFlight
+        void _timeLeft
         return landed
       }),
       id: newId(),
