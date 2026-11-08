@@ -49,6 +49,8 @@ export interface EffectClassInfo {
   onOwner?: boolean
   /** The far end of the wire whose anchor starts with it. */
   wireEnd?: boolean
+  /** An ultimate point orb, drawn as a map marker. */
+  orb?: boolean
 }
 
 const C: AbilitySlot = 'Grenade'
@@ -288,11 +290,11 @@ const TABLE: Record<string, EffectClassInfo> = {
   // Showstopper's rocket: no landing actor.
   Projectile_Clay_X_Rocket_C: p('molly', X),
 
-  // Reyna (Vampire). Leer: thrown, then the eye where it stops. Soul orbs are left out.
+  // Reyna (Vampire). Leer: thrown, then the eye where it stops. Soul orbs lie where the kill was, on the key that spends them.
   Projectile_Vampire_4_NearsightAoE_C: p('flash', C),
   GameObject_Vampire_4_NearsightAOE_Source_C: l('flash', C),
-  GameObject_Vampire_Q_Heal_HealPool_AutoActivate_C: ignore(),
-  GameObject_Vampire_Q_Heal_HealPool_High_C: ignore(),
+  GameObject_Vampire_Q_Heal_HealPool_AutoActivate_C: { ...placed('other', Q), family: 'device' },
+  GameObject_Vampire_Q_Heal_HealPool_High_C: { ...placed('other', Q), family: 'device' },
 
   // Skye (Guide)
   Pawn_Guide_Q_PossessableScout_C: pawn('drone', Q),
@@ -431,8 +433,8 @@ const TABLE: Record<string, EffectClassInfo> = {
   Projectile_Terra_E_Rewind_ForObservers_C: ignore(),
   GameObject_Terra_X_DelayedBeam_Beam_C: placed('stun', X),
 
-  // Not an ability: the ultimate point orbs on the map.
-  UltPointOrb_C: ignore(),
+  // Not an ability: the ultimate point orbs on the map, drawn as markers from the barrier until picked up.
+  UltPointOrb_C: { role: 'ignore', shape: 'other', orb: true },
 }
 
 // Shared by every caller: never to be changed.

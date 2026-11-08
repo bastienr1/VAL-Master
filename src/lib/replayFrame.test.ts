@@ -500,6 +500,16 @@ test('an agent carries what they have left', () => {
   assert.deepEqual(sova.kit?.map(k => [k.slot, k.n]), [['Ability1', 1], ['Ultimate', 1]])
 })
 
+test('an ultimate orb is a marker until it is picked up', () => {
+  const bundle = utilityFixture()
+  bundle.casts = []
+  bundle.effects = [{ start: 31000, end: 50000, kind: 'other', agent: null, cls: 'UltPointOrb_C', x: 1000, y: 0, owner: null }]
+  const orbs = (t: number) => frameStep(bundle, t, lookup, T, createFrameIds()).elements.filter(e => e.kind === 'marker' && e.type === 'orb')
+  assert.equal(orbs(30000).length, 0)
+  assert.equal(orbs(40000).length, 1)
+  assert.equal(orbs(51000).length, 0)
+})
+
 test('a burst is over by its own clock while its actor stays', () => {
   const bundle = utilityFixture()
   bundle.casts = []

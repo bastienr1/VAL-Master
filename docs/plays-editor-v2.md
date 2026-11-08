@@ -664,7 +664,11 @@ The token is one object for every ability: dark disc, white glyph, no key tag.
 **Data.** Pawns move in `bundle.pawns`, joined to their effects by start time and
 place (3,345 of 3,346). Bundles from before reducer 0.3.0 hold area effects only;
 their casts ride on the agent until the bundle is re-attached. Curveball and
-Flashbulb have neither a landing actor nor a track, so they ride on the agent too.
+Flashbulb fly a precalculated path and send no movement; reducer 0.5.0 gives them a
+track from the throw to the game's own `IndicatorLocation`, where they go off.
+
+Ultimate orbs are map markers from `UltPointOrb_C`, up from the barrier until picked
+up. Reyna's soul orbs are devices on the key that spends them.
 
 ### 2.15 What each agent has left
 

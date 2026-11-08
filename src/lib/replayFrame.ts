@@ -592,6 +592,10 @@ export function frameStep(
   // Utility up at t.
   effects.forEach((effect, index) => {
     const { role } = plan.info[index]
+    if (plan.info[index].orb) {
+      if (upAt(effect)) elements.push({ kind: 'marker', id: ids.forEffect(index), type: 'orb', at: posOf(effect) })
+      return
+    }
     if (role === 'ignore') return
 
     if (role === 'projectile') {
