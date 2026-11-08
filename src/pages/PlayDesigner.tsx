@@ -13,6 +13,7 @@ import ReplayTransport, { type ReplayClock, type ReplayView } from '../component
 import { useGameContent, useGameContentNames } from '../hooks/useGameContent'
 import { useMediaQuery } from '../hooks/useMediaQuery'
 import { abilitiesForComp } from '../lib/composeAbilities'
+import { CANVAS_SKINS, canvasSkin, nextCanvasSkin, type CanvasSkinId } from '../lib/canvasSkins'
 import { composePlay, ComposerNotConfiguredError } from '../lib/composePlay'
 import type { GameAgent } from '../lib/gameContent'
 import {
@@ -43,7 +44,6 @@ import {
 } from '../lib/playDoc'
 import { canRedo, canUndo, historyOf, pushHistory, redoHistory, undoHistory, type History } from '../lib/playHistory'
 import { sceneTurns, sceneViewport, viewToImage } from '../lib/playScene'
-import { PLAY_TEMPLATES, mapSites, templateById, templateDoc, templateScaffold, type PlayTemplate } from '../lib/playTemplates'
 import { createPlay, deletePlay, getPlay, updatePlay, type PlayInput } from '../lib/plays'
 import type { ReplayBundle, ReplayRound } from '../lib/replayBundle'
 import {
@@ -70,6 +70,25 @@ function readFlag(key: string, fallback: boolean): boolean {
     return raw === null ? fallback : raw === 'true'
   } catch {
     return fallback
+  }
+}
+
+const SKIN_KEY = 'plays.canvasSkin'
+
+/** The canvas skin picked on this device, else the default. */
+function readSkin(): CanvasSkinId {
+  try {
+    return canvasSkin(localStorage.getItem(SKIN_KEY)).id
+  } catch {
+    return canvasSkin(null).id
+  }
+}
+
+function writeSkin(skin: CanvasSkinId) {
+  try {
+    localStorage.setItem(SKIN_KEY, skin)
+  } catch {
+    /* a look is not worth an error */
   }
 }
 
@@ -360,13 +379,11 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
   const navigate = useNavigate()
   const { registry, status: registryStatus } = useGameContent()
   const { mapNames } = useGameContentNames()
-  // `/plays/new?template=retake&site=B`, or `?replay=<match id>` (the replay mode, at
+  // `/plays/new?replay=<match id>` (the replay mode, at
   // `&round=7`'s barrier when given; `&mode=steps` imports that round's snapshots instead),
   // read once: applied when the map (the registry, for a replay) is known, then cleared.
   const [searchParams, setSearchParams] = useSearchParams()
   const [deepLink] = useState(() => ({
-    template: searchParams.get('template'),
-    site: searchParams.get('site'),
     replay: searchParams.get('replay'),
     round: searchParams.get('round'),
     mode: searchParams.get('mode'),
@@ -417,6 +434,13 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
       writeFlag('plays.showNames', !prev)
       return !prev
     })
+  // The canvas skin (§2.11), remembered per device.
+  const [skinId, setSkinIdState] = useState<CanvasSkinId>(readSkin)
+  const setSkinId = (next: CanvasSkinId) => {
+    writeSkin(next)
+    setSkinIdState(next)
+  }
+  const skin = canvasSkin(skinId)
   const [playing, setPlaying] = useState(false)
   const [speedMs, setSpeedMs] = useState(DEFAULT_SPEED_MS)
   /** False while an arrow key is held down: the steps flick by without the walk animation. */
@@ -507,7 +531,6 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
   const map = mapPick || (loadId ? '' : (mapNames[0] ?? ''))
   const gameMap = map ? registry?.maps.byName.get(map.trim().toLowerCase()) : undefined
   const mapDrawable = Boolean(gameMap?.transform && gameMap.callouts.length > 0)
-  const sites = useMemo(() => mapSites(gameMap?.callouts ?? []), [gameMap])
   const registryAgents = useMemo(() => (registry ? [...registry.agents.byId.values()] : []), [registry])
   const agentByName = (name: string): GameAgent | undefined => registry?.agents.byName.get(name.trim().toLowerCase())
 
@@ -869,7 +892,7 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
   const abilityName = (agent: string, slot: AbilitySlot | null) =>
     slot ? (agentByName(agent)?.abilities.find(a => a.slot === slot)?.name ?? null) : null
 
-  // ── Brief, templates, compose ─────────────────────────────────────────────
+  // ── Brief, compose ────────────────────────────────────────────────────────
 
   const resetView = () => {
     setStepIndex(0)
@@ -890,21 +913,6 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
     resetView()
     setComposedWith(null)
     setComposeError(null)
-  }
-
-  /**
-   * The template's steps, with the comp kept when there is one and taken from
-   * the brief otherwise. An empty brief gets the template's scaffold to fill in.
-   */
-  const applyTemplate = (template: PlayTemplate, site: string | null) => {
-    setSide(template.side)
-    const agents = doc.comp.length ? doc.comp : agentsInBrief(brief, registryAgents.map(a => a.name))
-    commit(ensureStep(templateDoc(template, agents, site), template.side))
-    resetView()
-    setComposedWith(null)
-    setComposeError(null)
-    setShowCallouts(true)
-    if (brief.trim() === '') setBrief(templateScaffold(template, map, site))
   }
 
   /**
@@ -1142,17 +1150,6 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
       .catch((e: unknown) => setError(messageOf(e)))
   })
 
-  useEffect(() => {
-    if (deepLinked.current || loadId !== undefined || !gameMap || !empty || deepLink.replay) return
-    const template = templateById(deepLink.template ?? '')
-    if (!template) return
-    deepLinked.current = true
-    const wanted = deepLink.site?.trim().toUpperCase()
-    applyTemplate(template, wanted && sites.includes(wanted) ? wanted : (sites[0] ?? null))
-    // So a reload does not apply it over the user's work.
-    setSearchParams({}, { replace: true })
-  })
-
   const compose = async () => {
     if (!gameMap || gameMap.callouts.length === 0 || !brief.trim() || composing) return
     setComposing(true)
@@ -1255,6 +1252,10 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
         setPending(null)
         setSelectedId(null)
         setPopoverAgent(null)
+      } else if (key === 'k') {
+        const next = nextCanvasSkin(skinId, e.shiftKey ? -1 : 1)
+        setSkinId(next)
+        setToast(`Skin: ${CANVAS_SKINS[next].name}`)
       } else if (e.key === 'Delete' || e.key === 'Backspace') {
         if (!selectedId) return
         e.preventDefault()
@@ -1375,6 +1376,8 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
         onToggleNames={toggleNames}
         showControl={showControl}
         onToggleControl={toggleControl}
+        skin={skinId}
+        onSkin={setSkinId}
         playbookOpen={playbookOpen}
         onTogglePlaybook={() => {
           persistPlaybookOpen(!playbookOpen)
@@ -1398,6 +1401,8 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
 
       {replay && (
         <ReplayTransport
+          allyColor={skin.ally}
+          enemyColor={skin.enemy}
           bundle={replay.bundle}
           clock={clock}
           nameOf={replay.nameOf}
@@ -1467,6 +1472,7 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
 
         {/* The canvas fills the column inside its padding and measures itself. */}
         <div
+          style={{ backgroundColor: skin.back }}
           className="relative shrink-0 h-[70vh] lg:h-auto min-h-0 min-w-0 p-3 flex items-center justify-center overflow-hidden lg:row-start-1 lg:col-start-3"
         >
           {!registry && registryStatus === 'loading' ? (
@@ -1489,6 +1495,7 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
                 selectedId={selectedId}
                 showCallouts={showCallouts}
                 showNames={showNames}
+                skin={skinId}
                 animate={inReplay ? false : animate}
                 onSelect={onCanvasSelect}
                 onChange={inReplay ? (replayPlaying ? undefined : onFrameChange) : onCanvasChange}
@@ -1560,10 +1567,7 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
         >
           {drawerOpen && (
             <BriefDrawer
-              showTemplates={empty}
-              templates={PLAY_TEMPLATES}
-              sites={sites}
-              onApplyTemplate={applyTemplate}
+              isEmpty={empty}
               map={map}
               onLoadReplay={loadReplayPlay}
               onPlayReplay={playMatch}

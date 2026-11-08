@@ -723,9 +723,7 @@ function cleanComp(comp: string[]): string[] {
  * in their side's spawn as an ally agent element, with one id per agent
  * across the steps. Attack gets Setup, Execute and Post-plant; defense gets
  * Setup, Hold and Retake, the beats a defensive set is talked through in.
- * The comp is cleaned as `parsePlayDoc` would. This is the Attack or Defense
- * template of `playTemplates.ts`, captions included, written out here
- * because that file imports this one; a test keeps the two equal.
+ * The comp is cleaned as `parsePlayDoc` would.
  */
 export function emptyPlayDoc(comp: string[], side: 'attack' | 'defense' = 'attack'): PlayDoc {
   const agents = cleanComp(comp).map(agent => ({ agent, id: newId() }))

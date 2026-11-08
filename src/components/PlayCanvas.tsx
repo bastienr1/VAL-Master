@@ -65,7 +65,6 @@ import {
 import {
   MAX_ZOOM,
   MIN_ZOOM,
-  UTILITY_COLORS,
   UTILITY_STYLE,
   VIEW_SIZE,
   clampCamera,
@@ -85,6 +84,7 @@ import {
   type PlacedMarker,
   type Point,
 } from '../lib/playScene'
+import { canvasSkin, hexChannels, skinDrawColor, skinMapMatrix, type CanvasSkin, type CanvasSkinId } from '../lib/canvasSkins'
 import type { ControlGrid } from '../lib/mapControl'
 import type { PlaySide } from '../lib/types'
 
@@ -101,6 +101,8 @@ export interface PlayCanvasProps {
   pending: { agent: string; slot: AbilitySlot } | null
   selectedId: string | null
   showCallouts: boolean
+  /** The canvas skin (§2.11); the default skin when not given. */
+  skin?: CanvasSkinId
   /** A name under every agent tile: who played it (a replay's Riot name), else the agent. */
   showNames?: boolean
   /** False while scrubbing fast, and for a replay's frames. */
@@ -134,21 +136,15 @@ export interface PlayCanvasHandle {
 
 // ── Looks ───────────────────────────────────────────────────────────────────
 
-const BACKDROP = '#0B1220'
-const ALLY = '#53CADC'
-const ENEMY = '#FF4655'
-/** The map-control overlay's colours, for a legend chip in the toolbar or transport. */
-export const CONTROL_COLORS = { ally: ALLY, enemy: ENEMY } as const
 /** Overlay alpha at full control (|v| = 1). */
 const CONTROL_ALPHA = 0.42
 /** Below this |v| a cell is left clear. */
 const CONTROL_EPSILON = 0.02
-const CONTROL_RGB = { ally: [0x53, 0xca, 0xdc], enemy: [0xff, 0x46, 0x55] } as const
 
 let controlCanvas: HTMLCanvasElement | null = null
 
 /** The grid as a PNG data URL, one pixel per cell; masked-out and near-neutral cells stay clear. */
-function paintControl(grid: ControlGrid): string | null {
+function paintControl(grid: ControlGrid, skin: CanvasSkin): string | null {
   const { n, values, mask } = grid
   if (typeof document === 'undefined' || n <= 0) return null
   controlCanvas ??= document.createElement('canvas')
@@ -157,12 +153,14 @@ function paintControl(grid: ControlGrid): string | null {
   canvas.height = n
   const ctx = canvas.getContext('2d')
   if (!ctx) return null
+  const ally = hexChannels(skin.ally)
+  const enemy = hexChannels(skin.enemy)
   const image = ctx.createImageData(n, n)
   const px = image.data
   for (let i = 0; i < n * n; i++) {
     const v = values[i]
     if (!mask[i] || !(Math.abs(v) > CONTROL_EPSILON)) continue
-    const [r, g, b] = v > 0 ? CONTROL_RGB.ally : CONTROL_RGB.enemy
+    const [r, g, b] = v > 0 ? ally : enemy
     const o = i * 4
     px[o] = r
     px[o + 1] = g
@@ -172,26 +170,21 @@ function paintControl(grid: ControlGrid): string | null {
   ctx.putImageData(image, 0, 0)
   return canvas.toDataURL('image/png')
 }
-const SPIKE = '#FFCA3A'
 const WHITE = '#FFFFFF'
-const TILE_FILL = '#1A1F2E'
-const CALLOUT_COLOR = '#5B8A98'
+/** The little key tag on a badge stays dark on every skin: it sits on the badge's colour. */
+const KEY_TAG_FILL = '#0B1220'
 const FONT = 'Inter, sans-serif'
-/** Dark outline behind map text, so labels read over the map and over each other. */
-const HALO = { paintOrder: 'stroke', stroke: BACKDROP, strokeWidth: 5, strokeLinejoin: 'round' } as const
 
 /**
  * The map art's tint, in three passes, alpha kept throughout: luminance
  * (L = 0.3 R + 0.59 G + 0.11 B) into every channel; squared, so the light
  * grey floor of the Riot minimap sinks towards the backdrop while its white
- * wall lines stay bright; then scaled to about #2BB3C9 (0.17, 0.70, 0.79).
- * Walls read teal, the floor a navy a shade lighter than the void around it.
+ * wall lines stay bright; then mapped between the skin's floor and wall colours
+ * (`skinMapMatrix`), the walls bright, the floor a shade off the void around it.
  * A plain luminance matrix (no squaring) left the floor a mid teal.
  */
 const LUMINANCE_MATRIX = '0.3 0.59 0.11 0 0  0.3 0.59 0.11 0 0  0.3 0.59 0.11 0 0  0 0 0 1 0'
 const FLOOR_GAMMA = 2
-const TEAL_MATRIX = '0.17 0 0 0 0  0 0.7 0 0 0  0 0 0.79 0 0  0 0 0 1 0'
-const MAP_OPACITY = 0.85
 
 const TILE = 44
 const HALF = TILE / 2
@@ -449,6 +442,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
     selectedId,
     showCallouts,
     showNames = false,
+    skin: skinId,
     animate,
     onSelect,
     onChange,
@@ -458,6 +452,9 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
   },
   ref,
 ) {
+  const skin = canvasSkin(skinId)
+  /** An outline in the backdrop's colour behind map text, so labels read over the map and over each other. */
+  const halo = { paintOrder: 'stroke', stroke: skin.back, strokeWidth: 5, strokeLinejoin: 'round' } as const
   const uid = useId().replace(/[^a-zA-Z0-9_-]/g, '')
   const boxClip = `${uid}-box`
   const tileClip = `${uid}-tile`
@@ -521,10 +518,10 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
   const controlVersion = control?.version
   const controlN = control?.n
   const controlUrl = useMemo(
-    () => (control && controlN ? paintControl(control) : null),
+    () => (control && controlN ? paintControl(control, skin) : null),
     // `controlVersion` is the point: the lint cannot see an in-place mutation.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [control, controlVersion, controlN],
+    [control, controlVersion, controlN, skin],
   )
   const previousScene = useMemo(
     () => (previous ? sceneForStep(previous, map, side, k) : null),
@@ -559,8 +556,8 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
 
   // Arrowheads per colour: arrows in their own, move paths in the team's, the draft in white.
   const headColors = useMemo(
-    () => [...new Set([ALLY, ENEMY, WHITE, ...scene.arrows.map(a => a.color)])],
-    [scene],
+    () => [...new Set([skin.ally, skin.enemy, skin.ink, ...scene.arrows.map(a => skinDrawColor(skin, a.color))])],
+    [scene, skin],
   )
 
   useEffect(() => {
@@ -1121,22 +1118,22 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
         textAnchor="middle"
         fontFamily={FONT}
         fontSize={utilityLabel}
-        fill="#CBD5E1"
+        fill={skin.label}
         pointerEvents="none"
-        {...HALO}
+        {...halo}
       >
         {truncate(text, NOTE_MAX)}
       </text>
     ) : null
 
-  const ringOf = (agent: Pick<PlacedAgent, 'team' | 'spike'>) => (agent.spike ? SPIKE : agent.team === 'enemy' ? ENEMY : ALLY)
+  const ringOf = (agent: Pick<PlacedAgent, 'team' | 'spike'>) => (agent.spike ? skin.spike : agent.team === 'enemy' ? skin.enemy : skin.ally)
 
   /** An agent's square portrait tile about the origin, at its screen size. */
   const tile = (name: string, ring: string) => {
     const icon = agentOf(name)?.displayIcon ?? null
     return (
       <g transform={sized}>
-        <rect x={-HALF} y={-HALF} width={TILE} height={TILE} rx={TILE_RX} fill={TILE_FILL} />
+        <rect x={-HALF} y={-HALF} width={TILE} height={TILE} rx={TILE_RX} fill={skin.tile} />
         {icon ? (
           <image
             href={icon}
@@ -1154,7 +1151,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
             fontFamily={FONT}
             fontWeight="bold"
             fontSize={16}
-            fill="#F1F5F9"
+            fill={skin.allyName}
             pointerEvents="none"
           >
             {name.slice(0, 3)}
@@ -1175,7 +1172,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
         <polyline
           points={points}
           fill="none"
-          stroke={pen.color}
+          stroke={skinDrawColor(skin, pen.color)}
           strokeWidth={PEN_WIDTH * k}
           strokeLinecap="round"
           strokeLinejoin="round"
@@ -1192,7 +1189,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
   const throwerRing = (name: string) => {
     const key = name.trim().toLowerCase()
     const thrower = key ? scene.agents.find(a => a.agent.trim().toLowerCase() === key) : undefined
-    return thrower?.team === 'enemy' ? ENEMY : ALLY
+    return thrower?.team === 'enemy' ? skin.enemy : skin.ally
   }
 
   /** The drag offset of an ability's hand: only while its `from` handle is dragged. */
@@ -1227,7 +1224,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
         {item.life !== null && (
           // Time left on a replay frame: a ring outside the badge, full when it starts, emptying clockwise from the top.
           <g transform="rotate(-90)">
-            <circle r={LIFE_R} fill="none" stroke={BACKDROP} strokeOpacity={0.7} strokeWidth={LIFE_WIDTH + 2} />
+            <circle r={LIFE_R} fill="none" stroke={skin.back} strokeOpacity={0.7} strokeWidth={LIFE_WIDTH + 2} />
             <circle
               r={LIFE_R}
               fill="none"
@@ -1255,7 +1252,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
         )}
         {key && (
           <g transform={`translate(${KEY_TAG_AT.toFixed(2)} ${(-KEY_TAG_AT).toFixed(2)})`}>
-            <rect x={-KEY_TAG / 2} y={-KEY_TAG / 2} width={KEY_TAG} height={KEY_TAG} rx={KEY_TAG_RX} fill={BACKDROP} />
+            <rect x={-KEY_TAG / 2} y={-KEY_TAG / 2} width={KEY_TAG} height={KEY_TAG} rx={KEY_TAG_RX} fill={KEY_TAG_FILL} />
             <text textAnchor="middle" dominantBaseline="central" fontFamily={FONT} fontWeight="bold" fontSize={KEY_LETTER} fill={WHITE}>
               {key}
             </text>
@@ -1267,7 +1264,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
 
   const renderAbility = (item: PlacedAbility) => {
     const agent = agentOf(item.agent)
-    const color = UTILITY_COLORS[item.shape]
+    const color = skin.utility[item.shape]
     const icon = item.slot ? (agent?.abilities.find(a => a.slot === item.slot)?.icon ?? null) : null
     const { at, path, flying, arc, badge } = abilityLayout(item)
     const { r } = item
@@ -1390,10 +1387,10 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
         <line {...line} stroke="transparent" strokeWidth={24 * k} strokeLinecap="round" />
         <line
           {...line}
-          stroke={arrow.color}
+          stroke={skinDrawColor(skin, arrow.color)}
           strokeWidth={ARROW_WIDTH * k}
           strokeLinecap="round"
-          markerEnd={`url(#${arrowHead(arrow.color)})`}
+          markerEnd={`url(#${arrowHead(skinDrawColor(skin, arrow.color))})`}
           pointerEvents="none"
         />
       </g>
@@ -1405,7 +1402,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
     if (!agent.path) return []
     const [dx, dy] = offsetOf(agent.id)
     const points = agent.path.map(([x, y], i): Point => (i === 0 ? [x + dx, y + dy] : [x, y]))
-    const color = agent.team === 'enemy' ? ENEMY : ALLY
+    const color = agent.team === 'enemy' ? skin.enemy : skin.ally
     return [
       <polyline
         key={`path:${agent.id}`}
@@ -1432,7 +1429,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
       shape = (
         <>
           <circle r={HIT_R} fill="transparent" />
-          <path d={spikeTriangle(SPIKE_R)} fill={SPIKE} stroke={BACKDROP} strokeWidth={2} strokeLinejoin="round" />
+          <path d={spikeTriangle(SPIKE_R)} fill={skin.spike} stroke={skin.back} strokeWidth={2} strokeLinejoin="round" />
           {marker.site && (
             <text
               y={SPIKE_R * 0.12}
@@ -1441,7 +1438,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
               fontFamily="system-ui, sans-serif"
               fontWeight="bold"
               fontSize={18}
-              fill={BACKDROP}
+              fill={skin.back}
               pointerEvents="none"
             >
               {marker.site}
@@ -1455,14 +1452,14 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
       shape = (
         <>
           <circle r={HIT_R} fill="transparent" />
-          <circle r={ENEMY_R} fill={BACKDROP} fillOpacity={0.6} stroke={ENEMY} strokeWidth={4} />
+          <circle r={ENEMY_R} fill={skin.back} fillOpacity={0.6} stroke={skin.enemy} strokeWidth={4} />
           <text
             textAnchor="middle"
             dominantBaseline="central"
             fontFamily={FONT}
             fontWeight="bold"
             fontSize={22}
-            fill={ENEMY}
+            fill={skin.enemy}
             pointerEvents="none"
           >
             ?
@@ -1475,8 +1472,8 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
       shape = (
         <>
           <circle cy={-PIN_HEAD + 4} r={HIT_R} fill="transparent" />
-          <path d={PIN_PATH} fill={SPIKE} stroke={BACKDROP} strokeWidth={2} strokeLinejoin="round" />
-          <circle cy={-PIN_HEAD} r={5} fill={BACKDROP} pointerEvents="none" />
+          <path d={PIN_PATH} fill={skin.spike} stroke={skin.back} strokeWidth={2} strokeLinejoin="round" />
+          <circle cy={-PIN_HEAD} r={5} fill={skin.back} pointerEvents="none" />
         </>
       )
     }
@@ -1521,9 +1518,9 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
               fontFamily={FONT}
               fontSize={TEXT_SIZE}
               fontWeight={600}
-              fill={t.color}
+              fill={skinDrawColor(skin, t.color)}
               pointerEvents="none"
-              {...HALO}
+              {...halo}
             >
               {value}
             </text>
@@ -1561,9 +1558,9 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
               fontFamily={FONT}
               fontSize={NAME_SIZE}
               fontWeight={600}
-              fill={agent.team === 'enemy' ? '#FCA5A5' : '#E2E8F0'}
+              fill={agent.team === 'enemy' ? skin.enemyName : skin.allyName}
               pointerEvents="none"
-              {...HALO}
+              {...halo}
             >
               {truncate(agent.player || agent.agent, NAME_MAX)}
             </text>
@@ -1576,9 +1573,9 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
   // ── Selection ───────────────────────────────────────────────────────────
 
   /** A selection outline drawn at screen size about an origin already scaled by `k`. */
-  const dashed = { fill: 'none', stroke: WHITE, strokeWidth: 3, strokeDasharray: '8 6' } as const
+  const dashed = { fill: 'none', stroke: skin.ink, strokeWidth: 3, strokeDasharray: '8 6' } as const
   /** The same outline drawn in map units (around real-size things): its line and dashes keep their size on screen. */
-  const dashedMap = { fill: 'none', stroke: WHITE, strokeWidth: 3 * k, strokeDasharray: dashes('8 6') } as const
+  const dashedMap = { fill: 'none', stroke: skin.ink, strokeWidth: 3 * k, strokeDasharray: dashes('8 6') } as const
 
   const selection = (): ReactNode => {
     if (!selectedId) return null
@@ -1599,7 +1596,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
             height={TILE + pad * 2}
             rx={TILE_RX + 4}
             fill="none"
-            stroke={WHITE}
+            stroke={skin.ink}
             strokeWidth={3}
             transform={sized}
           />
@@ -1624,8 +1621,8 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
               cx={from[0]}
               cy={from[1]}
               r={FROM_HANDLE_R * k}
-              fill={BACKDROP}
-              stroke={WHITE}
+              fill={skin.back}
+              stroke={skin.ink}
               strokeWidth={3 * k}
               pointerEvents={selecting ? undefined : 'none'}
               style={{ cursor: elementCursor }}
@@ -1696,8 +1693,8 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
                 cx={x + dx}
                 cy={y + dy}
                 r={HANDLE_R * k}
-                fill={BACKDROP}
-                stroke={WHITE}
+                fill={skin.back}
+                stroke={skin.ink}
                 strokeWidth={3 * k}
                 pointerEvents={selecting ? undefined : 'none'}
                 style={{ cursor: elementCursor }}
@@ -1727,12 +1724,12 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
     return (
       <g key={`label:${agent.id}`} style={placement(ax, ay, true, live?.id === agent.id)}>
         <g transform={sized}>
-          <rect x={x} y={y} width={w} height={h} rx={10} fill="#111827" stroke="#242938" strokeWidth={1} />
-          <text x={x + 14} y={y + 26} fontFamily={FONT} fontSize={20} fontWeight={600} fill="#F1F5F9" {...HALO}>
+          <rect x={x} y={y} width={w} height={h} rx={10} fill={skin.card} stroke={skin.cardBorder} strokeWidth={1} />
+          <text x={x + 14} y={y + 26} fontFamily={FONT} fontSize={20} fontWeight={600} fill={skin.cardText} {...halo}>
             {agent.agent}
           </text>
           {note && (
-            <text x={x + 14} y={y + 52} fontFamily={FONT} fontSize={18} fill="#94A3B8" {...HALO}>
+            <text x={x + 14} y={y + 52} fontFamily={FONT} fontSize={18} fill={skin.cardMuted} {...halo}>
               {note}
             </text>
           )}
@@ -1765,12 +1762,12 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
   if (draft?.kind === 'pen') {
     draftLayer =
       draft.points.length === 1 ? (
-        <circle cx={draft.points[0][0]} cy={draft.points[0][1]} r={(PEN_WIDTH / 2) * k} fill={WHITE} />
+        <circle cx={draft.points[0][0]} cy={draft.points[0][1]} r={(PEN_WIDTH / 2) * k} fill={skin.ink} />
       ) : (
         <polyline
           points={pointsAttr(draft.points)}
           fill="none"
-          stroke={WHITE}
+          stroke={skin.ink}
           strokeWidth={PEN_WIDTH * k}
           strokeLinecap="round"
           strokeLinejoin="round"
@@ -1783,10 +1780,10 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
         y1={draft.from[1]}
         x2={draft.to[0]}
         y2={draft.to[1]}
-        stroke={WHITE}
+        stroke={skin.ink}
         strokeWidth={ARROW_WIDTH * k}
         strokeLinecap="round"
-        markerEnd={`url(#${arrowHead(WHITE)})`}
+        markerEnd={`url(#${arrowHead(skin.ink)})`}
       />
     )
   }
@@ -1836,9 +1833,9 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
               boxSizing: 'border-box',
               padding: '0 10px',
               borderRadius: 8,
-              border: `2px solid ${ALLY}`,
-              background: 'rgba(11, 18, 32, 0.9)',
-              color: editorText.color,
+              border: `2px solid ${skin.ally}`,
+              background: skin.card,
+              color: skinDrawColor(skin, editorText.color),
               font: `600 ${TEXT_SIZE}px ${FONT}`,
               textAlign: 'center',
               outline: 'none',
@@ -1853,7 +1850,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
 
   const view = scene.view
   const imageSize = VIEW_SIZE / view.size
-  const throwColors = [...new Set(scene.abilities.filter(a => a.from).map(a => UTILITY_COLORS[a.shape]))]
+  const throwColors = [...new Set(scene.abilities.filter(a => a.from).map(a => skin.utility[a.shape]))]
   const counts = `${scene.agents.length} agent${scene.agents.length === 1 ? '' : 's'}, ${scene.abilities.length} abilit${
     scene.abilities.length === 1 ? 'y' : 'ies'
   }`
@@ -1908,7 +1905,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
               <feFuncG type="gamma" exponent={FLOOR_GAMMA} />
               <feFuncB type="gamma" exponent={FLOOR_GAMMA} />
             </feComponentTransfer>
-            <feColorMatrix type="matrix" values={TEAL_MATRIX} />
+            <feColorMatrix type="matrix" values={skinMapMatrix(skin)} />
           </filter>
           {headColors.map(color => (
             <marker
@@ -1944,7 +1941,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
         </defs>
 
         {/* The whole view, beyond the map square too; kept in step with the viewBox during a pan. */}
-        <rect ref={backdropRef} x={visible.x} y={visible.y} width={visible.w} height={visible.h} fill={BACKDROP} />
+        <rect ref={backdropRef} x={visible.x} y={visible.y} width={visible.w} height={visible.h} fill={skin.back} />
 
         <g clipPath={`url(#${boxClip})`}>
           {map.displayIcon && (
@@ -1959,7 +1956,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
                 height={imageSize}
                 preserveAspectRatio="none"
                 filter={`url(#${tint})`}
-                opacity={MAP_OPACITY}
+                opacity={skin.mapOpacity}
               />
             </g>
           )}
@@ -1969,10 +1966,10 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
               pointerEvents="none"
               fontFamily={FONT}
               fontSize={calloutLabel * k}
-              fill={CALLOUT_COLOR}
+              fill={skin.callout}
               textAnchor="middle"
-              {...HALO}
-              strokeWidth={HALO.strokeWidth * k}
+              {...halo}
+              strokeWidth={halo.strokeWidth * k}
             >
               {scene.callouts.map((c, i) => (
                 <text key={`${c.name}:${i}`} x={c.x} y={c.y} dominantBaseline="central">
