@@ -700,6 +700,20 @@ faint once the line has gone. A feed under the zoom control names them, the
 weapon or ability between, for 7 s, at most five rows. A death nobody dealt
 (Clove's ult running out) has a mark and a feed row, and no line.
 
+### 2.17 Pops and flashes
+
+A burst going off on a replay frame is a white-hot bloom in the agent's colour, a
+shock ring out to its true reach and ten sparks off the ring. Gradients and stacked
+rings with `screen` blending, no SVG filters: they run every frame.
+
+An agent who is flashed has their portrait washed white, a white glow around the
+tile and a small crossed-out eye at its corner. It eases off as the flash runs out
+and is gone when they can see. The windows are `bundle.blinds` (reducer 0.6.0): the
+game's own `BlindManagerComponent.LongestActiveBlindDuration` on each body, and
+for Paranoia and Leer, which it does not cover, the targets the cast statistics
+name as nearsighted. Under 0.2 s (a flash barely caught at the screen's edge) is
+left out. Bundles from before 0.6.0 show no hint.
+
 ## 3. Document v2 (`src/lib/playDoc.ts`)
 
 ```ts

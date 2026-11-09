@@ -45,6 +45,15 @@ function glowAt(rows: ReplayCharges, index: number, t: number, liveFrom: number,
   return 0
 }
 
+/** How much of the blind on a player at `t` is left, 1…0; null when they can see. */
+export function blindAt(windows: ReadonlyArray<readonly [number, number]>, t: number): number | null {
+  for (const [start, end] of windows) {
+    if (start > t) break
+    if (t < end) return Math.min(1, (end - t) / (end - start))
+  }
+  return null
+}
+
 const maxCache = new WeakMap<ReplayCharges, number>()
 function maxOf(rows: ReplayCharges): number {
   let max = maxCache.get(rows)

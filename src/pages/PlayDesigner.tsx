@@ -1084,6 +1084,7 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
         if (el.kind === 'agent') {
           const agent = { ...el }
           delete agent.kit
+          delete agent.blind
           return agent
         }
         if (el.kind !== 'ability') return el

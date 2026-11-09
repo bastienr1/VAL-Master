@@ -35,7 +35,7 @@ import duckdb
 import _env
 
 SCHEMA = 1
-REDUCER_VERSION = "0.5.0"
+REDUCER_VERSION = "0.6.0"
 # 0.2.0: effects also hold the ability actors vrfkit's keyword filter leaves out (Sova's bolts,
 #        Raze's grenades, KAY/O's knife, Fade's prowlers...), with `kind` "other".
 # 0.3.0: effects may carry `points` (a wall's shape, point by point, timed) and `track` (a
@@ -43,6 +43,7 @@ REDUCER_VERSION = "0.5.0"
 # 0.4.0: `kits`: by player, each ability's charges over time and their ultimate points.
 # 0.5.0: a projectile on a precalculated path (Curveball, Flashbulb) has no movement to track:
 #        its `track` is where it was thrown from and where the game says it went off.
+# 0.6.0: `blinds`: by player, the [start, end] of every flash and nearsight that hit them.
 
 # Leaf prefixes of the actors an ability puts in the world; `Ability_` controllers and `Gun_` weapons
 # are not among them.
@@ -104,6 +105,14 @@ ULT_POINTS = {
     "phoenix": 7, "pine": 7, "rift": 7, "sarge": 8, "sequoia": 7, "smonk": 8, "sprinter": 8, "stealth": 8, "terra": 8,
     "thorne": 7, "vampire": 7, "wraith": 7, "wushu": 8,
 }
+
+# A blind shorter than this is a flash barely caught at the edge of the screen.
+BLIND_MIN_MS = 200
+NEARSIGHT_SOURCES = {"Projectile_Wraith_Q_NearsightMissile_C", "GameObject_Vampire_4_NearsightAOE_Source_C"}
+NEARSIGHT_STATS = {"EnemiesNearsighted", "AlliesNearsighted"}
+NEARSIGHT_AFTER_MS = 4000
+EFFECT_STAT = re.compile(r"^AbilityCastsThisRound\[(\d+)\]\.Effects\[(\d+)\]\.LocalizedStat_")
+EFFECT_TARGET = re.compile(r"^AbilityCastsThisRound\[(\d+)\]\.Effects\[(\d+)\]\.AffectedTargetsArray\[(\d+)\]\.(AffectedPlayer|Value)_")
 
 CAST_FIELD = re.compile(r"^AbilityCastsThisRound\[(\d+)\]\.([A-Za-z]+)_\d+_[0-9A-F]{32}$")
 
@@ -818,6 +827,72 @@ def main():
     else:
         warnings.append(f"{carrier_path.name} not found; spike carriers are empty")
 
+    # ---- blinds ---------------------------------------------------------------------------
+    # Who was really blinded, as [start, end]: the game's own record on each body, plus nearsight
+    # (Paranoia, Leer), which only the cast statistics name, each target with how long.
+    blinds, running = {}, {}
+    for guid, t, value in con.execute("""
+            select actor_net_guid, time_ms, value_f64 from fields
+            where field_name = 'LongestActiveBlindDuration' and value_f64 is not null
+            order by time_ms, packet_id""").fetchall():
+        subject = subject_of.get(guid)
+        if subject is None:
+            continue
+        window = running.get(subject)
+        if value > 0:
+            end = t + round(value * 1000)
+            if window:
+                window[1] = max(window[1], end)
+            else:
+                running[subject] = window = [t, end]
+                blinds.setdefault(subject, []).append(window)
+        elif window:
+            window[1] = t
+            del running[subject]
+
+    sources = {}
+    for effect in effects:
+        if effect["cls"] in NEARSIGHT_SOURCES and effect["owner"]:
+            sources.setdefault(effect["owner"], []).append(effect["start"])
+    stats, targets = {}, {}
+    for t, body, name, v_int, v_float, v_str in con.execute(f"""
+            select time_ms, actor_net_guid, field_name, value_i64, value_f64, value_str from fields
+            where group_path like '%Comp_AbilityStatisticsReplicator_C'
+              and field_name like 'AbilityCastsThisRound[%].Effects[%' and actor_net_guid in ({body_sql})
+            order by time_ms, packet_id""").fetchall():
+        matched = EFFECT_STAT.match(name)
+        if matched:
+            stats.setdefault((body, matched.group(1), matched.group(2)), []).append((t, v_str))
+            continue
+        matched = EFFECT_TARGET.match(name)
+        if matched:
+            row = targets.setdefault((t, body) + matched.groups()[:3], {})
+            row[matched.group(4)] = v_int if matched.group(4) == "AffectedPlayer" else v_float
+    last_seconds, seen_near = {}, set()
+    for (t, body, cast, entry, slot), row in sorted(targets.items(), key=lambda item: item[0][0]):
+        key = (body, cast, entry, slot)
+        if "Value" in row:
+            last_seconds[key] = row["Value"]
+        if "AffectedPlayer" not in row:
+            continue
+        said = [name for at, name in stats.get((body, cast, entry), ()) if at <= t + 500]
+        owner = subject_of.get(body)
+        target = state_subject.get(row["AffectedPlayer"])
+        if not said or said[-1] not in NEARSIGHT_STATS or not owner or not target:
+            continue
+        # The array is sent again when casts shift: only what a nearsight really just went off for.
+        source = next((s for s in sources.get(owner, ()) if s <= t <= s + NEARSIGHT_AFTER_MS), None)
+        if source is None or (target, source) in seen_near:
+            continue
+        seen_near.add((target, source))
+        blinds.setdefault(target, []).append([t, t + round(last_seconds.get(key, 2.0) * 1000)])
+    for subject, windows in list(blinds.items()):
+        kept = sorted(w for w in windows if w[1] - w[0] >= BLIND_MIN_MS)
+        if kept:
+            blinds[subject] = kept
+        else:
+            del blinds[subject]
+
     # ---- write ----------------------------------------------------------------------------
     bundle = {
         "schema": SCHEMA,
@@ -833,6 +908,7 @@ def main():
         "spike": {"carriers": carriers, "plants": spike_plants, "defuses": spike_defuses},
         "pawns": {"fields": ["t", "x", "y", "yaw"], "items": pawns},
         "kits": kits,
+        "blinds": blinds,
     }
     raw = json.dumps(bundle, separators=(",", ":")).encode("utf-8")
     bundle_path = out_dir / f"minimap.v{SCHEMA}.json.gz"

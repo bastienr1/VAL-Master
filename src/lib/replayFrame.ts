@@ -52,7 +52,7 @@ import {
   type AbilityFamily,
   type AbilityLook,
 } from './agentAbilities.ts'
-import { kitAt } from './replayKit.ts'
+import { blindAt, kitAt } from './replayKit.ts'
 import { classInfo, type EffectClassInfo } from './utilityClasses.ts'
 
 export interface ReplayAgentInfo { name: string; abilities: { slot: AbilitySlot; name: string }[] }
@@ -511,6 +511,9 @@ export function frameStep(
     if (name) el.player = name
     const kit = bundle.kits?.[player.subject]
     if (kit) el.kit = kitAt(kit, t, roundBarrier(round))
+    const blinds = bundle.blinds?.[player.subject]
+    const blind = blinds ? blindAt(blinds, t) : null
+    if (blind !== null) el.blind = blind
     elements.push(el)
   }
 
