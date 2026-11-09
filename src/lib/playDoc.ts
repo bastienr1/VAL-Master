@@ -104,6 +104,8 @@ export interface AgentElement {
   player?: string
   /** A replay frame's: what the agent has left. Not kept in a strat. */
   kit?: KitSlot[]
+  /** A replay frame's: how much of a flash on this agent is left, 1…0. Not kept in a strat. */
+  blind?: number
 }
 
 export interface AbilityElement {
@@ -485,6 +487,8 @@ function parseElements(
           return slot && n !== null && max !== null && glow !== null ? [{ slot, n, max, glow }] : []
         })
         if (kit.length > 0) el.kit = kit
+        const blind = finite(e.blind)
+        if (blind !== null && blind > 0 && blind <= 1) el.blind = blind
         elements.push(el)
         break
       }

@@ -246,6 +246,20 @@ const DEATH_FRESH = 0.9
 const DEATH_OLD = 0.4
 const DEATH_X = 0.62
 const DEATH_X_WIDTH = 3.5
+/** A pop (§2.17): how far its sparks fly, how many, the soft and the bright ring. */
+const POP_RAYS = 10
+/** A pop is at least this big on screen: a flash's reach is its sight line, not a small circle. */
+const POP_MIN_R = 62
+const POP_RAY = 0.4
+const POP_SOFT_RING = 16
+const POP_BRIGHT_RING = 3
+const POP_RAY_WIDTH = 3
+/** A flashed agent (§2.17): the white over the tile, the glow around it, and the floor they fade to before it ends. */
+const BLIND_WASH = 0.72
+const BLIND_GLOW = 7
+const BLIND_FLOOR = 0.35
+const BLIND_BADGE_R = 9
+const BLIND_ICON_SCALE = 0.55
 /** What an agent has left (§2.15): a strip above the tile. */
 const KIT_ICON = 13
 const KIT_STEP = 15
@@ -452,6 +466,9 @@ function abilityExtent(item: PlacedAbility, k: number): number {
   return item.r
 }
 
+/** A pop's sparks start at an angle of its own, so two pops do not look stamped. */
+const popTurn = (id: string) => ([...id].reduce((sum, c) => sum + c.charCodeAt(0), 0) % 628) / 100
+
 /** A colour darkened for a light map, where the pale ones (Jett, Cypher) would vanish. */
 function darken(color: string): string {
   const [r, g, b] = hexChannels(color)
@@ -503,6 +520,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
   const arrowHead = (color: string) => `${uid}-head-${colorKey(color)}`
   const badgeClip = `${uid}-badge`
   const throwHead = (color: string) => `${uid}-throw-${colorKey(color)}`
+  const popGlow = (color: string) => `${uid}-pop-${colorKey(color)}`
 
   const { registry } = useGameContent()
   const reducedMotion = useSyncExternalStore(subscribeReducedMotion, readReducedMotion, () => false)
@@ -1248,11 +1266,15 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
   /** The drag offset of an ability's hand: only while its `from` handle is dragged. */
   const handOffsetOf = (id: string): Point => (live && live.id === id && live.part === 'from' ? [live.dx, live.dy] : [0, 0])
 
+  const lightMap = (() => {
+    const [r, g, b] = hexChannels(skin.back)
+    return 0.3 * r + 0.59 * g + 0.11 * b > 128
+  })()
+
   /** An ability's colour: its agent's, darkened on a light map; the shape's for an agent the table does not know. */
   const inkOf = (item: PlacedAbility) => {
     const ink = agentInk(item.agent) ?? skin.utility[item.shape]
-    const [r, g, b] = hexChannels(skin.back)
-    return 0.3 * r + 0.59 * g + 0.11 * b > 128 ? darken(ink) : ink
+    return lightMap ? darken(ink) : ink
   }
 
   /**
@@ -1357,14 +1379,8 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
         return <circle r={r} {...wash(CLOUD_FILL)} />
       case 'burst': {
         if (life === null) return <circle r={r} {...wash(BURST_WASH)} strokeDasharray={dashes(GHOST_DASH)} />
-        // A shock ring that runs out to the ability's reach and is gone.
-        const out = 1 - life ** 3
-        return (
-          <>
-            <circle r={r} fill={ink} fillOpacity={BURST_WASH * life} />
-            <circle r={r * (0.2 + 0.8 * out)} fill="none" stroke={ink} strokeOpacity={0.35 + 0.65 * life} strokeWidth={BURST_RING * k} />
-          </>
-        )
+        // Its true reach, fading; the glow itself is drawn over the agents (`popLayer`).
+        return <circle r={r} fill={ink} fillOpacity={BURST_WASH * life} />
       }
       case 'reveal': {
         if (life === null) return <circle r={r} {...hollow} />
@@ -1729,6 +1745,57 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
     )
   })
 
+  // Every pop going off, over the agents so nothing hides it: a white-hot bloom, a shock ring and sparks. Additive, so the tiles show through.
+  const popLayer = scene.abilities.flatMap(item => {
+    if (item.family !== 'burst' || item.life === null || inFlight(item)) return []
+    const { life } = item
+    const ink = inkOf(item)
+    const [dx, dy] = offsetOf(item.id)
+    const size = Math.max(item.r, POP_MIN_R * k)
+    const out = 1 - life ** 4
+    const flare = life ** 2
+    const ring = size * (0.2 + 0.8 * out)
+    const turn = popTurn(item.id)
+    return [
+      <g key={`pop:${item.id}`} style={{ ...placement(item.x + dx, item.y + dy), mixBlendMode: lightMap ? 'normal' : 'screen' }} pointerEvents="none">
+        <circle r={size * (0.6 + 0.6 * out)} fill={`url(#${popGlow(ink)})`} opacity={flare} />
+        <circle r={ring} fill="none" stroke={ink} strokeOpacity={0.5 * life} strokeWidth={POP_SOFT_RING * k} />
+        <circle r={ring} fill="none" stroke={WHITE} strokeOpacity={life} strokeWidth={POP_BRIGHT_RING * k} />
+        {Array.from({ length: POP_RAYS }, (_, i) => {
+          const angle = turn + (i * 2 * Math.PI) / POP_RAYS + (i % 2 ? 0.14 : -0.14)
+          const reach = ring + size * POP_RAY * flare * (i % 2 ? 1 : 0.6)
+          const [cos, sin] = [Math.cos(angle), Math.sin(angle)]
+          return <line key={i} x1={cos * ring} y1={sin * ring} x2={cos * reach} y2={sin * reach} stroke={WHITE} strokeOpacity={flare} strokeWidth={POP_RAY_WIDTH * k} strokeLinecap="round" />
+        })}
+      </g>,
+    ]
+  })
+
+  /** How strongly a flash shows: it eases off as it runs out, but never so far that it stops being seen. */
+  const blindStrength = (left: number) => BLIND_FLOOR + (1 - BLIND_FLOOR) * left
+
+  /** The glow around a flashed agent, under their tile. */
+  const blindGlow = (left: number) => {
+    const size = HALF + BLIND_GLOW / 2
+    return <rect x={-size} y={-size} width={size * 2} height={size * 2} rx={TILE_RX + 3} fill="none" stroke={WHITE} strokeOpacity={0.6 * blindStrength(left)} strokeWidth={BLIND_GLOW} transform={tileSized} pointerEvents="none" />
+  }
+
+  /** The white over a flashed agent's portrait, and a small crossed-out eye at its corner. */
+  const blindOver = (left: number) => (
+    <g pointerEvents="none" transform={tileSized}>
+      <rect x={-HALF} y={-HALF} width={TILE} height={TILE} rx={TILE_RX} fill={WHITE} opacity={BLIND_WASH * blindStrength(left)} />
+      <g transform={`translate(${HALF - 2} ${HALF - 2})`}>
+        <circle r={BLIND_BADGE_R} fill={TOKEN_FILL} stroke={WHITE} strokeWidth={1.5} />
+        <g transform={`scale(${BLIND_ICON_SCALE}) translate(-12 -12)`} fill="none" stroke={WHITE} strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round">
+          <path d="M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49" />
+          <path d="M14.084 14.158a3 3 0 0 1-4.242-4.242" />
+          <path d="M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143" />
+          <path d="m2 2 20 20" />
+        </g>
+      </g>
+    </g>
+  )
+
   /** The killer's ring, on their tile as it is now, while the line is up. */
   const killerRing = (id: string, color: string) => {
     const line = Math.max(0, ...(kills ?? []).filter(kill => kill.killerId === id).map(kill => kill.line))
@@ -1786,7 +1853,9 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
         style={{ ...placement(agent.x + dx, agent.y + dy, true, live?.id === agent.id), cursor: elementCursor }}
       >
         {killerRing(agent.id, agent.team === 'enemy' ? skin.enemy : skin.ally)}
+        {agent.blind !== null && blindGlow(agent.blind)}
         {tile(agent.agent, ringOf(agent))}
+        {agent.blind !== null && blindOver(agent.blind)}
         {showKit && agent.kit && kitOf(agent.agent, agent.kit)}
         {named && (
           <g transform={`scale(${nameK})`}>
@@ -2089,6 +2158,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
   const view = scene.view
   const imageSize = VIEW_SIZE / view.size
   const throwColors = [...new Set(scene.abilities.filter(a => a.from).map(inkOf))]
+  const popColors = [...new Set(scene.abilities.filter(a => a.family === 'burst' && a.life !== null).map(inkOf))]
   const counts = `${scene.agents.length} agent${scene.agents.length === 1 ? '' : 's'}, ${scene.abilities.length} abilit${
     scene.abilities.length === 1 ? 'y' : 'ies'
   }`
@@ -2133,6 +2203,14 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
             <rect x={-HALF} y={-HALF} width={TILE} height={TILE} rx={TILE_RX} />
           </clipPath>
           {/* The glyph inside a badge drawn about its own origin, held inside the ring. */}
+          {popColors.map(color => (
+            <radialGradient key={color} id={popGlow(color)}>
+              <stop offset="0" stopColor={WHITE} stopOpacity={1} />
+              <stop offset="0.25" stopColor={WHITE} stopOpacity={0.85} />
+              <stop offset="0.55" stopColor={color} stopOpacity={0.6} />
+              <stop offset="1" stopColor={color} stopOpacity={0} />
+            </radialGradient>
+          ))}
           <clipPath id={badgeClip}>
             <circle r={BADGE_R - BADGE_RING / 2} />
           </clipPath>
@@ -2243,6 +2321,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
           <g pointerEvents="none">{ghostTiles}</g>
           <g>{killLayer}</g>
           <g>{agentTiles}</g>
+          <g>{popLayer}</g>
           <g>{selection()}</g>
           <g pointerEvents="none">{labels}</g>
           <g pointerEvents="none">{draftLayer}</g>

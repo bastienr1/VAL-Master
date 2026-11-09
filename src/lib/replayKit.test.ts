@@ -4,7 +4,7 @@
 
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { KIT_GLOW_MS, kitAt } from './replayKit.ts'
+import { blindAt, KIT_GLOW_MS, kitAt } from './replayKit.ts'
 import type { ReplayKit } from './replayBundle.ts'
 
 const kit: ReplayKit = {
@@ -53,6 +53,16 @@ test('the ultimate is ready at its cost, glows when it gets there, and is spent 
 test('an unmeasured agent is ready at the most points it held', () => {
   const x = kitAt({ X: [[1000, 3], [2000, 8]] }, 3000, 0)[0]
   assert.equal(x.n, 1)
+})
+
+test('a player is blinded only inside a window, and it runs out', () => {
+  const windows: [number, number][] = [[1000, 3000], [5000, 6000]]
+  assert.equal(blindAt(windows, 900), null)
+  assert.equal(blindAt(windows, 1000), 1)
+  assert.equal(blindAt(windows, 2000), 0.5)
+  assert.equal(blindAt(windows, 3000), null)
+  assert.equal(blindAt(windows, 5500), 0.5)
+  assert.equal(blindAt(windows, 7000), null)
 })
 
 test('a key with no record is left out', () => {

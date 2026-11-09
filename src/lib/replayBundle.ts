@@ -151,6 +151,8 @@ export interface ReplayBundle {
   pawns: { fields: string[]; items: ReplayPawn[] }
   /** Reducer 0.4.0, by subject. Absent on older bundles. */
   kits?: Record<string, ReplayKit>
+  /** Reducer 0.6.0, by subject: the [start, end] of each flash or nearsight that hit them, in time order. */
+  blinds?: Record<string, Array<[number, number]>>
 }
 
 /** A file that is not a usable bundle. The message is written for the person who picked it. */
