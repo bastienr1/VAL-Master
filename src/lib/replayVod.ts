@@ -13,6 +13,27 @@ export interface ReplayVod {
   barrierOffset: number | null
 }
 
+/** The review a match's notes hang off. */
+export interface ReplayReview {
+  id: string
+  /** Video seconds at the round 1 barrier drop; null until the match is synced on the review page. */
+  barrierOffset: number | null
+}
+
+/** The match's review; null when it has none yet. */
+export async function getReplayReview(matchId: string): Promise<ReplayReview | null> {
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return null
+  const { data, error } = await supabase
+    .from('vod_reviews')
+    .select('id, barrier_drop_offset')
+    .eq('match_id', matchId)
+    .eq('user_id', user.id)
+    .maybeSingle()
+  if (error) throw new Error(error.message)
+  return data ? { id: data.id, barrierOffset: data.barrier_drop_offset } : null
+}
+
 /** The match's video, its review's first, else the one on the match; null when it has none. */
 export async function getReplayVod(matchId: string): Promise<ReplayVod | null> {
   const { data: { user } } = await supabase.auth.getUser()

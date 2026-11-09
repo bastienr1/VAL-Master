@@ -3,17 +3,15 @@ import { useParams, useSearchParams, Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import type {
   Match,
-  MomentTag,
   ReviewRef,
-  ReviewTag,
   VodReview as VodReviewType,
   VodTag,
   MatchRound,
   VodComment,
-  RoundScreenshot,
 } from '../lib/types'
 import { fetchMatchRoundData, generateAutoTags, saveAutoTags } from '../lib/matchSync'
-import { addMomentTag, listMomentTags, listReviewTags, removeMomentTag } from '../lib/momentTags'
+import { addMomentTag } from '../lib/momentTags'
+import { useMatchNotes } from '../hooks/useMatchNotes'
 import { useProfile, profileToPlayer } from '../lib/profile'
 import { useReplayBundle } from '../lib/replays'
 import { applyReplayTiming } from '../lib/replaySync'
@@ -137,21 +135,34 @@ export default function VodReview() {
   }, [matchRounds, replay.bundle, contentReady])
   const replayTimed = replay.bundle != null && rounds !== matchRounds
 
-  // Comments state
-  const [comments, setComments] = useState<VodComment[]>([])
-  const [screenshots, setScreenshots] = useState<RoundScreenshot[]>([])
-
-  // Moment tags: the vocabulary is global, the applications are this match's.
-  // Named `reviewTags` because `tags` above is the legacy auto `vod_tags` list.
-  const [reviewTags, setReviewTags] = useState<ReviewTag[]>([])
-  const [moments, setMoments] = useState<MomentTag[]>([])
-  const [tagFilter, setTagFilter] = useState<string | null>(null)
+  // Notes, screenshots and moment tags: shared with the Plays replay.
+  const {
+    comments,
+    screenshots,
+    reviewTags,
+    setReviewTags,
+    moments,
+    tagFilter,
+    setTagFilter,
+    captureOpen,
+    editingCommentId,
+    editingComment,
+    editingMoments,
+    beginNote,
+    beginEdit,
+    closeCapture,
+    handleCommentAdded,
+    handleCommentUpdated,
+    handleCommentDeleted,
+    handleScreenshotAdded,
+    handleScreenshotDeleted,
+    handleMomentTagAdded,
+    handleTagDeleted,
+    handleRemoveMomentTag,
+  } = useMatchNotes(match?.match_id, vodReview?.id)
   const [quickDropOpen, setQuickDropOpen] = useState(false)
 
   // Capture / focus state (Sprint 5b)
-  const [captureOpen, setCaptureOpen] = useState(false)
-  // Set → the capture panel is editing that note rather than creating a new one.
-  const [editingCommentId, setEditingCommentId] = useState<string | null>(null)
   const [activeRound, setActiveRound] = useState<number | null>(null)
 
   // Data loading
@@ -214,69 +225,6 @@ export default function VodReview() {
     }
     loadTags()
   }, [vodReview])
-
-  // Load comments when vod_review is available
-  useEffect(() => {
-    if (!vodReview) return
-
-    async function loadComments() {
-      const { data, error } = await supabase
-        .from('vod_comments')
-        .select('*')
-        .eq('vod_review_id', vodReview!.id)
-        .order('timestamp_seconds', { ascending: true })
-
-      if (!error && data) setComments(data)
-    }
-    loadComments()
-  }, [vodReview])
-
-  // Moment tags key off the match, not the vod_review row — the ReviewRef is
-  // `matches.match_id` so a tag lands on the same review on any surface.
-  useEffect(() => {
-    const reviewId = match?.match_id
-    if (!reviewId) return
-    let cancelled = false
-
-    async function loadMomentTags() {
-      try {
-        const [vocabulary, applied] = await Promise.all([
-          listReviewTags(),
-          listMomentTags({ type: 'vod', id: reviewId! }),
-        ])
-        if (cancelled) return
-        setReviewTags(vocabulary)
-        setMoments(applied)
-      } catch (err) {
-        console.error('Failed to load moment tags:', err)
-      }
-    }
-
-    loadMomentTags()
-    return () => {
-      cancelled = true
-    }
-  }, [match?.match_id])
-
-  // Load screenshots when match is available
-  useEffect(() => {
-    if (!match?.match_id) return
-
-    async function loadScreenshots() {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) return
-
-      const { data, error } = await supabase
-        .from('round_screenshots')
-        .select('*')
-        .eq('match_id', match!.match_id)
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: true })
-
-      if (!error && data) setScreenshots(data)
-    }
-    loadScreenshots()
-  }, [match])
 
   // Load round data when match is available
   useEffect(() => {
@@ -498,29 +446,6 @@ export default function VodReview() {
     if (data) setVodReview(data)
   }, [vodReview])
 
-  // Comment handlers
-  const handleCommentAdded = useCallback((comment: VodComment) => {
-    setComments(prev => [...prev, comment].sort((a, b) => a.timestamp_seconds - b.timestamp_seconds))
-  }, [])
-
-  const handleCommentUpdated = useCallback((comment: VodComment) => {
-    setComments(prev => prev.map(c => (c.id === comment.id ? comment : c)))
-  }, [])
-
-  const handleCommentDeleted = useCallback((commentId: string) => {
-    setComments(prev => prev.filter(c => c.id !== commentId))
-    // Don't leave the editor holding a note that no longer exists.
-    setEditingCommentId(prev => (prev === commentId ? null : prev))
-  }, [])
-
-  const handleScreenshotAdded = useCallback((screenshot: RoundScreenshot) => {
-    setScreenshots(prev => [...prev, screenshot])
-  }, [])
-
-  const handleScreenshotDeleted = useCallback((screenshotId: string) => {
-    setScreenshots(prev => prev.filter(s => s.id !== screenshotId))
-  }, [])
-
   const handleLegacyTagConverted = useCallback((tagId: string) => {
     setTags(prev => prev.filter(t => t.id !== tagId))
   }, [])
@@ -529,47 +454,14 @@ export default function VodReview() {
   const openCapture = useCallback(() => {
     if (!playerRef.current || !playerReady || !vodReview) return
     playerRef.current.pauseVideo()
-    setEditingCommentId(null)
-    setCaptureOpen(true)
-  }, [playerReady, vodReview])
+    beginNote()
+  }, [playerReady, vodReview, beginNote])
 
   // Open the same panel loaded with an existing note
   const openEdit = useCallback((comment: VodComment) => {
     playerRef.current?.pauseVideo()
-    setEditingCommentId(comment.id)
-    setCaptureOpen(true)
-  }, [])
-
-  const closeCapture = useCallback(() => {
-    setCaptureOpen(false)
-    setEditingCommentId(null)
-  }, [])
-
-  const handleMomentTagAdded = useCallback((moment: MomentTag) => {
-    // Replace rather than skip on a known id: applying a tag that already
-    // exists can return the same row with a `note_id` it did not have before.
-    setMoments(prev =>
-      [...prev.filter(m => m.id !== moment.id), moment].sort((a, b) => a.video_ts - b.video_ts),
-    )
-  }, [])
-
-  /** Deleting a tag cascades its moments server-side; mirror that locally. */
-  const handleTagDeleted = useCallback((tagId: string) => {
-    setMoments(prev => prev.filter(m => m.tag_id !== tagId))
-    setTagFilter(prev => (prev === tagId ? null : prev))
-  }, [])
-
-  const handleRemoveMomentTag = useCallback(async (moment: MomentTag) => {
-    // Optimistic: the row is the user's own and the only failure is a network
-    // one, in which case the reload puts it back.
-    setMoments(prev => prev.filter(m => m.id !== moment.id))
-    try {
-      await removeMomentTag(moment.id)
-    } catch (err) {
-      console.error('Failed to remove the moment tag:', err)
-      setMoments(prev => [...prev, moment].sort((a, b) => a.video_ts - b.video_ts))
-    }
-  }, [])
+    beginEdit(comment)
+  }, [beginEdit])
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -668,12 +560,6 @@ export default function VodReview() {
 
   const notedRoundCount = new Set(comments.map(c => c.round_number).filter((n): n is number => n != null)).size
 
-  const editingComment = editingCommentId
-    ? comments.find(c => c.id === editingCommentId) ?? null
-    : null
-  const editingMoments = editingComment
-    ? moments.filter(m => m.note_id === editingComment.id)
-    : []
   const legacyManualTags = tags.filter(t => !t.is_auto)
 
   return (

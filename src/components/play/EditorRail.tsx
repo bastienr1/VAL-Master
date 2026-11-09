@@ -2,7 +2,7 @@ import { Pause, Play, Plus, X } from 'lucide-react'
 import type { Tool } from '../PlayCanvas'
 import type { PlayStep } from '../../lib/playDoc'
 import type { PlaySide } from '../../lib/types'
-import { TOOLS } from './tools'
+import { TOOLS, toolTitle } from './tools'
 
 interface EditorRailProps {
   mapNames: string[]
@@ -23,6 +23,8 @@ interface EditorRailProps {
   onStepName(name: string): void
   tool: Tool
   onTool(tool: Tool): void
+  /** A replay is on screen: T takes a note there. */
+  inReplay: boolean
   onClearStep(): void
   /** Already confirmed by the rail. */
   onClearAll(): void
@@ -187,7 +189,7 @@ export default function EditorRail(props: EditorRailProps) {
               onClick={() => props.onTool(t)}
               aria-pressed={tool === t}
               aria-label={name}
-              title={key ? `${name} (${key})` : name}
+              title={toolTitle(name, key, props.inReplay)}
               className={`h-6 rounded flex items-center justify-center transition-colors ${
                 tool === t ? 'bg-val-cyan text-bg-primary' : 'text-text-secondary hover:text-text-primary hover:bg-bg-elevated/60'
               }`}

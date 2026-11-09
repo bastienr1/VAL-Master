@@ -31,6 +31,8 @@ interface CapturePanelProps {
   rounds: MatchRound[]
   barrierOffset: number | null
   currentTime: number
+  /** The note's round when the page knows it (the replay's round on screen); else resolved from the time. */
+  knownRound?: number | null
   isPaused: boolean
   isOpen: boolean
   /** When set, the panel edits this note instead of creating a new one. */
@@ -95,6 +97,7 @@ export default function CapturePanel({
   rounds,
   barrierOffset,
   currentTime,
+  knownRound,
   isPaused,
   isOpen,
   editingComment,
@@ -134,8 +137,11 @@ export default function CapturePanel({
   const noteTime = editingComment ? editingComment.timestamp_seconds : currentTime
 
   const resolvedRound = useMemo(
-    () => resolveRoundFromTimestamp(noteTime, rounds, barrierOffset),
-    [noteTime, rounds, barrierOffset]
+    () =>
+      knownRound !== undefined
+        ? rounds.find(r => r.round_number === knownRound) ?? null
+        : resolveRoundFromTimestamp(noteTime, rounds, barrierOffset),
+    [knownRound, noteTime, rounds, barrierOffset]
   )
 
   // Auto-focus when opened, prefill in edit mode, reset when closed

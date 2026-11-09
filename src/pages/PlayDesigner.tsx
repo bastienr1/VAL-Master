@@ -10,11 +10,13 @@ import EditorRail from '../components/play/EditorRail'
 import EditorToolbar, { type PlayLayout } from '../components/play/EditorToolbar'
 import PlaybookPanel from '../components/play/PlaybookPanel'
 import { ReplayRoster } from '../components/play/ReplayPanels'
+import { ReplayNoteCapture, ReplayNotesPanel, ReplayNotesUnavailable, ReplayQuickTag } from '../components/play/ReplayNotes'
 import ReplayRoundPanel from '../components/play/ReplayRoundPanel'
 import ReplayVodPlayer from '../components/play/ReplayVodPlayer'
 import TheatreChrome from '../components/play/TheatreChrome'
 import ReplayTransport, { type ReplayClock, type ReplayView } from '../components/play/ReplayTransport'
 import { useGameContent, useGameContentNames } from '../hooks/useGameContent'
+import { useMatchNotes } from '../hooks/useMatchNotes'
 import { useMediaQuery } from '../hooks/useMediaQuery'
 import { parseCanvasSizes, type CanvasSizes } from '../lib/canvasSizes'
 import { CANVAS_SKINS, canvasSkin, nextCanvasSkin, type CanvasSkinId } from '../lib/canvasSkins'
@@ -60,7 +62,10 @@ import {
   type FrameIds,
 } from '../lib/replayFrame'
 import { replayContext, replayRoundToPlay, type ReplayContext } from '../lib/replayMatches'
+import { replayNoteMarks } from '../lib/replayNotes'
 import { getReplayBundle } from '../lib/replays'
+import { applyReplayTiming, replayAnchorMs, videoSecondsToReplayMs } from '../lib/replaySync'
+import { getReplayReview, type ReplayReview } from '../lib/replayVod'
 import { fetchPlayerNames } from '../lib/replayNames'
 import type { ReplayPlay } from '../lib/replayToPlay'
 import type { PlaySide } from '../lib/types'
@@ -79,6 +84,19 @@ function readFlag(key: string, fallback: boolean): boolean {
     return raw === null ? fallback : raw === 'true'
   } catch {
     return fallback
+  }
+}
+
+/** What the right panel shows under the video while a replay plays. */
+type ReplayTab = 'rounds' | 'notes'
+
+const REPLAY_TAB_KEY = 'plays.replayTab'
+
+function readReplayTab(): ReplayTab {
+  try {
+    return localStorage.getItem(REPLAY_TAB_KEY) === 'notes' ? 'notes' : 'rounds'
+  } catch {
+    return 'rounds'
   }
 }
 
@@ -533,6 +551,50 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
   const [openingReplay, setOpeningReplay] = useState(false)
   /** "Step captured", over the canvas for a moment. */
   const [toast, setToast] = useState<string | null>(null)
+
+  const [replayTab, setReplayTabState] = useState<ReplayTab>(readReplayTab)
+  const setReplayTab = (next: ReplayTab) => {
+    setReplayTabState(next)
+    try {
+      localStorage.setItem(REPLAY_TAB_KEY, next)
+    } catch {
+      /* a tab is not worth an error */
+    }
+  }
+  /** G: a tag on this moment, with no note. */
+  const [quickTagOpen, setQuickTagOpen] = useState(false)
+  const replayMatchId = replay?.matchId
+  const [loadedReview, setLoadedReview] = useState<{ matchId: string; review: ReplayReview | null } | null>(null)
+  useEffect(() => {
+    if (!replayMatchId) return
+    let cancelled = false
+    getReplayReview(replayMatchId)
+      .catch(() => null)
+      .then(review => {
+        if (!cancelled) setLoadedReview({ matchId: replayMatchId, review })
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [replayMatchId])
+  const reviewKnown = loadedReview !== null && loadedReview.matchId === replayMatchId
+  const replayReview = reviewKnown ? loadedReview.review : null
+  // The match's own notes, the VOD review's rows: taken on either page, they are on both.
+  const notes = useMatchNotes(replayMatchId, replayReview?.id)
+  const replayBundle = replay?.bundle
+  /** The review, once its notes can be placed on the replay's clock. */
+  const notedReview = useMemo(() => {
+    if (!replayReview || replayReview.barrierOffset === null || !replayBundle || replayAnchorMs(replayBundle) === null) return null
+    return { ...replayReview, barrierOffset: replayReview.barrierOffset }
+  }, [replayReview, replayBundle])
+  const noteRounds = useMemo(
+    () => (replayBundle ? applyReplayTiming([], replayBundle, id => (id ? registry?.agents.byId.get(id)?.name ?? null : null)) : []),
+    [replayBundle, registry],
+  )
+  const noteMarks = useMemo(
+    () => (replayBundle && notedReview ? replayNoteMarks(replayBundle, notedReview.barrierOffset, notes.comments, notes.moments, notes.reviewTags) : []),
+    [replayBundle, notedReview, notes.comments, notes.moments, notes.reviewTags],
+  )
 
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
@@ -1234,6 +1296,27 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
     if (replay && round) seekReplay(barrierOf(replay.bundle, round), round)
   }
 
+  /** A note's video second, on the replay. */
+  const seekToNote = (seconds: number) => {
+    if (replay && notedReview) seekReplay(videoSecondsToReplayMs(replay.bundle, notedReview.barrierOffset, seconds))
+  }
+
+  /** T: the replay holds still and the review's editor opens on this moment. */
+  const takeNote = () => {
+    setReplayPlaying(false)
+    setReplayTab('notes')
+    setDrawerOpen(true)
+    if (notedReview) notes.beginNote()
+    else setToast('Notes need this match’s video, synced on its review page')
+  }
+
+  /** G: a tag on this moment, with no note. */
+  const quickTag = () => {
+    setReplayPlaying(false)
+    if (notedReview) setQuickTagOpen(true)
+    else setToast('Tags need this match’s video, synced on its review page')
+  }
+
   const nudgeReplay = (ms: number) => {
     if (replay) seekReplay(replayMsRef.current + ms, currentRound(replay))
   }
@@ -1341,6 +1424,11 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
       }
       if (e.altKey) return
       if (e.key === 'Escape') {
+        if (notes.captureOpen || quickTagOpen) {
+          notes.closeCapture()
+          setQuickTagOpen(false)
+          return
+        }
         if (theatre && !selectedId && !pending && !popoverAgent) setTheatre(false)
         setPending(null)
         setSelectedId(null)
@@ -1373,6 +1461,13 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
       } else if ((e.key === ',' || e.key === '.') && replay) {
         e.preventDefault()
         nudgeReplay(e.key === ',' ? -NUDGE_MS : NUDGE_MS)
+      } else if (inReplay && !e.shiftKey && key === 't') {
+        // The review's key. The Text tool is still on the rail.
+        e.preventDefault()
+        takeNote()
+      } else if (inReplay && !e.shiftKey && key === 'g') {
+        e.preventDefault()
+        quickTag()
       } else if (!e.shiftKey && TOOL_KEYS[key]) {
         chooseTool(TOOL_KEYS[key])
       } else if (key.length === 1 && key >= '1' && key <= '4') {
@@ -1471,7 +1566,7 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
   const transport = replay ? (
     <ReplayTransport
       floating={theatre}
-      showRounds={!(inReplay && showDrawer)}
+      showRounds={!(inReplay && showDrawer && replayTab === 'rounds')}
       allyColor={skin.ally}
       enemyColor={skin.enemy}
       bundle={replay.bundle}
@@ -1487,6 +1582,8 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
       transform={replay.transform}
       canCapture={isPristine(doc, side) || stepCount < MAX_STEPS}
       onCapture={() => capture()}
+      marks={noteMarks}
+      onNote={takeNote}
       view={view}
       onBackToReplay={backToReplay}
       onExit={exitReplay}
@@ -1529,7 +1626,7 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
         }}
         drawerOpen={drawerOpen}
         onToggleDrawer={() => setDrawerOpen(o => !o)}
-        drawerLabel={inReplay ? 'Rounds' : 'Step'}
+        drawerLabel={inReplay ? (replayTab === 'notes' ? 'Notes' : 'Rounds') : 'Step'}
         onOpenReplay={replayLink && !replay && registry ? openReplay : undefined}
         openingReplay={openingReplay}
         canSave={dirty && Boolean(map)}
@@ -1574,6 +1671,7 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
             onStepName={name => editStep(s => ({ ...s, name }), `name:${step?.id}`)}
             tool={tool}
             onTool={chooseTool}
+            inReplay={inReplay}
             onClearStep={clearStep}
             onClearAll={clearAll}
           />
@@ -1661,6 +1759,31 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
             </div>
           )}
 
+          {/* Over the map's corner, in every layout: the Study and Theatre layouts have no right panel. */}
+          {inReplay && replay && notedReview && (notes.captureOpen || quickTagOpen) && (
+            <div className={`${theatre ? 'fixed right-3 top-16 z-[60]' : 'absolute right-3 bottom-3 z-20'} w-[min(400px,calc(100%-24px))] max-h-[calc(100%-24px)] overflow-y-auto`}>
+              {quickTagOpen && (
+                <ReplayQuickTag
+                  notes={notes}
+                  matchId={replay.matchId}
+                  review={notedReview}
+                  clock={clock}
+                  bundle={replay.bundle}
+                  onClose={() => setQuickTagOpen(false)}
+                />
+              )}
+              <ReplayNoteCapture
+                notes={notes}
+                matchId={replay.matchId}
+                review={notedReview}
+                rounds={noteRounds}
+                clock={clock}
+                bundle={replay.bundle}
+                paused={!replayPlaying}
+              />
+            </div>
+          )}
+
           {popoverGameAgent && (
             <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-10">
               <AbilityPopover
@@ -1699,6 +1822,7 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
               onSave={save}
               tool={tool}
               onTool={chooseTool}
+              inReplay={inReplay}
               steps={replay ? null : doc.steps.map(st => ({ id: st.id, name: st.name }))}
               stepIndex={stepAt}
               onPickStep={pickStep}
@@ -1739,6 +1863,43 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
             />
           )}
           {showDrawer && inReplay && replay && (
+            <div className="px-2 pt-2">
+              <div role="tablist" aria-label="Replay panel" className="flex gap-1 bg-bg-card border border-bg-elevated rounded-lg p-1">
+                {(['rounds', 'notes'] as const).map(tab => (
+                  <button
+                    key={tab}
+                    type="button"
+                    role="tab"
+                    aria-selected={replayTab === tab}
+                    onClick={() => setReplayTab(tab)}
+                    className={`flex-1 rounded-md px-3 py-1 text-xs font-medium transition-colors ${
+                      replayTab === tab ? 'bg-val-cyan/10 text-val-cyan' : 'text-text-muted hover:text-text-secondary'
+                    }`}
+                  >
+                    {tab === 'rounds' ? 'Rounds' : notes.comments.length > 0 ? `Notes · ${notes.comments.length}` : 'Notes'}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          {showDrawer && inReplay && replay && replayTab === 'notes' && reviewKnown && (
+            notedReview ? (
+              <ReplayNotesPanel
+                notes={notes}
+                review={notedReview}
+                rounds={noteRounds}
+                clock={clock}
+                onSeek={seekToNote}
+                onEdit={comment => {
+                  setReplayPlaying(false)
+                  notes.beginEdit(comment)
+                }}
+              />
+            ) : (
+              <ReplayNotesUnavailable matchId={replay.matchId} hasReview={replayReview !== null} />
+            )
+          )}
+          {showDrawer && inReplay && replay && replayTab === 'rounds' && (
             <ReplayRoundPanel
               bundle={replay.bundle}
               clock={clock}
