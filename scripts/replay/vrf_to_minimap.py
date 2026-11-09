@@ -35,7 +35,7 @@ import duckdb
 import _env
 
 SCHEMA = 1
-REDUCER_VERSION = "0.6.0"
+REDUCER_VERSION = "0.7.0"
 # 0.2.0: effects also hold the ability actors vrfkit's keyword filter leaves out (Sova's bolts,
 #        Raze's grenades, KAY/O's knife, Fade's prowlers...), with `kind` "other".
 # 0.3.0: effects may carry `points` (a wall's shape, point by point, timed) and `track` (a
@@ -44,6 +44,7 @@ REDUCER_VERSION = "0.6.0"
 # 0.5.0: a projectile on a precalculated path (Curveball, Flashbulb) has no movement to track:
 #        its `track` is where it was thrown from and where the game says it went off.
 # 0.6.0: `blinds`: by player, the [start, end] of every flash and nearsight that hit them.
+# 0.7.0: `vitals`: by player, [t, health, armour] whenever either changes.
 
 # Leaf prefixes of the actors an ability puts in the world; `Ability_` controllers and `Gun_` weapons
 # are not among them.
@@ -639,6 +640,110 @@ def main():
     flush()
     casts.sort(key=lambda c: c["t"])
 
+    # ---- vitals ---------------------------------------------------------------------------
+    # Health and armour over time, from the game's own results. Every damage, heal, decay and
+    # round-start reset says what each section it touched was left with. A bought armour is an
+    # item with a section of its own; it starts full, and only damage and regeneration change it.
+    armor_full = {"LightArmorItem": 25, "HeavyArmorItem": 50, "PlasmaArmorItem": 25}
+
+    def full_armor(guid):
+        cls = actor_class.get(guid) or ""
+        return next((life for name, life in armor_full.items() if name in cls), None)
+
+    section = {}
+    for guid, path, outer in con.execute(f"""
+            select net_guid, any_value(path), any_value(outer_net_guid)
+            from '{(export / "net_guids.parquet").as_posix()}' group by 1""").fetchall():
+        kind = {"HealthDamageSection": "health", "OverhealDamageSection": "over", "ShieldDamageSection": "shield"}.get(path)
+        if kind:
+            section[guid] = (kind, None)
+        elif path == "AttachedDamageSection" and full_armor(outer) is not None:
+            section[guid] = ("armor", outer)
+
+    changes = []  # (t, order, what, ...)
+    pending_change, order = {}, 0
+    for t, body, name, as_int, as_float in con.execute(f"""
+            select time_ms, actor_net_guid, field_name, value_i64, value_f64
+            from read_parquet('{(export / "fields.parquet").as_posix()}', file_row_number=true)
+            where group_path like '%DamageableComponent_ClassNetCache'
+              and (field_name like '%].ChangedComponent' or field_name like '%].LifeResult')
+              and actor_net_guid in ({body_sql})
+            order by file_row_number""").fetchall():
+        # An array member's two fields arrive together, in either order.
+        prefix, leaf = name.rsplit(".", 1)
+        held = pending_change.setdefault((body, prefix), {})
+        held[leaf] = as_int if leaf == "ChangedComponent" else as_float
+        if len(held) == 2:
+            kind, item = section.get(held["ChangedComponent"], (None, None))
+            if kind and held["LifeResult"] is not None:
+                order += 1
+                changes.append((t, order, "life", subject_of[body], kind, item, held["LifeResult"]))
+            del pending_change[(body, prefix)]
+    for t, item, value in con.execute("""
+            select time_ms, actor_net_guid, value_f64 from fields
+            where field_name = 'MulticastNotifySetLife.NewLife' and value_f64 is not null
+            order by time_ms, packet_id""").fetchall():
+        if full_armor(item) is not None:
+            order += 1
+            changes.append((t, order, "set", None, None, item, value))
+    armors = [g for g in actor_class if full_armor(g) is not None]
+    if armors:
+        for t, item, owner in con.execute(f"""
+                select time_ms, actor_net_guid, value_i64 from fields
+                where field_name = 'Owner' and value_i64 is not null
+                  and actor_net_guid in ({",".join(str(g) for g in armors)})
+                order by time_ms, packet_id""").fetchall():
+            order += 1
+            changes.append((t, order, "own", subject_of.get(owner), None, item, None))
+        for t, item in con.execute(f"""
+                select time_ms, actor_net_guid from actors
+                where event = 'close' and actor_net_guid in ({",".join(str(g) for g in armors)})""").fetchall():
+            order += 1
+            changes.append((t, order, "own", None, None, item, None))
+    changes.sort(key=lambda change: (change[0], change[1]))
+
+    vitals = {s: [] for s in subjects}
+    state = {s: {"health": 100.0, "over": 0.0, "shield": 0.0, "item": None} for s in subjects}
+    item_life, item_owner = {}, {}
+
+    def note(subject, t):
+        now = state[subject]
+        armor = now["shield"] + (item_life.get(now["item"], 0.0) if now["item"] is not None else 0.0)
+        row = [t, round(now["health"] + now["over"]), round(armor)]
+        rows = vitals[subject]
+        if rows and rows[-1][1:] == row[1:]:
+            return
+        if rows and rows[-1][0] == t:
+            rows[-1] = row
+        else:
+            rows.append(row)
+
+    for t, _, what, subject, kind, item, value in changes:
+        if what == "life":
+            if subject not in state:
+                continue
+            if kind == "armor":
+                item_life[item] = value
+                state[subject]["item"] = item
+                item_owner[item] = subject
+            else:
+                state[subject][kind] = value
+            note(subject, t)
+        elif what == "set":
+            item_life[item] = value
+            if item_owner.get(item) in state:
+                note(item_owner[item], t)
+        else:  # the item changed hands, or was removed
+            before = item_owner.get(item)
+            if before and state[before]["item"] == item:
+                state[before]["item"] = None
+                note(before, t)
+            item_owner[item] = subject
+            if subject in state:
+                item_life.setdefault(item, float(full_armor(item)))
+                state[subject]["item"] = item
+                note(subject, t)
+
     # ---- kits -----------------------------------------------------------------------------
     # What each player has left: the game's own count of each ability's charges, by key, and their
     # ultimate points. Three components hold the count (Equipment Charge, Signature Ability Resource
@@ -908,6 +1013,7 @@ def main():
         "spike": {"carriers": carriers, "plants": spike_plants, "defuses": spike_defuses},
         "pawns": {"fields": ["t", "x", "y", "yaw"], "items": pawns},
         "kits": kits,
+        "vitals": vitals,
         "blinds": blinds,
     }
     raw = json.dumps(bundle, separators=(",", ":")).encode("utf-8")

@@ -125,6 +125,9 @@ export type ReplayKit = Partial<Record<'C' | 'Q' | 'E' | 'X', ReplayCharges>> & 
   cost?: number
 }
 
+/** `[t, health, armour]` rows in time order. Before the first row a player is on 100 and no armour. */
+export type ReplayVitals = Array<[number, number, number]>
+
 export interface ReplayBundle {
   schema: typeof REPLAY_BUNDLE_SCHEMA
   parser: { vrfkit: string | null; reducer: string }
@@ -151,6 +154,8 @@ export interface ReplayBundle {
   pawns: { fields: string[]; items: ReplayPawn[] }
   /** Reducer 0.4.0, by subject. Absent on older bundles. */
   kits?: Record<string, ReplayKit>
+  /** Reducer 0.7.0, by subject. Absent on older bundles. */
+  vitals?: Record<string, ReplayVitals>
   /** Reducer 0.6.0, by subject: the [start, end] of each flash or nearsight that hit them, in time order. */
   blinds?: Record<string, Array<[number, number]>>
 }

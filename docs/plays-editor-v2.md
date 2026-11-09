@@ -715,6 +715,19 @@ for Paranoia and Leer, which it does not cover, the targets the cast statistics
 name as nearsighted. Under 0.2 s (a flash barely caught at the screen's edge) is
 left out. Bundles from before 0.6.0 show no hint.
 
+### 2.17 Health and armour
+
+During a replay two slim bars sit left of each agent's tile, filling from the bottom:
+health next to it (green, amber at 50 and under, red at 25 and under; full at 100,
+overheal counted in the number and clipped at the top), armour outside it in pale
+blue, full at 50, and gone when there is none. The hover label gives the numbers.
+
+From `bundle.vitals` (reducer 0.7.0, `[t, health, armour]`), the game's own results:
+each `LifeResult` a damage, heal, overheal decay or round-start reset reports for the
+body's `HealthDamageSection`, `OverhealDamageSection` and armour item section. A
+bought armour item starts full (Light 25, Heavy 50, Regen 25, confirmed against
+every first hit) and follows its owner through `Owner`, close and `SetLife`.
+
 ## 3. Document v2 (`src/lib/playDoc.ts`)
 
 ```ts

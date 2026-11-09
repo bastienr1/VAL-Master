@@ -273,6 +273,14 @@ const BLIND_GLOW = 7
 const BLIND_FLOOR = 0.35
 const BLIND_BADGE_R = 9
 const BLIND_ICON_SCALE = 0.55
+/** Health and armour (§2.17): bars at the left of the tile, health next to it, filling from the bottom. */
+const VITAL_WIDTH = 5
+const VITAL_GAP = 3
+const VITAL_FULL_ARMOR = 50
+const HEALTH_HIGH = '#4ADE80'
+const HEALTH_MID = '#FBBF24'
+const HEALTH_LOW = '#F87171'
+const ARMOR_COLOR = '#7DD3FC'
 /** What an agent has left (§2.15): a strip above the tile. */
 const KIT_ICON = 13
 const KIT_STEP = 15
@@ -1873,6 +1881,24 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
 
   const feed = (kills ?? []).filter(kill => kill.feed > 0).slice(-KILL_FEED_MAX)
 
+  /** Health, next to the tile, and armour outside it, as the game last reported them. */
+  const vitalsOf = (hp: number, armor: number) => {
+    const height = half * 2
+    const bar = (x: number, share: number, color: string) => (
+      <>
+        <rect x={x} y={-half} width={VITAL_WIDTH} height={height} rx={1.5} fill={TOKEN_FILL} fillOpacity={0.85} />
+        <rect x={x} y={half - height * share} width={VITAL_WIDTH} height={height * share} rx={1.5} fill={color} />
+      </>
+    )
+    const healthX = -half - VITAL_GAP - VITAL_WIDTH
+    return (
+      <g pointerEvents="none" transform={sized}>
+        {bar(healthX, clamp(hp / 100, 0, 1), hp > 50 ? HEALTH_HIGH : hp > 25 ? HEALTH_MID : HEALTH_LOW)}
+        {armor > 0 && bar(healthX - VITAL_WIDTH - 1.5, clamp(armor / VITAL_FULL_ARMOR, 0, 1), ARMOR_COLOR)}
+      </g>
+    )
+  }
+
   /** The agent's four abilities above the tile: white while they have a charge, dim when spent, a glow as one comes back. */
   const kitOf = (name: string, kit: KitSlot[]) => {
     const registry = agentOf(name)
@@ -1910,7 +1936,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
     const [dx, dy] = offsetOf(agent.id)
     const label = `${agent.agent}${agent.player ? ` (${agent.player})` : ''}${agent.team === 'enemy' ? ' (enemy)' : ''}${
       agent.spike ? ', spike carrier' : ''
-    }${agent.note ? `: ${agent.note}` : ''}`
+    }${agent.hp !== null ? `, ${agent.hp} health${agent.armor ? `, ${agent.armor} armour` : ''}` : ''}${agent.note ? `: ${agent.note}` : ''}`
     // The hover / selection card already names the agent; the small name would sit under it.
     const named = showNames && showLabels && agent.id !== hoverId && agent.id !== selectedId
     return (
@@ -1923,6 +1949,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
         {agent.blind !== null && blindGlow(agent.blind)}
         {tile(agent.agent, ringOf(agent))}
         {agent.blind !== null && blindOver(agent.blind)}
+        {agent.hp !== null && vitalsOf(agent.hp, agent.armor ?? 0)}
         {showKit && agent.kit && kitOf(agent.agent, agent.kit)}
         {named && (
           <g transform={`scale(${nameK})`}>

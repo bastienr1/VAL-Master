@@ -6,7 +6,7 @@
  */
 
 import type { AbilitySlot, KitSlot } from './playDoc.ts'
-import type { ReplayCharges, ReplayKit } from './replayBundle.ts'
+import type { ReplayCharges, ReplayKit, ReplayVitals } from './replayBundle.ts'
 
 /** How long a recharged ability glows. */
 export const KIT_GLOW_MS = 1500
@@ -82,4 +82,19 @@ export function kitAt(kit: ReplayKit, t: number, liveFrom: number): KitSlot[] {
     slots.push({ slot: 'Ultimate', n: ready ? 1 : 0, max: 1, glow: glowAt(points, i, t, liveFrom, cost) })
   }
   return slots
+}
+
+/** A player's health and armour at `t`: the last row at or before it, else a full 100 and no armour. */
+export function vitalsAt(rows: ReplayVitals, t: number): { hp: number; armor: number } {
+  let lo = 0
+  let hi = rows.length - 1
+  let found = -1
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1
+    if (rows[mid][0] <= t) {
+      found = mid
+      lo = mid + 1
+    } else hi = mid - 1
+  }
+  return found >= 0 ? { hp: rows[found][1], armor: rows[found][2] } : { hp: 100, armor: 0 }
 }
