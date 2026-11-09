@@ -246,15 +246,14 @@ const IMPACT_R = 92
 const IMPACT_SHARDS = 16
 /** Shards fly this far either side of the line of the shot. */
 const IMPACT_SPREAD = 1.15
-const IMPACT_BLADE = 15
+const IMPACT_BLADE = 10.5
+/** How long the blades reach, as a share of the blast's size. */
+const IMPACT_BLADE_LENGTH = 0.945
 /** The blades slash out over this first part of the blast, then hold. */
 const IMPACT_SNAP = 0.09
 const KILL_RING_PAD = 7
 const KILL_RING = 4
 /** What stays where someone fell. */
-const DECAL_R = 34
-const DECAL_FRESH = 0.62
-const DECAL_OLD = 0.3
 const DEATH_TILE = 0.7
 const DEATH_FRESH = 0.95
 const DEATH_OLD = 0.5
@@ -480,22 +479,11 @@ function abilityExtent(item: PlacedAbility, k: number): number {
   return item.r
 }
 
-/** A repeatable 0…1 from a kill's key: the same kill always bursts and stains the same way, frame to frame. */
+/** A repeatable 0…1 from a kill's key: the same kill always bursts the same way, frame to frame. */
 function seeded(key: string, index: number): number {
   const hash = [...key].reduce((sum, c) => (sum * 31 + c.charCodeAt(0)) % 9973, 7)
   const x = Math.sin(hash + index * 12.9898) * 43758.5453
   return x - Math.floor(x)
-}
-
-/** A ragged stain of radius about `r`. */
-function splat(key: string, r: number): string {
-  const points: string[] = []
-  for (let i = 0; i < 18; i++) {
-    const a = (i * Math.PI) / 9
-    const k = r * (i % 2 ? 0.55 + 0.25 * seeded(key, i) : 0.85 + 0.75 * seeded(key, i))
-    points.push(`${(Math.cos(a) * k).toFixed(1)},${(Math.sin(a) * k).toFixed(1)}`)
-  }
-  return points.join(' ')
 }
 
 /** A pop's sparks start at an angle of its own, so two pops do not look stamped. */
@@ -1737,13 +1725,12 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
 
   const teamInk = (person: Pick<KillPerson, 'team'>) => (person.team === 'enemy' ? skin.enemy : skin.ally)
 
-  // Where each death happened, for the rest of the round: a splat, the portrait gone grey, a red cross. Under the agents.
+  // Where each death happened, for the rest of the round: the portrait gone grey and a red cross. Under the agents.
   const killLayer = (kills ?? []).map(kill => {
     const [tx, ty] = imageToView(scene.view, kill.to.u, kill.to.v, scene.turns)
     const fresh = kill.age < KILL_FRESH_MS
     return (
       <g key={kill.key} pointerEvents="none" style={placement(tx, ty)}>
-        <polygon points={splat(kill.key, DECAL_R * k)} fill={DEATH_RED} fillOpacity={fresh ? DECAL_FRESH : DECAL_OLD} />
         <g opacity={fresh ? DEATH_FRESH : DEATH_OLD}>
           <g transform={`scale(${DEATH_TILE})`} style={{ filter: 'grayscale(1) brightness(0.8)' }}>
             {tile(kill.victim.agent, DEATH_RED)}
@@ -1794,7 +1781,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
       const blades = p < 0.5 ? 1 : 1 - (p - 0.5) / 0.5
       const tilt = seeded(kill.key, 0) * 18 - 9
       const blade = (angle: number) => {
-        const length = size * 1.35 * snap
+        const length = size * IMPACT_BLADE_LENGTH * snap
         const wide = IMPACT_BLADE * k * Math.sqrt(fade)
         return (
           <g key={angle} transform={`rotate(${angle + tilt})`} opacity={blades}>

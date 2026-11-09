@@ -696,8 +696,8 @@ captured step holds none of it. A kill plays like a hit in a top-down game: a tr
 colour reaches the victim in 90 ms and closes up by 520 ms, with a muzzle flash where
 the killer stood. On the victim, a crimson blast for 850 ms: bloom, shock rings, two
 blades slashing a cross and shards flying away from the shot. A ring stays on the
-killer's tile for 2.2 s. Where the victim fell stays a mark for the round: a splat,
-their portrait gone grey, a red cross, fainter after 3 s. A feed under the zoom control names them, the
+killer's tile for 2.2 s. Where the victim fell stays a mark for the round: their
+portrait gone grey and a red cross, fainter after 3 s. A feed under the zoom control names them, the
 weapon or ability between, for 7 s, at most five rows. A death nobody dealt
 (Clove's ult running out) has a mark and a feed row, and no line.
 
