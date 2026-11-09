@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useSyncExternalStore } from 'react'
-import { Camera, Film, Pause, Play, X } from 'lucide-react'
+import { Camera, Film, Pause, Play, StickyNote, X } from 'lucide-react'
 import { averageShare, controlTimeline, type ControlShare } from '../../lib/mapControl'
 import type { ReplayBundle, ReplayRound } from '../../lib/replayBundle'
 import { formatRoundClock, roundSpan, roundTicks } from '../../lib/replayFrame'
+import type { ReplayNoteMark } from '../../lib/replayNotes'
 import type { MapTransform } from '../../lib/replayScene'
 import type { ValueStore } from '../../lib/valueStore'
 
@@ -47,6 +48,10 @@ interface ReplayTransportProps {
   /** False when the play already holds the most steps it can. */
   canCapture: boolean
   onCapture(): void
+  /** The match's notes and quick tags, dotted over the track of their round. */
+  marks: readonly ReplayNoteMark[]
+  /** A note at this moment. */
+  onNote(): void
   view: ReplayView
   /** Shown in the steps view: back to the replay, at the step's time when it has one. */
   onBackToReplay(): void
@@ -219,6 +224,20 @@ export default function ReplayTransport(props: ReplayTransportProps) {
             className={`w-full accent-val-cyan${track ? ' vm-control-track' : ''}`}
             style={track ? { backgroundImage: track } : undefined}
           />
+          {/* Over the track, clear of its thumb: a dot goes to its note. */}
+          {props.marks.filter(m => m.t >= span.start && m.t <= span.end).map(m => (
+            <button
+              key={m.id}
+              type="button"
+              onClick={() => props.onSeek(m.t)}
+              title={`${formatRoundClock(round, m.t)} · ${m.label}`}
+              aria-label={`Go to the note: ${m.label}`}
+              className="absolute -top-2.5 w-3 h-3 -translate-x-1/2 flex items-center justify-center"
+              style={{ left: `calc(${THUMB_PX / 2}px + (100% - ${THUMB_PX}px) * ${(m.t - span.start) / length})` }}
+            >
+              <span aria-hidden="true" className="block w-1.5 h-1.5 rounded-full bg-text-primary" style={m.color ? { backgroundColor: m.color } : undefined} />
+            </button>
+          ))}
           {/* Under the track, so a tick's title shows on hover without getting in the way of a drag. */}
           <div className="absolute inset-x-0 -bottom-1.5 h-1.5" aria-hidden="true">
             {ticks.map((tick, i) => {
@@ -266,6 +285,16 @@ export default function ReplayTransport(props: ReplayTransportProps) {
           ))}
         </select>
 
+        <button
+          type="button"
+          onClick={props.onNote}
+          disabled={view === 'steps'}
+          title={view === 'steps' ? 'Back to the replay to take a note' : 'Take a note at this moment (T)'}
+          className={quiet}
+        >
+          <StickyNote className="w-3.5 h-3.5" />
+          <span>Note</span>
+        </button>
         <button
           type="button"
           onClick={props.onCapture}

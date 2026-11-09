@@ -4,7 +4,7 @@ import type { CanvasSizes } from '../../lib/canvasSizes'
 import type { CanvasSkinId } from '../../lib/canvasSkins'
 import SizePicker from './SizePicker'
 import SkinPicker from './SkinPicker'
-import { TOOLS } from './tools'
+import { TOOLS, toolTitle } from './tools'
 
 interface TheatreChromeProps {
   title: string
@@ -29,6 +29,8 @@ interface TheatreChromeProps {
   onTool(tool: Tool): void
   /** The step buttons; null while a replay plays on the page (its transport stands there). */
   steps: { id: string; name: string }[] | null
+  /** A replay is on screen: T takes a note there. */
+  inReplay: boolean
   stepIndex: number
   onPickStep(index: number): void
 }
@@ -92,7 +94,7 @@ export default function TheatreChrome(props: TheatreChromeProps) {
             onClick={() => props.onTool(t)}
             aria-pressed={tool === t}
             aria-label={name}
-            title={key ? `${name} (${key})` : name}
+            title={toolTitle(name, key, props.inReplay)}
             className={`w-9 h-9 rounded-lg flex items-center justify-center transition-colors ${
               tool === t ? 'bg-val-cyan text-bg-primary' : 'text-text-secondary hover:text-text-primary hover:bg-bg-elevated/60'
             }`}

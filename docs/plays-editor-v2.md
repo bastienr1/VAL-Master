@@ -728,6 +728,29 @@ body's `HealthDamageSection`, `OverhealDamageSection` and armour item section. A
 bought armour item starts full (Light 25, Heavy 50, Regen 25, confirmed against
 every first hit) and follows its owner through `Owner`, close and `SetLife`.
 
+### 2.18 Notes on a replay
+
+The VOD review's notes, on the replay: the same `vod_comments`, `moment_tags`
+and `round_screenshots` rows, through the same `NotesPanel` and `CapturePanel`,
+loaded by one hook (`src/hooks/useMatchNotes.ts`) that both pages use. A note
+taken on either page is on the other. No migration.
+
+- **Where.** A Rounds / Notes tab under the video in the right panel. The
+  editor floats over the map's bottom-right corner (top-right in Theatre), so
+  it also works in the layouts with no right panel.
+- **Keys.** T takes a note and G drops a tag with no note, the review's keys,
+  and both pause the match. In the replay view T is no longer the Text tool's
+  key; the tool stays on the rail. Everywhere else T is still Text.
+- **Time.** Notes keep the review's video seconds, converted with the barrier
+  drop (`replayMsToVideoSeconds` and back). A dot over the scrubber marks each
+  note and each quick tag of the round shown, and goes to it.
+- **Round.** A new note takes the round on screen (`knownRound`), so one
+  written in a round's buy phase belongs to that round. The review resolves it
+  from the time, which gives the round before.
+- **A match that cannot take notes.** Notes need a review (`vod_comments` hangs
+  off `vod_reviews`, which requires a video) with its barrier drop marked. Until
+  then the tab says which is missing and links to the review page.
+
 ## 3. Document v2 (`src/lib/playDoc.ts`)
 
 ```ts
@@ -976,6 +999,14 @@ Names (2026-11-08): on the same Pearl match in the signed-in app, all 10
 players got their Riot names from Henrik (all 10 PUUIDs match, also checked
 offline against a cached match); the toggle hid and restored the 10 names and
 stored its state.
+
+Notes (2026-11-09): on an Ascent replay in the signed-in app, the match's 6
+review notes listed, the R3 note's dot and timestamp both went to R3 0:23. T in
+R3's buy phase opened the editor at 4:31, R3; the saved row had 271 s and round
+3. It was edited on the replay, read back on the review page and deleted there.
+T also worked in Study and Theatre, G opened the tag picker, a match with no
+review and one with no sync each named what was missing, and T on the review
+page still opened its editor. No console errors.
 
 Not yet verified: the phone layout, touch input and pinch zoom on a real
 touch screen.
