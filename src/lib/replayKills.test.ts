@@ -4,7 +4,7 @@
 
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { KILL_FEED_MS, KILL_LINE_MS, killMarks } from './replayKills.ts'
+import { KILL_FEED_MS, killMarks } from './replayKills.ts'
 import type { ReplayBundle, ReplayRound } from './replayBundle.ts'
 import { createFrameIds, type ReplayAgentLookup } from './replayFrame.ts'
 
@@ -47,11 +47,10 @@ test('a kill says who killed whom, with what, from where to where', () => {
   assert.ok(kill.killerId)
 })
 
-test('the line goes first, then the feed, and the death stays for the round', () => {
-  assert.equal(marks(50000)[0].line, 1)
-  assert.ok(Math.abs(marks(50000 + KILL_LINE_MS / 2)[0].line - 0.5) < 1e-9)
-  assert.equal(marks(50000 + KILL_LINE_MS)[0].line, 0)
-  assert.ok(marks(50000 + KILL_LINE_MS)[0].feed > 0)
+test('a kill knows its age, leaves the feed in time, and the death stays for the round', () => {
+  assert.equal(marks(50000)[0].age, 0)
+  assert.equal(marks(50300)[0].age, 300)
+  assert.ok(marks(50000 + KILL_FEED_MS / 2)[0].feed > 0)
   assert.equal(marks(50000 + KILL_FEED_MS)[0].feed, 0)
   assert.equal(marks(89000).length, 4)
 })
@@ -61,7 +60,6 @@ test('a self-death has no killer and no line', () => {
   assert.equal(kill.killer, null)
   assert.equal(kill.killerId, null)
   assert.equal(kill.from, null)
-  assert.equal(kill.line, 0)
 })
 
 test('an ability kill is named from its class, and an unknown one just says so', () => {

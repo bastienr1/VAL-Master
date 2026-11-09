@@ -11,8 +11,16 @@ import type { FrameIds, ReplayAgentLookup } from './replayFrame.ts'
 import { worldToImage, type MapTransform } from './replayScene.ts'
 import { classInfo } from './utilityClasses.ts'
 
-/** How long the line from killer to victim stays, fading over its last part. */
-export const KILL_LINE_MS = 4000
+/** The tracer reaches the victim this fast: a shot, not a drawing. */
+export const KILL_TRACER_MS = 90
+/** The tracer has closed up onto the victim by this long after the kill. */
+export const KILL_LINE_MS = 520
+/** The blast on the victim, from the moment the tracer lands. */
+export const KILL_IMPACT_MS = 850
+/** The ring on the killer, so it stays readable who did it once the tracer has gone. */
+export const KILL_RING_MS = 2200
+/** The mark where they fell is bright for this long, then settles. */
+export const KILL_FRESH_MS = 3000
 /** How long a kill stays in the feed. */
 export const KILL_FEED_MS = 7000
 /** The feed holds this many at most, the latest ones. */
@@ -37,8 +45,8 @@ export interface KillMark {
   from: { u: number; v: number } | null
   /** Where the victim fell. */
   to: { u: number; v: number }
-  /** How much of the line is left, 1…0; 0 once it has gone. */
-  line: number
+  /** Milliseconds since the kill. */
+  age: number
   /** How much of its time in the feed is left, 1…0; 0 once it has gone. */
   feed: number
 }
@@ -81,7 +89,7 @@ export function killMarks(
       weapon: weaponName(bundle, kill.weapon, kill.killer ? players.get(kill.killer)?.agentId ?? null : null, lookup),
       from: dealt && kill.kx !== null && kill.ky !== null ? image(kill.kx, kill.ky) : null,
       to: image(kill.vx, kill.vy),
-      line: dealt ? left(age, KILL_LINE_MS) : 0,
+      age,
       feed: left(age, KILL_FEED_MS),
     })
   })

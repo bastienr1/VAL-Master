@@ -692,11 +692,12 @@ it has no icon. Bundles from before 0.4.0 have no strip.
 ### 2.16 Who killed whom
 
 From `bundle.kills`, read by `replayKills.ts` and kept out of the frame so a
-captured step holds none of it. A kill draws a line with an arrow from where the
-killer stood to where the victim fell, in the killer's team colour, for 4 s (full
-strength for half, then fading), with a ring on the killer's tile as it is now.
-Where the victim fell stays a mark for the rest of the round: their tile with an X,
-faint once the line has gone. A feed under the zoom control names them, the
+captured step holds none of it. A kill plays like a hit in a top-down game: a tracer in the killer's team
+colour reaches the victim in 90 ms and closes up by 520 ms, with a muzzle flash where
+the killer stood. On the victim, a crimson blast for 850 ms: bloom, shock rings, two
+blades slashing a cross and shards flying away from the shot. A ring stays on the
+killer's tile for 2.2 s. Where the victim fell stays a mark for the round: their
+portrait gone grey and a red cross, fainter after 3 s. A feed under the zoom control names them, the
 weapon or ability between, for 7 s, at most five rows. A death nobody dealt
 (Clove's ult running out) has a mark and a feed row, and no line.
 
