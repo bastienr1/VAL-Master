@@ -88,7 +88,7 @@ import {
 } from '../lib/playScene'
 import { DEFAULT_CANVAS_SIZES, agentScale, calloutUnits, nameUnits, type CanvasSizes } from '../lib/canvasSizes'
 import type { AgentMotion } from '../lib/replayMotion'
-import { KILL_FEED_MAX, type KillMark, type KillPerson } from '../lib/replayKills'
+import { KILL_FEED_MAX, KILL_FRESH_MS, KILL_IMPACT_MS, KILL_LINE_MS, KILL_RING_MS, KILL_TRACER_MS, type KillMark, type KillPerson } from '../lib/replayKills'
 import { canvasSkin, hexChannels, skinDrawColor, skinMapMatrix, type CanvasSkin, type CanvasSkinId } from '../lib/canvasSkins'
 import type { ControlGrid } from '../lib/mapControl'
 import type { PlaySide } from '../lib/types'
@@ -234,18 +234,32 @@ const DEVICE_RX = 6
 /** What acts on the agent alone is a small token beside them. */
 const CHIP_SCALE = 0.68
 const CHIP_OFFSET = 21
-/** A kill (§2.16): the line from killer to victim, the arrow at its end, the ring on the killer. */
-const KILL_LINE = 5
-const KILL_ARROW = 13
-/** The line is at full strength for this first part of its time, then fades. */
-const KILL_LINE_HOLD = 0.5
+/** A kill (§2.16): one colour for death, whoever fell. */
+const DEATH_RED = '#FF2B45'
+/** The tracer: its soft glow, its white core, and the flash at the muzzle. */
+const TRACER_GLOW = 13
+const TRACER_CORE = 3.5
+const MUZZLE_MS = 170
+const MUZZLE_R = 26
+/** The blast's size on screen, however far the map is zoomed. */
+const IMPACT_R = 92
+const IMPACT_SHARDS = 16
+/** Shards fly this far either side of the line of the shot. */
+const IMPACT_SPREAD = 1.15
+const IMPACT_BLADE = 15
+/** The blades slash out over this first part of the blast, then hold. */
+const IMPACT_SNAP = 0.09
 const KILL_RING_PAD = 7
 const KILL_RING = 4
-/** The mark where someone died: faint once the kill has passed. */
-const DEATH_FRESH = 0.9
-const DEATH_OLD = 0.4
-const DEATH_X = 0.62
-const DEATH_X_WIDTH = 3.5
+/** What stays where someone fell. */
+const DECAL_R = 34
+const DECAL_FRESH = 0.62
+const DECAL_OLD = 0.3
+const DEATH_TILE = 0.7
+const DEATH_FRESH = 0.95
+const DEATH_OLD = 0.5
+const DEATH_X = 13
+const DEATH_X_WIDTH = 4.5
 /** A pop (§2.17): how far its sparks fly, how many, the soft and the bright ring. */
 const POP_RAYS = 10
 /** A pop is at least this big on screen: a flash's reach is its sight line, not a small circle. */
@@ -466,6 +480,24 @@ function abilityExtent(item: PlacedAbility, k: number): number {
   return item.r
 }
 
+/** A repeatable 0…1 from a kill's key: the same kill always bursts and stains the same way, frame to frame. */
+function seeded(key: string, index: number): number {
+  const hash = [...key].reduce((sum, c) => (sum * 31 + c.charCodeAt(0)) % 9973, 7)
+  const x = Math.sin(hash + index * 12.9898) * 43758.5453
+  return x - Math.floor(x)
+}
+
+/** A ragged stain of radius about `r`. */
+function splat(key: string, r: number): string {
+  const points: string[] = []
+  for (let i = 0; i < 18; i++) {
+    const a = (i * Math.PI) / 9
+    const k = r * (i % 2 ? 0.55 + 0.25 * seeded(key, i) : 0.85 + 0.75 * seeded(key, i))
+    points.push(`${(Math.cos(a) * k).toFixed(1)},${(Math.sin(a) * k).toFixed(1)}`)
+  }
+  return points.join(' ')
+}
+
 /** A pop's sparks start at an angle of its own, so two pops do not look stamped. */
 const popTurn = (id: string) => ([...id].reduce((sum, c) => sum + c.charCodeAt(0), 0) % 628) / 100
 
@@ -521,6 +553,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
   const badgeClip = `${uid}-badge`
   const throwHead = (color: string) => `${uid}-throw-${colorKey(color)}`
   const popGlow = (color: string) => `${uid}-pop-${colorKey(color)}`
+  const deathGlow = `${uid}-death`
 
   const { registry } = useGameContent()
   const reducedMotion = useSyncExternalStore(subscribeReducedMotion, readReducedMotion, () => false)
@@ -1703,46 +1736,93 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
     : null
 
   const teamInk = (person: Pick<KillPerson, 'team'>) => (person.team === 'enemy' ? skin.enemy : skin.ally)
-  const killFade = (line: number) => Math.min(1, line / KILL_LINE_HOLD)
 
-  // Where each death happened, and who did it while it is fresh: under the agents, over the utility.
+  // Where each death happened, for the rest of the round: a splat, the portrait gone grey, a red cross. Under the agents.
   const killLayer = (kills ?? []).map(kill => {
     const [tx, ty] = imageToView(scene.view, kill.to.u, kill.to.v, scene.turns)
-    const fresh = kill.line > 0
-    const x = half * DEATH_X
-    let link: ReactNode = null
-    if (fresh && kill.from && kill.killer) {
-      const [fx, fy] = imageToView(scene.view, kill.from.u, kill.from.v, scene.turns)
-      const length = Math.hypot(tx - fx, ty - fy)
-      if (length > 0) {
-        const [ux, uy] = [(tx - fx) / length, (ty - fy) / length]
-        // Stops at the rim of the victim's mark, so the arrow shows.
-        const stop = Math.min(length, Math.max(0, length - half * k))
-        const [ex, ey] = [fx + ux * stop, fy + uy * stop]
-        const a = KILL_ARROW * k
-        const [bx, by] = [ex - ux * a, ey - uy * a]
-        const color = teamInk(kill.killer)
-        link = (
-          <g opacity={killFade(kill.line)}>
-            <line x1={fx} y1={fy} x2={bx} y2={by} stroke={TOKEN_FILL} strokeOpacity={0.7} strokeWidth={(KILL_LINE + 3) * k} strokeLinecap="round" />
-            <line x1={fx} y1={fy} x2={bx} y2={by} stroke={color} strokeWidth={KILL_LINE * k} strokeLinecap="round" />
-            <polygon points={pointsAttr([[ex, ey], [bx - uy * a * 0.6, by + ux * a * 0.6], [bx + uy * a * 0.6, by - ux * a * 0.6]])} fill={color} stroke={TOKEN_FILL} strokeWidth={1.5 * k} strokeLinejoin="round" />
+    const fresh = kill.age < KILL_FRESH_MS
+    return (
+      <g key={kill.key} pointerEvents="none" style={placement(tx, ty)}>
+        <polygon points={splat(kill.key, DECAL_R * k)} fill={DEATH_RED} fillOpacity={fresh ? DECAL_FRESH : DECAL_OLD} />
+        <g opacity={fresh ? DEATH_FRESH : DEATH_OLD}>
+          <g transform={`scale(${DEATH_TILE})`} style={{ filter: 'grayscale(1) brightness(0.8)' }}>
+            {tile(kill.victim.agent, DEATH_RED)}
+          </g>
+          <g transform={sized} stroke={DEATH_RED} strokeWidth={DEATH_X_WIDTH} strokeLinecap="round">
+            <line x1={-DEATH_X} y1={-DEATH_X} x2={DEATH_X} y2={DEATH_X} />
+            <line x1={DEATH_X} y1={-DEATH_X} x2={-DEATH_X} y2={DEATH_X} />
+          </g>
+        </g>
+      </g>
+    )
+  })
+
+  // The shot and the blast, over the agents: a tracer that is there at once and closes up, then a crimson hit.
+  const killFx = (kills ?? []).flatMap(kill => {
+    const { age } = kill
+    if (age >= KILL_TRACER_MS + KILL_IMPACT_MS) return []
+    const blend = { mixBlendMode: lightMap ? 'normal' : 'screen' } as const
+    const [tx, ty] = imageToView(scene.view, kill.to.u, kill.to.v, scene.turns)
+    const start = kill.from ? imageToView(scene.view, kill.from.u, kill.from.v, scene.turns) : null
+    const shot = start && Math.hypot(tx - start[0], ty - start[1]) > 0 ? Math.atan2(ty - start[1], tx - start[0]) : null
+    const parts: ReactNode[] = []
+
+    if (start && kill.killer && age < KILL_LINE_MS) {
+      const color = teamInk(kill.killer)
+      const head = Math.min(1, age / KILL_TRACER_MS)
+      const closing = Math.max(0, (age - KILL_TRACER_MS) / (KILL_LINE_MS - KILL_TRACER_MS))
+      const tail = closing ** 2
+      const along = (f: number): Point => [start[0] + (tx - start[0]) * f, start[1] + (ty - start[1]) * f]
+      const [ax, ay] = along(tail)
+      const [bx, by] = along(head)
+      const thin = 1 - closing
+      parts.push(
+        <g key="tracer" style={blend}>
+          <line x1={ax} y1={ay} x2={bx} y2={by} stroke={color} strokeOpacity={0.55} strokeWidth={TRACER_GLOW * k * thin} strokeLinecap="round" />
+          <line x1={ax} y1={ay} x2={bx} y2={by} stroke={WHITE} strokeWidth={TRACER_CORE * k * thin} strokeLinecap="round" />
+          {age < MUZZLE_MS && <circle cx={start[0]} cy={start[1]} r={MUZZLE_R * k * (1 - age / MUZZLE_MS)} fill={`url(#${deathGlow})`} />}
+        </g>,
+      )
+    }
+
+    if (age >= KILL_TRACER_MS) {
+      const p = (age - KILL_TRACER_MS) / KILL_IMPACT_MS
+      const out = 1 - (1 - p) ** 3
+      const fade = 1 - p
+      const size = IMPACT_R * k
+      const snap = Math.min(1, p / IMPACT_SNAP)
+      const blades = p < 0.5 ? 1 : 1 - (p - 0.5) / 0.5
+      const tilt = seeded(kill.key, 0) * 18 - 9
+      const blade = (angle: number) => {
+        const length = size * 1.35 * snap
+        const wide = IMPACT_BLADE * k * Math.sqrt(fade)
+        return (
+          <g key={angle} transform={`rotate(${angle + tilt})`} opacity={blades}>
+            <polygon points={`${-length},0 0,${-wide} ${length},0 0,${wide}`} fill={DEATH_RED} />
+            <polygon points={`${-length * 0.8},0 0,${-wide * 0.4} ${length * 0.8},0 0,${wide * 0.4}`} fill={WHITE} />
           </g>
         )
       }
+      parts.push(
+        <g key="impact" style={{ ...placement(tx, ty), ...blend }}>
+          <circle r={size * (0.5 + 0.75 * out)} fill={`url(#${deathGlow})`} opacity={fade ** 1.5} />
+          <circle r={size * (0.15 + 1.15 * out)} fill="none" stroke={DEATH_RED} strokeOpacity={fade} strokeWidth={14 * k * fade} />
+          <circle r={size * (0.1 + 0.8 * Math.min(1, out * 1.5))} fill="none" stroke={WHITE} strokeOpacity={fade ** 2} strokeWidth={3 * k} />
+          {[45, -45].map(blade)}
+          {Array.from({ length: IMPACT_SHARDS }, (_, i) => {
+            const roll = seeded(kill.key, i + 1)
+            const angle = shot !== null ? shot + (seeded(kill.key, i + 40) - 0.5) * 2 * IMPACT_SPREAD : seeded(kill.key, i + 40) * 2 * Math.PI
+            const far = size * (0.3 + 1.2 * roll) * out
+            const [x, y] = [Math.cos(angle) * far, Math.sin(angle) * far]
+            const piece = (4 + 8 * roll) * k * fade
+            const turn = angle + roll * 3
+            const corner = (a: number, r: number) => `${(x + Math.cos(turn + a) * r).toFixed(1)},${(y + Math.sin(turn + a) * r).toFixed(1)}`
+            return <polygon key={i} points={`${corner(0, piece * 1.7)} ${corner(2.4, piece)} ${corner(-2.4, piece)}`} fill={i % 3 === 0 ? WHITE : DEATH_RED} opacity={fade} />
+          })}
+        </g>,
+      )
     }
-    return (
-      <g key={kill.key} pointerEvents="none">
-        <g style={placement(tx, ty)} opacity={fresh ? DEATH_FRESH : DEATH_OLD}>
-          {tile(kill.victim.agent, teamInk(kill.victim))}
-          <g transform={sized} stroke={WHITE} strokeWidth={DEATH_X_WIDTH} strokeLinecap="round">
-            <line x1={-x} y1={-x} x2={x} y2={x} />
-            <line x1={x} y1={-x} x2={-x} y2={x} />
-          </g>
-        </g>
-        {link}
-      </g>
-    )
+    return [<g key={`fx:${kill.key}`} pointerEvents="none">{parts}</g>]
   })
 
   // Every pop going off, over the agents so nothing hides it: a white-hot bloom, a shock ring and sparks. Additive, so the tiles show through.
@@ -1798,10 +1878,10 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
 
   /** The killer's ring, on their tile as it is now, while the line is up. */
   const killerRing = (id: string, color: string) => {
-    const line = Math.max(0, ...(kills ?? []).filter(kill => kill.killerId === id).map(kill => kill.line))
-    if (line <= 0) return null
+    const left = Math.max(0, ...(kills ?? []).filter(kill => kill.killerId === id).map(kill => 1 - kill.age / KILL_RING_MS))
+    if (left <= 0) return null
     const size = half + KILL_RING_PAD
-    return <rect x={-size} y={-size} width={size * 2} height={size * 2} rx={TILE_RX + 4} fill="none" stroke={color} strokeWidth={KILL_RING} opacity={killFade(line)} transform={sized} pointerEvents="none" />
+    return <rect x={-size} y={-size} width={size * 2} height={size * 2} rx={TILE_RX + 4} fill="none" stroke={color} strokeWidth={KILL_RING} opacity={Math.min(1, left * 2)} transform={sized} pointerEvents="none" />
   }
 
   const feed = (kills ?? []).filter(kill => kill.feed > 0).slice(-KILL_FEED_MAX)
@@ -2203,6 +2283,12 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
             <rect x={-HALF} y={-HALF} width={TILE} height={TILE} rx={TILE_RX} />
           </clipPath>
           {/* The glyph inside a badge drawn about its own origin, held inside the ring. */}
+          <radialGradient id={deathGlow}>
+            <stop offset="0" stopColor={WHITE} stopOpacity={1} />
+            <stop offset="0.2" stopColor="#FFD0D6" stopOpacity={0.95} />
+            <stop offset="0.5" stopColor={DEATH_RED} stopOpacity={0.7} />
+            <stop offset="1" stopColor={DEATH_RED} stopOpacity={0} />
+          </radialGradient>
           {popColors.map(color => (
             <radialGradient key={color} id={popGlow(color)}>
               <stop offset="0" stopColor={WHITE} stopOpacity={1} />
@@ -2322,6 +2408,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
           <g>{killLayer}</g>
           <g>{agentTiles}</g>
           <g>{popLayer}</g>
+          <g>{killFx}</g>
           <g>{selection()}</g>
           <g pointerEvents="none">{labels}</g>
           <g pointerEvents="none">{draftLayer}</g>
