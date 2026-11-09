@@ -1084,6 +1084,8 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
         if (el.kind === 'agent') {
           const agent = { ...el }
           delete agent.kit
+          delete agent.hp
+          delete agent.armor
           delete agent.blind
           return agent
         }

@@ -156,6 +156,9 @@ export interface PlacedAgent {
   player: string
   /** What the agent has left, on a replay frame. */
   kit: KitSlot[] | null
+  /** Health and armour, on a replay frame; null otherwise. */
+  hp: number | null
+  armor: number | null
   /** How much of a flash on the agent is left, 1…0, on a replay frame; null when they can see. */
   blind: number | null
   /** Where the agent is drawn: exactly the placed point, even over another agent. */
@@ -366,6 +369,8 @@ export function sceneForStep(
           spike: el.spike === true,
           player: el.player ?? '',
           kit: el.kit ?? null,
+          hp: el.hp ?? null,
+          armor: el.armor ?? null,
           blind: el.blind ?? null,
           x: at[0],
           y: at[1],

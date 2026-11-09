@@ -4,7 +4,7 @@
 
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { blindAt, KIT_GLOW_MS, kitAt } from './replayKit.ts'
+import { blindAt, KIT_GLOW_MS, kitAt, vitalsAt } from './replayKit.ts'
 import type { ReplayKit } from './replayBundle.ts'
 
 const kit: ReplayKit = {
@@ -67,4 +67,13 @@ test('a player is blinded only inside a window, and it runs out', () => {
 
 test('a key with no record is left out', () => {
   assert.deepEqual(kitAt({ Q: [[1000, 1]] }, 2000, 0).map(s => s.slot), ['Ability1'])
+})
+
+test('health and armour are the last the game reported, a full 100 before that', () => {
+  const rows: [number, number, number][] = [[10000, 100, 50], [40000, 74, 12], [41000, 39, 0]]
+  assert.deepEqual(vitalsAt(rows, 5000), { hp: 100, armor: 0 })
+  assert.deepEqual(vitalsAt(rows, 10000), { hp: 100, armor: 50 })
+  assert.deepEqual(vitalsAt(rows, 40500), { hp: 74, armor: 12 })
+  assert.deepEqual(vitalsAt(rows, 90000), { hp: 39, armor: 0 })
+  assert.deepEqual(vitalsAt([], 90000), { hp: 100, armor: 0 })
 })
