@@ -138,6 +138,13 @@ export interface ReplayBundle {
     build: string
     recordedAt: string
     durationMs: number
+    /**
+     * A free-for-all Deathmatch built from the match record (§2.19): the owner
+     * is the one ALLY, one round spans the match (`how: 'deathmatch'`), players
+     * respawn, and there are no casts, effects, spike, kits, vitals or blinds.
+     * Absent on every other bundle.
+     */
+    mode?: 'deathmatch'
   }
   players: ReplayPlayer[]
   rounds: ReplayRound[]
@@ -229,6 +236,21 @@ export async function parseReplayBundle(file: Blob): Promise<ReplayBundle> {
   }
 
   return bundle
+}
+
+/**
+ * Whether the bundle is a Deathmatch (§2.19). Everything that plays one
+ * differently asks this, or `isDeathmatchRound` where only the round is in
+ * hand, so a competitive replay is never touched.
+ */
+export function isDeathmatchBundle(bundle: Pick<ReplayBundle, 'match'>): boolean {
+  // `?.`: the replay layers' tests hand in bundles of players and tracks only.
+  return bundle.match?.mode === 'deathmatch'
+}
+
+/** The one round of a Deathmatch bundle. */
+export function isDeathmatchRound(round: Pick<ReplayRound, 'how'>): boolean {
+  return round.how === 'deathmatch'
 }
 
 /** Guards against attaching one match's replay to another match's review. */

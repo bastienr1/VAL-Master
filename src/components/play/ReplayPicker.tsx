@@ -5,8 +5,9 @@ import { useGameContent } from '../../hooks/useGameContent'
 import { useResource } from '../../hooks/useResource'
 import { agentImageFor, mapImageFor } from '../../lib/gameContent'
 import { formatScore } from '../../lib/homeStats'
-import type { ReplayBundle } from '../../lib/replayBundle'
-import { filterReplayMatches, isFiltering, NO_REPLAY_FILTER, replayFilterOptions, type ReplayFilter } from '../../lib/replayFilters'
+import { deathmatchPlacement, isDeathmatchMode, placementLabel, type MatchCategory } from '../../lib/matchModes'
+import { isDeathmatchBundle, type ReplayBundle } from '../../lib/replayBundle'
+import { filterReplayMatches, inCategory, isFiltering, NO_REPLAY_FILTER, replayFilterOptions, type ReplayFilter } from '../../lib/replayFilters'
 import { replayMatchesResource, replayRoundToPlay, type ReplayMatch } from '../../lib/replayMatches'
 import { getReplayBundle } from '../../lib/replays'
 import { replayStepTimes, type ReplayPlay } from '../../lib/replayToPlay'
@@ -55,6 +56,10 @@ interface Loaded {
  * into a play through `roundToPlay`, and over a play with something drawn it
  * asks once before replacing the steps. The list filters by agent, map and
  * win or loss, and its rows are the home page's Recent Matches rows.
+ *
+ * Deathmatches (§2.19) are a category of their own, offered once there is
+ * one: a row gives the placement and K/D, and a Deathmatch picked has **Play
+ * match** only, with no rounds to load.
  */
 export default function ReplayPicker({ currentMap, hasElements, onLoad, onPlay }: ReplayPickerProps) {
   const { registry } = useGameContent()
@@ -88,8 +93,10 @@ export default function ReplayPicker({ currentMap, hasElements, onLoad, onPlay }
     return [...all.filter(m => sameName(m.map, currentMap)), ...all.filter(m => !sameName(m.map, currentMap))]
   }, [matches.data, currentMap])
 
-  const options = useMemo(() => replayFilterOptions(rows), [rows])
+  const options = useMemo(() => replayFilterOptions(rows, filter.category), [rows, filter.category])
   const shown = useMemo(() => filterReplayMatches(rows, filter), [rows, filter])
+  const categoryRows = useMemo(() => inCategory(rows, filter.category), [rows, filter.category])
+  const hasDeathmatch = useMemo(() => rows.some(m => isDeathmatchMode(m.mode)), [rows])
 
   const current = loaded && loaded.matchId === matchId ? loaded : null
   const bundle = current?.bundle ?? null
@@ -140,6 +147,8 @@ export default function ReplayPicker({ currentMap, hasElements, onLoad, onPlay }
 
   if (matchId) {
     const picked = rows.find(m => m.matchId === matchId)
+    // A Deathmatch is one round of the whole match: nothing to load as a play (§2.19).
+    const deathmatch = (bundle !== null && isDeathmatchBundle(bundle)) || isDeathmatchMode(picked?.mode)
     return (
       <div className="space-y-2">
         <button
@@ -172,47 +181,55 @@ export default function ReplayPicker({ currentMap, hasElements, onLoad, onPlay }
               Play match
             </button>
 
-            <div role="group" aria-label="Rounds" className="grid grid-cols-6 gap-1">
-              {bundle.rounds.map(r => (
-                <button
-                  key={r.n}
-                  type="button"
-                  onClick={() => pickRound(r.n)}
-                  aria-pressed={roundN === r.n}
-                  title={`Round ${r.n}: ${r.winner === 'ALLY' ? 'won' : 'lost'}${r.how ? ` by ${r.how}` : ''}`}
-                  className={`flex flex-col items-center gap-0.5 rounded-md py-1 text-[10px] transition-colors ${
-                    roundN === r.n ? 'bg-bg-elevated ring-1 ring-val-cyan/60' : 'bg-bg-primary hover:bg-bg-elevated'
-                  }`}
-                >
-                  <span className="flex items-center gap-1 font-stats text-xs text-text-primary">
-                    <span className={`w-1.5 h-1.5 rounded-full ${r.winner === 'ALLY' ? 'bg-val-green' : 'bg-val-red'}`} />
-                    {r.n}
-                  </span>
-                  <span className="text-text-muted">{r.side === 'attacker' ? 'ATK' : r.side === 'defender' ? 'DEF' : '–'}</span>
-                </button>
-              ))}
-            </div>
-
-            {preview && preview.length > 0 && <div className="text-[11px] text-text-muted">{preview.join(' · ')}</div>}
-
-            {confirming ? (
-              <div className="flex flex-wrap items-center gap-2 text-xs text-text-secondary">
-                <span>Replace the current steps with this round?</span>
-                <button type="button" onClick={load} className={smallButton}>
-                  Replace
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setConfirming(false)}
-                  className="text-xs text-text-secondary hover:text-val-cyan underline transition-colors"
-                >
-                  Cancel
-                </button>
-              </div>
+            {deathmatch ? (
+              <p className="text-[11px] text-text-muted">
+                Positions come from the match record: each player is placed at every kill in the lobby and moved in a straight line between them.
+              </p>
             ) : (
-              <button type="button" onClick={load} disabled={roundN === null || !registry} className={smallButton}>
-                Load round
-              </button>
+              <>
+                <div role="group" aria-label="Rounds" className="grid grid-cols-6 gap-1">
+                  {bundle.rounds.map(r => (
+                    <button
+                      key={r.n}
+                      type="button"
+                      onClick={() => pickRound(r.n)}
+                      aria-pressed={roundN === r.n}
+                      title={`Round ${r.n}: ${r.winner === 'ALLY' ? 'won' : 'lost'}${r.how ? ` by ${r.how}` : ''}`}
+                      className={`flex flex-col items-center gap-0.5 rounded-md py-1 text-[10px] transition-colors ${
+                        roundN === r.n ? 'bg-bg-elevated ring-1 ring-val-cyan/60' : 'bg-bg-primary hover:bg-bg-elevated'
+                      }`}
+                    >
+                      <span className="flex items-center gap-1 font-stats text-xs text-text-primary">
+                        <span className={`w-1.5 h-1.5 rounded-full ${r.winner === 'ALLY' ? 'bg-val-green' : 'bg-val-red'}`} />
+                        {r.n}
+                      </span>
+                      <span className="text-text-muted">{r.side === 'attacker' ? 'ATK' : r.side === 'defender' ? 'DEF' : '–'}</span>
+                    </button>
+                  ))}
+                </div>
+
+                {preview && preview.length > 0 && <div className="text-[11px] text-text-muted">{preview.join(' · ')}</div>}
+
+                {confirming ? (
+                  <div className="flex flex-wrap items-center gap-2 text-xs text-text-secondary">
+                    <span>Replace the current steps with this round?</span>
+                    <button type="button" onClick={load} className={smallButton}>
+                      Replace
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConfirming(false)}
+                      className="text-xs text-text-secondary hover:text-val-cyan underline transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <button type="button" onClick={load} disabled={roundN === null || !registry} className={smallButton}>
+                    Load round
+                  </button>
+                )}
+              </>
             )}
           </>
         )}
@@ -244,9 +261,22 @@ export default function ReplayPicker({ currentMap, hasElements, onLoad, onPlay }
   const { agents, maps } = options
   const setFilter = (change: Partial<ReplayFilter>) => setFilterState(f => ({ ...f, ...change }))
   const toggleResult = (result: 'W' | 'L') => setFilter({ result: filter.result === result ? null : result })
+  // A category of its own: the other filters start over in it.
+  const pickCategory = (category: MatchCategory) => setFilterState({ ...NO_REPLAY_FILTER, category })
+  const deathmatches = filter.category === 'deathmatch'
 
   return (
     <div className="space-y-2">
+      {hasDeathmatch && (
+        <div role="group" aria-label="Match category" className="flex gap-1">
+          <button type="button" onClick={() => pickCategory('competitive')} aria-pressed={!deathmatches} className={resultButton(!deathmatches, 'text-val-cyan border-val-cyan/40 bg-val-cyan/15')}>
+            Competitive
+          </button>
+          <button type="button" onClick={() => pickCategory('deathmatch')} aria-pressed={deathmatches} className={resultButton(deathmatches, 'text-val-cyan border-val-cyan/40 bg-val-cyan/15')}>
+            Deathmatch
+          </button>
+        </div>
+      )}
       <div className="grid grid-cols-2 gap-1.5">
         <select value={filter.agent} onChange={e => setFilter({ agent: e.target.value })} aria-label="Filter by agent" className={filterField}>
           <option value="">All agents</option>
@@ -266,19 +296,21 @@ export default function ReplayPicker({ currentMap, hasElements, onLoad, onPlay }
         </select>
       </div>
       <div className="flex items-center gap-1.5">
-        <div role="group" aria-label="Filter by result" className="flex gap-1">
-          <button type="button" onClick={() => toggleResult('W')} aria-pressed={filter.result === 'W'} className={resultButton(filter.result === 'W', 'text-val-cyan border-val-cyan/40 bg-val-cyan/15')}>
-            Win
-          </button>
-          <button type="button" onClick={() => toggleResult('L')} aria-pressed={filter.result === 'L'} className={resultButton(filter.result === 'L', 'text-val-red border-val-red/40 bg-val-red/15')}>
-            Loss
-          </button>
-        </div>
+        {!deathmatches && (
+          <div role="group" aria-label="Filter by result" className="flex gap-1">
+            <button type="button" onClick={() => toggleResult('W')} aria-pressed={filter.result === 'W'} className={resultButton(filter.result === 'W', 'text-val-cyan border-val-cyan/40 bg-val-cyan/15')}>
+              Win
+            </button>
+            <button type="button" onClick={() => toggleResult('L')} aria-pressed={filter.result === 'L'} className={resultButton(filter.result === 'L', 'text-val-red border-val-red/40 bg-val-red/15')}>
+              Loss
+            </button>
+          </div>
+        )}
         <span className="ml-auto font-stats text-[11px] text-text-muted">
-          {shown.length} of {rows.length}
+          {shown.length} of {categoryRows.length}
         </span>
         {isFiltering(filter) && (
-          <button type="button" onClick={() => setFilterState(NO_REPLAY_FILTER)} className="text-[11px] text-text-secondary hover:text-val-cyan underline transition-colors">
+          <button type="button" onClick={() => pickCategory(filter.category)} className="text-[11px] text-text-secondary hover:text-val-cyan underline transition-colors">
             Clear
           </button>
         )}
@@ -288,51 +320,70 @@ export default function ReplayPicker({ currentMap, hasElements, onLoad, onPlay }
         <p className="text-xs text-text-muted">No replay matches these filters.</p>
       ) : (
         <ul className="space-y-1.5">
-          {shown.map(m => (
-            <li key={m.matchId}>
-              {/* The Recent Matches row of the home page, as a button that opens the match here. */}
-              <button
-                type="button"
-                onClick={() => pickMatch(m.matchId)}
-                className="group relative w-full flex items-center gap-2.5 min-h-[4.25rem] px-3 text-left rounded-xl overflow-hidden border border-bg-elevated hover:border-val-cyan/40 transition-colors"
-              >
-                <GameImage
-                  kind="map"
-                  src={mapImageFor({ map_id: m.mapId, map: m.map })}
-                  alt=""
-                  className="absolute inset-0 w-full h-full object-cover opacity-25 group-hover:opacity-35 transition-opacity"
-                />
-                <div className="absolute inset-0 bg-gradient-to-r from-bg-primary/90 via-bg-primary/50 to-bg-primary/80" />
-
-                <div className="relative w-[4.5rem] shrink-0">
-                  <div className="font-heading font-bold uppercase tracking-wide leading-tight truncate">{m.map}</div>
-                  <div className={`font-stats text-base leading-tight ${RESULT_TEXT[m.result]}`}>{formatScore(m.score)}</div>
-                </div>
-
-                <div className="relative flex items-center gap-2 min-w-0 flex-1">
+          {shown.map(m => {
+            const deathmatch = isDeathmatchMode(m.mode)
+            const placement = deathmatch ? deathmatchPlacement(m.score) : null
+            return (
+              <li key={m.matchId}>
+                {/* The Recent Matches row of the home page, as a button that opens the match here. */}
+                <button
+                  type="button"
+                  onClick={() => pickMatch(m.matchId)}
+                  className="group relative w-full flex items-center gap-2.5 min-h-[4.25rem] px-3 text-left rounded-xl overflow-hidden border border-bg-elevated hover:border-val-cyan/40 transition-colors"
+                >
                   <GameImage
-                    kind="agent"
-                    src={agentImageFor({ agent_id: m.agentId, agent: m.agent })}
+                    kind="map"
+                    src={mapImageFor({ map_id: m.mapId, map: m.map })}
                     alt=""
-                    className="w-8 h-8 rounded-full border-2 border-bg-card shrink-0"
+                    className="absolute inset-0 w-full h-full object-cover opacity-25 group-hover:opacity-35 transition-opacity"
                   />
-                  <span className="min-w-0">
-                    <span className="block text-sm font-medium truncate">{m.agent}</span>
-                    {m.playedAt && <span className="block text-[11px] text-text-muted truncate">{shortDate(m.playedAt)}</span>}
-                  </span>
-                </div>
+                  <div className="absolute inset-0 bg-gradient-to-r from-bg-primary/90 via-bg-primary/50 to-bg-primary/80" />
 
-                <div className="relative text-right shrink-0">
-                  <div className="font-stats text-base leading-tight text-text-primary">
-                    {m.acs} <span className="text-[9px] uppercase tracking-wider text-text-muted">ACS</span>
+                  {/* A placement ("1st of 12") is longer than a score: its column may grow past the score's. */}
+                  <div className={`relative ${deathmatch ? 'min-w-[4.5rem]' : 'w-[4.5rem]'} shrink-0`}>
+                    <div className="font-heading font-bold uppercase tracking-wide leading-tight truncate">{m.map}</div>
+                    {deathmatch ? (
+                      <div className={`font-stats text-base leading-tight whitespace-nowrap ${placement?.place === 1 ? RESULT_TEXT.W : 'text-text-secondary'}`}>
+                        {placementLabel(m.score) ?? m.score}
+                      </div>
+                    ) : (
+                      <div className={`font-stats text-base leading-tight ${RESULT_TEXT[m.result]}`}>{formatScore(m.score)}</div>
+                    )}
                   </div>
-                  <div className="font-stats text-[11px] text-text-secondary">
-                    {m.kills}/{m.deaths}/{m.assists}
+
+                  <div className="relative flex items-center gap-2 min-w-0 flex-1">
+                    <GameImage
+                      kind="agent"
+                      src={agentImageFor({ agent_id: m.agentId, agent: m.agent })}
+                      alt=""
+                      className="w-8 h-8 rounded-full border-2 border-bg-card shrink-0"
+                    />
+                    <span className="min-w-0">
+                      <span className="block text-sm font-medium truncate">{m.agent}</span>
+                      {m.playedAt && <span className="block text-[11px] text-text-muted truncate">{shortDate(m.playedAt)}</span>}
+                    </span>
                   </div>
-                </div>
-              </button>
-            </li>
-          ))}
+
+                  {deathmatch ? (
+                    <div className="relative text-right shrink-0">
+                      <div className="font-stats text-base leading-tight text-text-primary">
+                        {m.kills}/{m.deaths} <span className="text-[9px] uppercase tracking-wider text-text-muted">K/D</span>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="relative text-right shrink-0">
+                      <div className="font-stats text-base leading-tight text-text-primary">
+                        {m.acs} <span className="text-[9px] uppercase tracking-wider text-text-muted">ACS</span>
+                      </div>
+                      <div className="font-stats text-[11px] text-text-secondary">
+                        {m.kills}/{m.deaths}/{m.assists}
+                      </div>
+                    </div>
+                  )}
+                </button>
+              </li>
+            )
+          })}
         </ul>
       )}
     </div>

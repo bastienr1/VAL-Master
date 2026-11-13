@@ -1,5 +1,6 @@
 import { useMemo, useSyncExternalStore } from 'react'
-import type { ReplayBundle, ReplayRound } from '../../lib/replayBundle'
+import { isDeathmatchRound, type ReplayBundle, type ReplayRound } from '../../lib/replayBundle'
+import { roundLabel } from '../../lib/replayFrame'
 import { LAYERS, type LayerKey, type Layers } from '../../lib/replayLayers'
 import { weaponLabel } from '../../lib/replaySync'
 import type { ValueStore } from '../../lib/valueStore'
@@ -20,8 +21,10 @@ interface ReplayRoundPanelProps {
 
 function phaseOf(round: ReplayRound, t: number): string {
   if (round.barrierMs == null) return ''
-  if (t < round.barrierMs) return `buy phase · barrier in ${Math.ceil((round.barrierMs - t) / 1000)} s`
-  if (round.endMs != null && t >= round.endMs) return `${round.winner === 'ALLY' ? 'won' : 'lost'} · ${round.how ?? ''}`
+  // A Deathmatch has no buy phase and no round result to give (§2.19).
+  const deathmatch = isDeathmatchRound(round)
+  if (t < round.barrierMs) return `${deathmatch ? '' : 'buy phase · '}barrier in ${Math.ceil((round.barrierMs - t) / 1000)} s`
+  if (!deathmatch && round.endMs != null && t >= round.endMs) return `${round.winner === 'ALLY' ? 'won' : 'lost'} · ${round.how ?? ''}`
   return `+${((t - round.barrierMs) / 1000).toFixed(1)} s`
 }
 
@@ -29,6 +32,8 @@ function phaseOf(round: ReplayRound, t: number): string {
  * The right-hand panel while a replay plays (docs/plays-editor-v2.md §2.12),
  * the VOD review's: the round and its score so far, the map's layers, every
  * round to jump to, and the round's kills, each jumping to 2 s before it.
+ * A Deathmatch (§2.19) is one round of some 250 kills: "DM", no side, score
+ * or round grid, and the kills scroll in a box of their own.
  */
 export default function ReplayRoundPanel({ bundle, clock, nameOf, layers, onToggleLayer, onRound, onSeek }: ReplayRoundPanelProps) {
   const shown = useSyncExternalStore(clock.subscribe, clock.get)
@@ -39,6 +44,7 @@ export default function ReplayRoundPanel({ bundle, clock, nameOf, layers, onTogg
   const kills = useMemo(() => bundle.kills.filter(k => k.round === round.n), [bundle, round.n])
   const wonBefore = bundle.rounds.filter(r => r.n < round.n && r.winner === 'ALLY').length
   const lostBefore = bundle.rounds.filter(r => r.n < round.n && r.winner === 'ENEMY').length
+  const deathmatch = isDeathmatchRound(round)
 
   const label = (subject: string | null) => {
     const player = subject ? playerOf.get(subject) : undefined
@@ -51,11 +57,15 @@ export default function ReplayRoundPanel({ bundle, clock, nameOf, layers, onTogg
     <div className="p-2 space-y-2">
       <div className="bg-bg-card border border-bg-elevated rounded-lg px-3 py-2 space-y-2">
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
-          <span className="font-stats text-text-primary">R{round.n}</span>
-          <span className="text-text-muted">{round.side ?? ''}</span>
-          <span className="font-stats text-text-secondary">
-            {wonBefore}–{lostBefore}
-          </span>
+          <span className="font-stats text-text-primary">{roundLabel(round)}</span>
+          {!deathmatch && (
+            <>
+              <span className="text-text-muted">{round.side ?? ''}</span>
+              <span className="font-stats text-text-secondary">
+                {wonBefore}–{lostBefore}
+              </span>
+            </>
+          )}
           <span className="font-stats text-text-muted">{phaseOf(round, t)}</span>
           <span className="ml-auto flex items-center gap-2 text-[10px]">
             {LAYERS.map(({ key, label: text, title }) => (
@@ -73,30 +83,32 @@ export default function ReplayRoundPanel({ bundle, clock, nameOf, layers, onTogg
           </span>
         </div>
 
-        <div className="grid grid-cols-12 gap-1">
-          {bundle.rounds.map(r => (
-            <button
-              key={r.n}
-              type="button"
-              onClick={() => onRound(r.n)}
-              aria-current={r.n === round.n ? 'true' : undefined}
-              title={`Round ${r.n}: ${r.winner === 'ALLY' ? 'won' : 'lost'}${r.how ? ` by ${r.how}` : ''}. Jumps to its barrier drop`}
-              className={`rounded text-[10px] font-stats py-0.5 transition-colors ${
-                r.n === round.n ? 'bg-bg-elevated ring-1 ring-val-cyan/40' : 'bg-bg-elevated/50 hover:bg-bg-elevated'
-              } ${r.winner === 'ALLY' ? 'text-val-green' : 'text-val-red'}`}
-            >
-              {r.n}
-            </button>
-          ))}
-        </div>
+        {!deathmatch && (
+          <div className="grid grid-cols-12 gap-1">
+            {bundle.rounds.map(r => (
+              <button
+                key={r.n}
+                type="button"
+                onClick={() => onRound(r.n)}
+                aria-current={r.n === round.n ? 'true' : undefined}
+                title={`Round ${r.n}: ${r.winner === 'ALLY' ? 'won' : 'lost'}${r.how ? ` by ${r.how}` : ''}. Jumps to its barrier drop`}
+                className={`rounded text-[10px] font-stats py-0.5 transition-colors ${
+                  r.n === round.n ? 'bg-bg-elevated ring-1 ring-val-cyan/40' : 'bg-bg-elevated/50 hover:bg-bg-elevated'
+                } ${r.winner === 'ALLY' ? 'text-val-green' : 'text-val-red'}`}
+              >
+                {r.n}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="bg-bg-card border border-bg-elevated rounded-lg px-3 py-2">
-        <div className="text-[10px] text-text-muted uppercase tracking-wider mb-1">Kills · round {round.n}</div>
+        <div className="text-[10px] text-text-muted uppercase tracking-wider mb-1">Kills · {deathmatch ? roundLabel(round) : `round ${round.n}`}</div>
         {kills.length === 0 ? (
           <p className="text-xs text-text-muted">No kills this round.</p>
         ) : (
-          <ul className="space-y-0.5">
+          <ul className={`space-y-0.5${deathmatch ? ' max-h-[50vh] overflow-y-auto pr-1' : ''}`}>
             {kills.map((kill, i) => {
               const killer = label(kill.killer)
               const victim = label(kill.victim)

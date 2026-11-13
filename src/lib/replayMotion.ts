@@ -7,7 +7,7 @@
  * Pure, no imports beyond other tested modules, so `node --test` can check it.
  */
 
-import type { ReplayBundle } from './replayBundle.ts'
+import { isDeathmatchBundle, type ReplayBundle, type ReplayTrackSample } from './replayBundle.ts'
 import type { FrameIds } from './replayFrame.ts'
 import { playerStateAt, sampleIndex, worldToImage, type MapTransform } from './replayScene.ts'
 import { UTILITY_RADIUS_CM } from './playScene.ts'
@@ -35,10 +35,26 @@ const CONE_RAYS = 49
 /** The reach while the map's walls are not known; with them sight runs until a wall stops it. */
 const CONE_FALLBACK_CM = 900
 const TRAIL_MS = 3000
+/** Samples are 100 ms apart: a longer silence is a break in the track, not a walk (as in `replayScene.ts`). */
+const TRACK_GAP_MS = 250
 
 const image = (transform: MapTransform, x: number, y: number): ImagePoint => {
   const [u, v] = worldToImage(transform, x, y)
   return { u, v }
+}
+
+/**
+ * Where the life shown at row `last` began, no earlier than `first`: the row
+ * after the last dead one, or the first row after a gap. A Deathmatch player
+ * comes back elsewhere right after their dead rows, so a trail through them
+ * would draw a line from where they fell to where they respawned (§2.19).
+ */
+export function lifeStart(rows: ReadonlyArray<ReplayTrackSample>, first: number, last: number): number {
+  for (let i = last; i >= first; i--) {
+    if (rows[i][4] === 0) return i + 1
+    if (i > first && rows[i][0] - rows[i - 1][0] > TRACK_GAP_MS) return i
+  }
+  return first
 }
 
 /**
@@ -78,6 +94,7 @@ export function frameMotion(
 ): Map<string, AgentMotion> {
   const motion = new Map<string, AgentMotion>()
   if (!want.cones && !want.trails) return motion
+  const respawns = isDeathmatchBundle(bundle)
   for (const player of bundle.players) {
     const rows = bundle.tracks.byPlayer[player.subject] ?? []
     const state = playerStateAt(rows, t)
@@ -98,7 +115,9 @@ export function frameMotion(
     let trail: ImagePoint[] | null = null
     if (want.trails) {
       trail = []
-      for (let i = Math.max(0, sampleIndex(rows, t - TRAIL_MS)); i < rows.length && rows[i][0] <= t; i++) {
+      let from = Math.max(0, sampleIndex(rows, t - TRAIL_MS))
+      if (respawns) from = lifeStart(rows, from, sampleIndex(rows, t))
+      for (let i = from; i < rows.length && rows[i][0] <= t; i++) {
         trail.push(image(transform, rows[i][1], rows[i][2]))
       }
     }

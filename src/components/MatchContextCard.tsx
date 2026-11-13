@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { agentImageFor } from '../lib/gameContent'
+import { DEATHMATCH_MODE } from '../lib/matchModes'
 import { useMatchSearchPanel } from '../hooks/useMatchSearchPanel'
 import GameImage from './GameImage'
 import type { Match } from '../lib/types'
@@ -27,7 +28,8 @@ export default function MatchContextCard({ playbookMap }: MatchContextCardProps)
       if (!user) return
 
       const latest = (map?: string) => {
-        let q = supabase.from('matches').select('*').eq('user_id', user.id)
+        // Competitive only: a Deathmatch's score and result mean something else.
+        let q = supabase.from('matches').select('*').eq('user_id', user.id).neq('mode', DEATHMATCH_MODE)
         if (map) q = q.eq('map', map)
         return q.order('match_date', { ascending: false }).limit(1).maybeSingle()
       }

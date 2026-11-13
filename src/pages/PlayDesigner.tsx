@@ -50,7 +50,7 @@ import {
 import { canRedo, canUndo, historyOf, pushHistory, redoHistory, undoHistory, type History } from '../lib/playHistory'
 import { sceneTurns, sceneViewport, viewToImage } from '../lib/playScene'
 import { createPlay, deletePlay, getPlay, updatePlay, type PlayInput } from '../lib/plays'
-import type { ReplayBundle, ReplayRound } from '../lib/replayBundle'
+import { isDeathmatchBundle, isDeathmatchRound, type ReplayBundle, type ReplayRound } from '../lib/replayBundle'
 import {
   createFrameIds,
   formatRoundClock,
@@ -353,8 +353,9 @@ const firstRound = (bundle: ReplayBundle): ReplayRound => bundle.rounds.find(r =
 const barrierOf = (bundle: ReplayBundle, round: ReplayRound): number =>
   roundTicks(bundle, round).find(t => t.kind === 'barrier')?.t ?? roundSpan(bundle, round).start
 
-/** The round's side and how it went, for a caption no tick explains: "attack, won by elimination". */
+/** The round's side and how it went, for a caption no tick explains: "attack, won by elimination". A Deathmatch has neither (§2.19). */
 function roundFacts(round: ReplayRound): string {
+  if (isDeathmatchRound(round)) return 'deathmatch'
   const result = round.winner === 'ALLY' ? 'won' : round.winner === 'ENEMY' ? 'lost' : null
   const how = round.how ? round.how.replace(/_/g, ' ').toLowerCase() : null
   return result ? `${roundSide(round)}, ${result}${how ? ` by ${how}` : ''}` : roundSide(round)
@@ -1337,12 +1338,19 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
     // Cleared at once, so a reload does not load the match over the user's work.
     setSearchParams({}, { replace: true })
     const bundleLoad =
-      (round !== null && !(Number.isInteger(round) && round >= 1)) || (snapshots && round === null)
+      round !== null && !(Number.isInteger(round) && round >= 1)
         ? Promise.reject(new Error('The replay link names no round.'))
         : getReplayBundle(matchId)
     bundleLoad
       .then(bundle => {
         if (!bundle) throw new Error('That match has no replay attached.')
+        // A Deathmatch is one round with nothing to import as steps: it always opens in the
+        // replay mode at its start, whatever `&round` or `&mode=steps` say (§2.19).
+        if (isDeathmatchBundle(bundle)) {
+          enterReplay(matchId, bundle, barrierOf(bundle, firstRound(bundle)))
+          return
+        }
+        if (snapshots && round === null) throw new Error('The replay link names no round.')
         const picked = round === null ? firstRound(bundle) : bundle.rounds.find(r => r.n === round)
         if (!picked) throw new Error(`The replay has no round ${round}.`)
         // `&mode=steps` is the §2.7 snapshot import; otherwise the replay mode at the round's barrier, paused.

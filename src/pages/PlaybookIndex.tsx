@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { BookOpen, X } from 'lucide-react'
 import { supabase } from '../lib/supabase'
+import { DEATHMATCH_MODE } from '../lib/matchModes'
 import { formatTimestamp } from '../lib/playbookParser'
 import { useGameContent } from '../hooks/useGameContent'
 import { usePlaybooks } from '../hooks/usePlaybooks'
@@ -10,7 +11,7 @@ import PlaybookMapCard from '../components/PlaybookMapCard'
 import PlaybookLibrary from '../components/PlaybookLibrary'
 import type { PlaybookWithCount } from '../lib/types'
 
-/** Match counts per map name, for the signed-in user. */
+/** Competitive match counts per map name, for the signed-in user. */
 function useMatchCountsByMap() {
   const [counts, setCounts] = useState<Map<string, number>>(new Map())
 
@@ -19,7 +20,7 @@ function useMatchCountsByMap() {
     async function load() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
-      const { data, error } = await supabase.from('matches').select('map').eq('user_id', user.id)
+      const { data, error } = await supabase.from('matches').select('map').eq('user_id', user.id).neq('mode', DEATHMATCH_MODE)
       if (cancelled) return
       if (error) {
         console.error('[PlaybookIndex] match counts failed', error)

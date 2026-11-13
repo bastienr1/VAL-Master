@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useSyncExternalStore } from 'react'
 import { Camera, Film, Pause, Play, StickyNote, X } from 'lucide-react'
 import { averageShare, controlTimeline, type ControlShare } from '../../lib/mapControl'
-import type { ReplayBundle, ReplayRound } from '../../lib/replayBundle'
+import { isDeathmatchBundle, type ReplayBundle, type ReplayRound } from '../../lib/replayBundle'
 import { formatRoundClock, roundSpan, roundTicks } from '../../lib/replayFrame'
 import type { ReplayNoteMark } from '../../lib/replayNotes'
 import type { MapTransform } from '../../lib/replayScene'
@@ -144,6 +144,8 @@ export default function ReplayTransport(props: ReplayTransportProps) {
   const round = shown?.round ?? bundle.rounds[0]
   const ms = shown?.ms ?? round.buyStartMs
   const share = controlMask ? (shown?.share ?? null) : null
+  // One round spans a Deathmatch (§2.19): no chips, and the scrubber is the match's.
+  const deathmatch = isDeathmatchBundle(bundle)
   const span = useMemo(() => roundSpan(bundle, round), [bundle, round])
   const ticks = useMemo(() => roundTicks(bundle, round, nameOf), [bundle, round, nameOf])
   const length = Math.max(1, span.end - span.start)
@@ -168,7 +170,7 @@ export default function ReplayTransport(props: ReplayTransportProps) {
   return (
     <div className={props.floating ? '' : 'shrink-0 border-t border-bg-elevated bg-bg-secondary'}>
       <div className="h-14 flex items-center gap-3 px-3 min-w-0 overflow-x-auto">
-        {props.showRounds !== false && (
+        {props.showRounds !== false && !deathmatch && (
         <div
           ref={chips}
           role="group"
@@ -219,8 +221,8 @@ export default function ReplayTransport(props: ReplayTransportProps) {
             step={100}
             value={Math.max(span.start, Math.min(span.end, ms))}
             onChange={e => props.onSeek(Number(e.target.value))}
-            aria-label={`Round ${round.n} time`}
-            title="Drag to scrub the round (, and . nudge 1 s)"
+            aria-label={deathmatch ? 'Match time' : `Round ${round.n} time`}
+            title={`Drag to scrub the ${deathmatch ? 'match' : 'round'} (, and . nudge 1 s)`}
             className={`w-full accent-val-cyan${track ? ' vm-control-track' : ''}`}
             style={track ? { backgroundImage: track } : undefined}
           />
