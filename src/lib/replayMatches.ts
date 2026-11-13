@@ -28,11 +28,13 @@ export interface ReplayMatch {
   kills: number
   deaths: number
   assists: number
+  /** `matches.mode`: 'Competitive', or 'Deathmatch' (§2.19), which the picker lists apart. */
+  mode: string
   /** `matches.match_date`; null when the row has none. */
   playedAt: string | null
 }
 
-type MatchRow = Pick<Match, 'match_id' | 'map' | 'map_id' | 'agent' | 'agent_id' | 'result' | 'score' | 'match_date' | 'acs' | 'kills' | 'deaths' | 'assists'>
+type MatchRow = Pick<Match, 'match_id' | 'map' | 'map_id' | 'agent' | 'agent_id' | 'result' | 'score' | 'match_date' | 'acs' | 'kills' | 'deaths' | 'assists' | 'mode'>
 
 /**
  * Every match of the signed-in user with a replay, newest first. A replay
@@ -54,7 +56,7 @@ export async function listReplayMatches(): Promise<ReplayMatch[]> {
 
   const { data: rows, error: matchError } = await supabase
     .from('matches')
-    .select('match_id, map, map_id, agent, agent_id, result, score, match_date, acs, kills, deaths, assists')
+    .select('match_id, map, map_id, agent, agent_id, result, score, match_date, acs, kills, deaths, assists, mode')
     .eq('user_id', userId)
     .in('match_id', ids)
   if (matchError) throw new Error(`matches read failed: ${matchError.message}`)
@@ -78,6 +80,7 @@ export async function listReplayMatches(): Promise<ReplayMatch[]> {
       kills: row.kills,
       deaths: row.deaths,
       assists: row.assists,
+      mode: row.mode ?? '',
       playedAt: row.match_date || null,
     })
   }

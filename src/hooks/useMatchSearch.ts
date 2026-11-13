@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { DEATHMATCH_MODE } from '../lib/matchModes'
 import { supabase } from '../lib/supabase'
 import type { Match } from '../lib/types'
 
@@ -16,10 +17,12 @@ export function useMatchSearch() {
         return
       }
 
+      // Competitive only: every pick leads to a match review.
       const { data, error } = await supabase
         .from('matches')
         .select('*')
         .eq('user_id', user.id)
+        .neq('mode', DEATHMATCH_MODE)
         .order('match_date', { ascending: false })
 
       if (cancelled) return

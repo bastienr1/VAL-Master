@@ -20,7 +20,7 @@
  * so that `node --test` can type-check and run it.
  */
 
-import type { ReplayBundle, ReplayCast, ReplayEffect, ReplayKill, ReplayRound } from './replayBundle.ts'
+import { isDeathmatchBundle, isDeathmatchRound, type ReplayBundle, type ReplayCast, type ReplayEffect, type ReplayKill, type ReplayRound } from './replayBundle.ts'
 import {
   deathTimesBySubject,
   isAliveAt,
@@ -173,16 +173,22 @@ export function roundSide(round: ReplayRound): 'attack' | 'defense' {
   return round.side === 'defender' ? 'defense' : 'attack'
 }
 
+/** What names a round: "R3", or "DM" for the one round of a Deathmatch (§2.19). */
+export function roundLabel(round: ReplayRound): string {
+  return isDeathmatchRound(round) ? 'DM' : `R${round.n}`
+}
+
 /**
  * "R3 · 0:13": whole seconds since the barrier drop, counted down with a
  * minus sign during the buy ("R3 · -0:12"). Seconds are floored on both
  * sides of the barrier, so every second of the round has one label and
- * there is no "-0:00".
+ * there is no "-0:00". A Deathmatch reads "DM · 4:05", the time since its
+ * timer started.
  */
 export function formatRoundClock(round: ReplayRound, t: number): string {
   const s = Math.floor((t - roundBarrier(round)) / 1000)
   const abs = Math.abs(s)
-  return `R${round.n} · ${s < 0 ? '-' : ''}${Math.floor(abs / 60)}:${String(abs % 60).padStart(2, '0')}`
+  return `${roundLabel(round)} · ${s < 0 ? '-' : ''}${Math.floor(abs / 60)}:${String(abs % 60).padStart(2, '0')}`
 }
 
 export interface RoundTick { t: number; kind: 'barrier' | 'kill' | 'plant' | 'defuse'; label: string }
@@ -495,14 +501,16 @@ export function frameStep(
   const deaths = deathsOf(bundle)
   const elements: PlayElement[] = []
 
-  // Agents: one per agent name and team, as the parser keeps them.
+  // Agents: one per agent name and team, as the parser keeps them. A Deathmatch lets
+  // players pick the same agent, so there it is one per player (§2.19).
   const placed = new Set<string>()
+  const onePerPlayer = isDeathmatchBundle(bundle)
   for (const player of bundle.players) {
     const state = playerStateAt(bundle.tracks.byPlayer[player.subject] ?? [], t)
     if (!state || !isPresentAt(state, t, round.buyStartMs) || !isAliveAt(state, deaths.get(player.subject), t)) continue
     const agent = (lookup(player.agentId)?.name ?? UNKNOWN_AGENT).trim() || UNKNOWN_AGENT
     const team = player.team === 'ALLY' ? 'ally' : 'enemy'
-    const key = `${team}:${agent.toLowerCase()}`
+    const key = onePerPlayer ? player.subject : `${team}:${agent.toLowerCase()}`
     if (placed.has(key)) continue
     placed.add(key)
     const el: AgentElement = { kind: 'agent', id: ids.forSubject(player.subject), agent, team, at: imagePos(transform, state.x, state.y) }

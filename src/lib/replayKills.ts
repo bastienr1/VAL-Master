@@ -6,7 +6,7 @@
  */
 
 import type { AbilitySlot } from './playDoc.ts'
-import type { ReplayBundle, ReplayRound } from './replayBundle.ts'
+import { isDeathmatchRound, type ReplayBundle, type ReplayRound } from './replayBundle.ts'
 import type { FrameIds, ReplayAgentLookup } from './replayFrame.ts'
 import { worldToImage, type MapTransform } from './replayScene.ts'
 import { classInfo } from './utilityClasses.ts'
@@ -21,6 +21,12 @@ export const KILL_IMPACT_MS = 850
 export const KILL_RING_MS = 2200
 /** The mark where they fell is bright for this long, then settles. */
 export const KILL_FRESH_MS = 3000
+/**
+ * In a Deathmatch the mark where they fell is gone this long after the kill:
+ * the player is back on the map in seconds, and 250 crosses would bury it
+ * (§2.19). It fades from `KILL_FRESH_MS` to here.
+ */
+export const DEATHMATCH_MARK_MS = 5000
 /** How long a kill stays in the feed. */
 export const KILL_FEED_MS = 7000
 /** The feed holds this many at most, the latest ones. */
@@ -49,11 +55,23 @@ export interface KillMark {
   age: number
   /** How much of its time in the feed is left, 1…0; 0 once it has gone. */
   feed: number
+  /** How much of the mark where they fell is left, 1…0: 1 for the rest of the round, except in a Deathmatch. */
+  mark: number
 }
 
 const left = (age: number, span: number) => Math.max(0, 1 - age / span)
 
-/** The kills of this round so far, oldest first. */
+/** A Deathmatch's death mark: whole while fresh, then fading out by `DEATHMATCH_MARK_MS`. */
+const deathmatchMark = (age: number) =>
+  age < KILL_FRESH_MS ? 1 : left(age - KILL_FRESH_MS, DEATHMATCH_MARK_MS - KILL_FRESH_MS)
+
+/** Past this a Deathmatch kill has nothing left to draw: its mark, ring and feed row are all gone. */
+const DEATHMATCH_KEPT_MS = Math.max(DEATHMATCH_MARK_MS, KILL_FEED_MS, KILL_RING_MS)
+
+/**
+ * The kills of this round so far, oldest first. In a Deathmatch (§2.19) only
+ * the ones with something left to draw: the rest of its ~250 are gone.
+ */
 export function killMarks(
   bundle: ReplayBundle,
   t: number,
@@ -74,9 +92,11 @@ export function killMarks(
     const [u, v] = worldToImage(transform, x, y)
     return { u, v }
   }
+  const deathmatch = isDeathmatchRound(round)
   const marks: KillMark[] = []
   bundle.kills.forEach((kill, index) => {
     if (kill.round !== round.n || kill.t > t || kill.vx === null || kill.vy === null) return
+    if (deathmatch && t - kill.t >= DEATHMATCH_KEPT_MS) return
     const victim = person(kill.victim)
     if (!victim) return
     const age = t - kill.t
@@ -91,6 +111,7 @@ export function killMarks(
       to: image(kill.vx, kill.vy),
       age,
       feed: left(age, KILL_FEED_MS),
+      mark: deathmatch ? deathmatchMark(age) : 1,
     })
   })
   return marks

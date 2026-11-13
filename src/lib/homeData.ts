@@ -12,6 +12,7 @@ import { supabase } from './supabase'
 import { createResource } from './resourceStore'
 import { scopeToUser, sessionUserId } from './sessionScope'
 import { MATCHES_SYNCED_EVENT } from './loadLatest'
+import { DEATHMATCH_MODE } from './matchModes'
 import { PLAYBOOKS_CHANGED_EVENT, listPlaybooks } from './playbooks'
 import { getGuideCounts, listReviews, type GuideCounts } from './referenceReviews'
 import type { HomeMatch } from './homeStats'
@@ -29,11 +30,12 @@ const HOME_MATCH_COLUMNS =
 const PAGE_SIZE = 1000
 
 /**
- * Every match the player has, newest first.
+ * Every competitive match the player has, newest first. Deathmatches are left
+ * out: their score, result and stats mean something else (`matchModes.ts`).
  *
  * Deliberately no row cap, unlike the Match Library's latest-50: Home's totals
- * have to equal a plain `count(*)` over the table. Only the columns Home reads
- * are selected, so the full history stays a light query.
+ * have to equal a plain `count(*)` over the table's competitive rows. Only the
+ * columns Home reads are selected, so the full history stays a light query.
  */
 async function fetchHomeMatches(): Promise<HomeMatch[]> {
   const userId = await sessionUserId()
@@ -45,6 +47,7 @@ async function fetchHomeMatches(): Promise<HomeMatch[]> {
       .from('matches')
       .select(HOME_MATCH_COLUMNS)
       .eq('user_id', userId)
+      .neq('mode', DEATHMATCH_MODE)
       .order('match_date', { ascending: false })
       .order('id', { ascending: true }) // a stable order, so pages can't overlap
       .range(from, from + PAGE_SIZE - 1)

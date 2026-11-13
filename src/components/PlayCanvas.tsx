@@ -1734,12 +1734,13 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
   const teamInk = (person: Pick<KillPerson, 'team'>) => (person.team === 'enemy' ? skin.enemy : skin.ally)
 
   // Where each death happened, for the rest of the round: the portrait gone grey and a red cross. Under the agents.
-  const killLayer = (kills ?? []).map(kill => {
+  // In a Deathmatch it fades out after a few seconds (`kill.mark`, §2.19).
+  const killLayer = (kills ?? []).filter(kill => kill.mark > 0).map(kill => {
     const [tx, ty] = imageToView(scene.view, kill.to.u, kill.to.v, scene.turns)
     const fresh = kill.age < KILL_FRESH_MS
     return (
       <g key={kill.key} pointerEvents="none" style={placement(tx, ty)}>
-        <g opacity={fresh ? DEATH_FRESH : DEATH_OLD}>
+        <g opacity={(fresh ? DEATH_FRESH : DEATH_OLD) * kill.mark}>
           <g transform={`scale(${DEATH_TILE})`} style={{ filter: 'grayscale(1) brightness(0.8)' }}>
             {tile(kill.victim.agent, DEATH_RED)}
           </g>

@@ -751,6 +751,60 @@ taken on either page is on the other. No migration.
   off `vod_reviews`, which requires a video) with its barrier drop marked. Until
   then the tab says which is missing and links to the review page.
 
+### 2.19 Deathmatch replays
+
+A free-for-all Deathmatch can be listed and played in the replay mode without
+mixing into the competitive data. No migration: it is a `matches` row with
+`mode = 'Deathmatch'` and a bundle built from the match record.
+
+- **The row.** `result` 'W' for first place, else 'L'; `score` the placement,
+  "1/12"; round counts, ACS, KPR and DPR 0; kills, deaths, assists, K/D, KDA,
+  headshots, map, agent and date real. `src/lib/matchModes.ts` is the one place
+  that knows the modes: `DEATHMATCH_MODE`, `isDeathmatchMode`, `matchCategory`,
+  `deathmatchPlacement("1/12")`, `ordinal`, `placementLabel` ("1st of 12").
+- **Competitive stays competitive.** Every reader that counts or lists matches as
+  competitive filters `.neq('mode', DEATHMATCH_MODE)` in its query: Home and the
+  Map Hub (`homeData.ts`), the Match Library's list, the match search
+  (`useMatchSearch.ts`: the search panel and the top bar's search), the
+  playbook's Match Context card and the playbook index's per-map counts. Readers keyed by one `match_id` (the review
+  page, `replayVod.ts`, the Dashboard's debrief join, the content backfill) are
+  unchanged, and so is the replay folder's library list: a Deathmatch bundle
+  attaches like any other.
+- **The bundle.** Schema 1 with `match.mode: 'deathmatch'` (`isDeathmatchBundle`).
+  Twelve players, the owner the one `ALLY`; one round `{ n: 1, buyStartMs: 0,
+  barrierMs, endMs: durationMs, side: null, how: 'deathmatch' }`
+  (`isDeathmatchRound`) holding every kill; 10 Hz tracks where a player's dead
+  rows are followed, at once or after a gap, by rows from where they respawn.
+  No casts, effects, spike, pawns, kits, vitals or blinds: those layers simply
+  have nothing to draw. Positions between kills are interpolated, so they are
+  approximate.
+- **Picker** (§2.7). With at least one Deathmatch replay a Competitive /
+  Deathmatch toggle heads the list (`replayFilters.ts`: `category`, competitive
+  by default; the agent and map dropdowns offer the category's own). A
+  Deathmatch row shows the placement where the score is (cyan when first) and
+  kills/deaths as K/D; the Win / Loss buttons are hidden. A Deathmatch picked
+  has **Play match** only, no round grid and no **Load round**, and a line on
+  where its positions come from.
+- **Match Library.** Deathmatches are loaded by a query of their own, so they
+  never take a place among the latest 50 or enter the counts and filters. With
+  at least one, a Competitive / Deathmatch toggle under the title switches to a
+  plain list: map, placement, agent, kills / deaths, date. A row with replay
+  data opens `/plays/new?replay=<match_id>`; one without says "No replay data
+  yet".
+- **Replay mode** (§2.8). The match opens at the barrier of its one round and
+  plays to the end. The round reads "DM" wherever a round is named
+  (`roundLabel`, `formatRoundClock`: "DM · 4:05", the time since the timer
+  started): no round chips, no side, no score, no won / lost text, and the Rounds
+  panel has no round grid; its ~250 kills scroll in a box of their own. Every
+  player is drawn, two on the same agent included (a competitive frame keeps one
+  per agent and team). A death mark fades out by 5 s (`DEATHMATCH_MARK_MS`;
+  whole for the first 3 s, then fading), and kills past their feed time are
+  not listed at all. A trail starts at the current life (`lifeStart`), never
+  running from where a player fell to where they respawned. Map control runs
+  as usual with the one ally against the lobby. `&mode=steps` and `&round` are
+  ignored for a Deathmatch: the link opens the replay mode. A captured step's
+  caption ends in "deathmatch" where a competitive one gives the side and result.
+
 ## 3. Document v2 (`src/lib/playDoc.ts`)
 
 ```ts

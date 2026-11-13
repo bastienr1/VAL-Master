@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { MATCHES_SYNCED_EVENT } from '../lib/loadLatest'
+import { DEATHMATCH_MODE, deathmatchPlacement, placementLabel, type MatchCategory } from '../lib/matchModes'
 import { useLoadLatest } from '../hooks/useLoadLatest'
 import { mapImageFor, agentImageFor } from '../lib/gameContent'
 import { useGameContent } from '../hooks/useGameContent'
@@ -99,6 +100,60 @@ function MatchCard({ match, hasReplay, onClick }: { match: Match; hasReplay: boo
         </div>
       </div>
     </button>
+  )
+}
+
+/** What a Deathmatch row of the library shows (docs/plays-editor-v2.md §2.19). */
+type DeathmatchMatch = Pick<Match, 'match_id' | 'match_date' | 'map' | 'map_id' | 'agent' | 'agent_id' | 'score' | 'kills' | 'deaths'>
+
+const DEATHMATCH_COLUMNS = 'match_id, match_date, map, map_id, agent, agent_id, score, kills, deaths'
+
+/** One Deathmatch: a link into the Plays editor's replay mode when it has replay data, else a plain row. */
+function DeathmatchRow({ match, hasReplay }: { match: DeathmatchMatch; hasReplay: boolean }) {
+  const placement = deathmatchPlacement(match.score)
+  const date = new Date(match.match_date)
+  const dateStr = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  const timeStr = date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+  const row = 'group relative flex items-center gap-4 min-h-[4.5rem] px-4 py-2 bg-bg-card border border-bg-elevated rounded-xl overflow-hidden'
+
+  const body = (
+    <>
+      <GameImage
+        kind="map"
+        src={mapImageFor(match)}
+        alt=""
+        className="absolute inset-0 w-full h-full object-cover opacity-40 group-hover:opacity-50 transition-opacity"
+      />
+      <div className="absolute inset-0 bg-gradient-to-r from-bg-card via-bg-card/70 to-bg-card/90" />
+
+      <div className="relative min-w-[7rem] shrink-0">
+        <div className="text-sm font-medium text-text-primary truncate">{match.map}</div>
+        <div className={`text-xl font-stats font-bold whitespace-nowrap ${placement?.place === 1 ? 'text-val-green' : 'text-text-secondary'}`}>
+          {placementLabel(match.score) ?? match.score}
+        </div>
+      </div>
+
+      <div className="relative flex items-center gap-2 min-w-0 flex-1">
+        <GameImage kind="agent" src={agentImageFor(match)} alt={match.agent} className="w-10 h-10 rounded-full border-2 border-bg-card shrink-0" />
+        <span className="text-sm font-medium text-text-primary truncate">{match.agent}</span>
+      </div>
+
+      <div className="relative text-right shrink-0 space-y-0.5">
+        <StatChip icon={Crosshair} label="K/D" value={`${match.kills} / ${match.deaths}`} />
+        <div className="text-[10px] text-text-muted whitespace-nowrap">
+          {dateStr} {timeStr}
+        </div>
+        {!hasReplay && <div className="text-[10px] text-text-muted">No replay data yet</div>}
+      </div>
+    </>
+  )
+
+  return hasReplay ? (
+    <Link to={`/plays/new?replay=${encodeURIComponent(match.match_id)}`} className={`${row} hover:border-val-cyan/30 transition-all`}>
+      {body}
+    </Link>
+  ) : (
+    <div className={row}>{body}</div>
   )
 }
 
@@ -273,6 +328,9 @@ export default function MatchLibrary() {
   const { registry } = useGameContent()
   const { sync: handleSync, syncing, player } = useLoadLatest()
   const [matches, setMatches] = useState<Match[]>([])
+  // Deathmatches are listed apart (§2.19): never in the competitive list, its counts or filters.
+  const [deathmatches, setDeathmatches] = useState<DeathmatchMatch[]>([])
+  const [category, setCategory] = useState<MatchCategory>('competitive')
   const [loading, setLoading] = useState(true)
   const [resultFilter, setResultFilter] = useState<'all' | 'W' | 'L' | 'draw'>('all')
   // Seeded from ?map= / ?agent= / ?act= so Home can link to a filtered library.
@@ -301,8 +359,18 @@ export default function MatchLibrary() {
         .from('matches')
         .select('*')
         .eq('user_id', user.id)
+        .neq('mode', DEATHMATCH_MODE)
         .order('match_date', { ascending: false })
-      const { data, error } = await (openedFiltered ? query : query.limit(50))
+      // A query of their own, so Deathmatches never take a place among the latest 50.
+      const deathmatchQuery = supabase
+        .from('matches')
+        .select(DEATHMATCH_COLUMNS)
+        .eq('user_id', user.id)
+        .eq('mode', DEATHMATCH_MODE)
+        .order('match_date', { ascending: false })
+      const [{ data, error }, deathmatchResult] = await Promise.all([openedFiltered ? query : query.limit(50), deathmatchQuery])
+      if (deathmatchResult.error) console.error('Failed to load deathmatches:', deathmatchResult.error)
+      else setDeathmatches((deathmatchResult.data ?? []) as DeathmatchMatch[])
       if (error) throw error
       setMatches(data || [])
     } catch (err) {
@@ -366,6 +434,20 @@ export default function MatchLibrary() {
   const hasFilters =
     resultFilter !== 'all' || mapFilter !== 'all' || agentFilter !== 'all' || actFilter !== 'all'
 
+  // The Deathmatch view, while there is one to show; otherwise the page as it always was.
+  const showDeathmatches = category === 'deathmatch' && deathmatches.length > 0
+  const categoryPill = (value: MatchCategory, label: string) => (
+    <button
+      onClick={() => setCategory(value)}
+      aria-pressed={category === value}
+      className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
+        category === value ? 'bg-val-cyan/20 text-val-cyan' : 'text-text-secondary hover:text-text-primary'
+      }`}
+    >
+      {label}
+    </button>
+  )
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -380,14 +462,20 @@ export default function MatchLibrary() {
       <div className="flex items-start justify-between">
         <div>
           <h1 className="text-3xl font-heading font-bold">Match Library</h1>
-          <p className="text-text-secondary text-sm">
-            {actFilter !== 'all' && (
-              <span className="text-val-cyan font-medium mr-1">{actFilter} ·</span>
-            )}
-            {filtered.length} matches &middot; {filteredWins}W {filteredLosses}L
-            {filteredDraws > 0 && <> {filteredDraws}D</>}
-            {' '}&middot; {filteredWinRate}% WR
-          </p>
+          {showDeathmatches ? (
+            <p className="text-text-secondary text-sm">
+              {deathmatches.length} {deathmatches.length === 1 ? 'deathmatch' : 'deathmatches'}
+            </p>
+          ) : (
+            <p className="text-text-secondary text-sm">
+              {actFilter !== 'all' && (
+                <span className="text-val-cyan font-medium mr-1">{actFilter} ·</span>
+              )}
+              {filtered.length} matches &middot; {filteredWins}W {filteredLosses}L
+              {filteredDraws > 0 && <> {filteredDraws}D</>}
+              {' '}&middot; {filteredWinRate}% WR
+            </p>
+          )}
           {!player && (
             <p className="text-xs text-val-yellow mt-2">
               Set your Riot ID in{' '}
@@ -400,10 +488,27 @@ export default function MatchLibrary() {
               to sync your matches.
             </p>
           )}
+          {deathmatches.length > 0 && (
+            <div role="group" aria-label="Match category" className="mt-3 inline-flex bg-bg-card rounded-lg p-1">
+              {categoryPill('competitive', 'Competitive')}
+              {categoryPill('deathmatch', 'Deathmatch')}
+            </div>
+          )}
         </div>
         <ReplayFolderLink onReplayMatches={handleReplayMatches} />
       </div>
 
+      {showDeathmatches ? (
+        <ul className="space-y-2">
+          {deathmatches.map((match) => (
+            <li key={match.match_id}>
+              <DeathmatchRow match={match} hasReplay={replayIds.has(match.match_id)} />
+            </li>
+          ))}
+        </ul>
+      ) : (
+      <>
+      {/* The competitive view, down to the match grid: the page as it always was. */}
       {/* Filter bar */}
       <div className="flex items-center gap-3 flex-wrap">
         {/* Result pills */}
@@ -631,6 +736,9 @@ export default function MatchLibrary() {
             />
           ))}
         </div>
+      )}
+      {/* End of the competitive view. */}
+      </>
       )}
     </div>
   )
