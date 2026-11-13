@@ -46,3 +46,32 @@ export async function getReplayVod(matchId: string): Promise<ReplayVod | null> {
   const videoId = url ? extractYouTubeId(url) : null
   return videoId ? { videoId, barrierOffset: review?.barrier_drop_offset ?? null } : null
 }
+
+/**
+ * Links a YouTube video to a match from the replay panel (§2.20): the match's
+ * review row, as the review page writes it, and the link on the match itself.
+ * A new video starts unsynced, whatever the old one's sync was.
+ */
+export async function linkReplayVod(matchId: string, url: string): Promise<ReplayVod> {
+  const link = url.trim()
+  const videoId = extractYouTubeId(link)
+  if (!videoId) throw new Error('That is not a YouTube link.')
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('Not signed in')
+
+  const { error } = await supabase
+    .from('vod_reviews')
+    .upsert({ user_id: user.id, match_id: matchId, youtube_url: link, barrier_drop_offset: null }, { onConflict: 'match_id,user_id' })
+  if (error) throw new Error(error.message)
+  const { error: matchError } = await supabase.from('matches').update({ youtube_url: link }).eq('match_id', matchId).eq('user_id', user.id)
+  if (matchError) throw new Error(matchError.message)
+  return { videoId, barrierOffset: null }
+}
+
+/** Keeps the sync of a match's video: the video second of the replay's anchor (`replayAnchorMs`), or null to unsync. */
+export async function setReplayVodOffset(matchId: string, barrierOffset: number | null): Promise<void> {
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('Not signed in')
+  const { error } = await supabase.from('vod_reviews').update({ barrier_drop_offset: barrierOffset }).eq('match_id', matchId).eq('user_id', user.id)
+  if (error) throw new Error(error.message)
+}

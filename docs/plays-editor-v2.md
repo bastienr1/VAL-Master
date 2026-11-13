@@ -805,6 +805,54 @@ mixing into the competitive data. No migration: it is a `matches` row with
   ignored for a Deathmatch: the link opens the replay mode. A captured step's
   caption ends in "deathmatch" where a competitive one gives the side and result.
 
+### 2.20 Deathmatch: the video, and the best angles
+
+Two additions to a Deathmatch's replay panel (§2.19), both in the right-hand
+drawer. No migration.
+
+- **Linking the video.** A Deathmatch has no review page, so its video is linked
+  where it is watched. With no video, the top of the drawer is a form: a YouTube
+  link and **Link video** (`linkReplayVod` in `replayVod.ts`). It writes what the
+  review page writes: the match's `vod_reviews` row (`youtube_url`, upserted on
+  `match_id, user_id`, with `barrier_drop_offset` reset to null) and
+  `matches.youtube_url`. A link that is not a YouTube one is refused before
+  anything is written. A competitive match is unchanged: its video is still
+  linked and synced on the review page.
+- **Syncing it.** Unsynced, the video has YouTube's own controls. The player
+  pauses it on a moment they can find on the map, puts the replay on the same
+  moment and presses **Sync here**: `barrierOffsetAt(bundle, replayMs,
+  videoSeconds)` (`replaySync.ts`) is the `barrier_drop_offset` that makes the two
+  agree, saved with `setReplayVodOffset`. **Replay to my first kill** puts the
+  replay on the player's first kill, a moment easy to find in a recording. Once
+  synced the video follows the replay as in §2.12, and four buttons replace the
+  help: **Video −0.5 s** and **Video +0.5 s** (the offset moved by half a second),
+  **Sync again** (the offset back to null) and **Change video** (the form again).
+  The offset may be negative: a recording that starts after the timer did.
+  The unsynced state is a yellow notice saying that jumps do not move the
+  video yet, with the three steps numbered. The video component is keyed on
+  the video and on whether it follows, so setting or dropping the sync remounts
+  it: `useYouTubePlayer` fixes the player's controls when it is made, and a
+  player being remade is not ready for the follow's seeks.
+- **Best angles** (`src/lib/replayAngles.ts`, pure, tested). `bestAngles(bundle,
+  subject, callouts)` groups the player's kills as the vault's `dm_pathing.py`
+  does, so the two lists agree: kills within 350 units of a common centre are one
+  spot; a spot whose kills look more than 45° apart is split by facing; an angle
+  ranks by kills, then fewer deaths within 500 units, then more held kills. A kill
+  is *held* when the player moved slower than 120 units a second since the kill
+  event before it (the only moments a Deathmatch bundle knows a position, read
+  from the track row on the 100 ms grid nearest that event), *unknown* when that
+  event is more than 4 s old or the player was not alive at it. The facing is the
+  track's yaw at the kill, the line to the victim when the track has nothing
+  there. An angle is named by the callout nearest the spot and the one nearest
+  its victims.
+- **The list.** In the Rounds panel, above the kills, **Best angles · your
+  kills** lists the angles of two kills or more (`ReplayRoundPanel`, prop
+  `angles`, computed in `PlayDesigner`): rank, "C Waterfall → C Site", "5 kills
+  · 5 held", then one chip per kill with its time on the DM clock, cyan when
+  held, and the deaths near the spot in red. The row jumps to 2 s before the
+  angle's first kill, a chip to 2 s before its own; the chip of the moment shown
+  is ringed. With the video synced, a jump moves the video too.
+
 ## 3. Document v2 (`src/lib/playDoc.ts`)
 
 ```ts

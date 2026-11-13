@@ -6,6 +6,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
   applyReplayTiming,
+  barrierOffsetAt,
   replayMsToVideoSeconds,
   roundAtReplayMs,
   videoSecondsToReplayMs,
@@ -76,6 +77,16 @@ test('replay ms ↔ video seconds round-trips through the R1 barrier anchor', ()
   assert.equal(replayMsToVideoSeconds(b, 42.5, 112000), 109.5)
   assert.equal(videoSecondsToReplayMs(b, 42.5, 109.5), 112000)
   assert.equal(videoSecondsToReplayMs(b, 42.5, 0), 2500)
+})
+
+test('the sync that puts a video second on a replay moment is the one the clocks then agree on', () => {
+  const b = bundle()
+  // The video shows, at 2:05.5, what the replay shows 20 s after the barrier.
+  const offset = barrierOffsetAt(b, 65000, 125.5)
+  assert.equal(offset, 105.5)
+  assert.equal(replayMsToVideoSeconds(b, offset, 65000), 125.5)
+  // A video that starts after the barrier dropped gives a negative offset, kept to a hundredth.
+  assert.equal(barrierOffsetAt(b, 65000, 3.333), -16.67)
 })
 
 test('roundAtReplayMs switches at the buy phase start', () => {

@@ -50,6 +50,7 @@ import {
 import { canRedo, canUndo, historyOf, pushHistory, redoHistory, undoHistory, type History } from '../lib/playHistory'
 import { sceneTurns, sceneViewport, viewToImage } from '../lib/playScene'
 import { createPlay, deletePlay, getPlay, updatePlay, type PlayInput } from '../lib/plays'
+import { bestAngles } from '../lib/replayAngles'
 import { isDeathmatchBundle, isDeathmatchRound, type ReplayBundle, type ReplayRound } from '../lib/replayBundle'
 import {
   createFrameIds,
@@ -676,6 +677,13 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
   const empty = !hasElements(doc)
   /** The canvas shows the replay rather than a step of the play. */
   const inReplay = replay !== null && view === 'replay'
+
+  /** A Deathmatch's best angles, for the Rounds panel (§2.20): the player's kills by spot and facing. */
+  const replayAngles = useMemo(() => {
+    if (!replay || !isDeathmatchBundle(replay.bundle)) return []
+    const me = replay.bundle.players.find(p => p.isMe)
+    return me ? bestAngles(replay.bundle, me.subject, gameMap?.callouts ?? []) : []
+  }, [replay, gameMap])
 
   /** The map's playable cells, for the control overlay (§2.9); null while it loads. */
   const mask = useMapMask(gameMap)
@@ -1868,6 +1876,7 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
               playing={replayPlaying}
               speed={replaySpeed}
               onTogglePlay={toggleReplay}
+              onSeek={ms => seekReplay(ms)}
             />
           )}
           {showDrawer && inReplay && replay && (
@@ -1916,6 +1925,7 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
               onToggleLayer={toggleLayer}
               onRound={jumpToRound}
               onSeek={(ms, round) => seekReplay(ms, round)}
+              angles={replayAngles}
             />
           )}
           {showDrawer && !inReplay && (
