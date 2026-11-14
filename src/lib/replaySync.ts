@@ -32,6 +32,15 @@ export function videoSecondsToReplayMs(bundle: ReplayBundle, barrierOffset: numb
   return (videoSeconds - barrierOffset) * 1000 + (replayAnchorMs(bundle) ?? 0)
 }
 
+/**
+ * The sync that puts `videoSeconds` on `replayMs`: what `barrier_drop_offset`
+ * has to be when the video shows, at that second, the moment the replay is on.
+ * To a hundredth of a second, as the review page keeps it.
+ */
+export function barrierOffsetAt(bundle: ReplayBundle, replayMs: number, videoSeconds: number): number {
+  return Math.round((videoSeconds - (replayMs - (replayAnchorMs(bundle) ?? 0)) / 1000) * 100) / 100
+}
+
 /** The round whose buy phase has started at `replayMs`; round 1 before that. */
 export function roundAtReplayMs(bundle: ReplayBundle, replayMs: number): ReplayRound {
   let current = bundle.rounds[0]
