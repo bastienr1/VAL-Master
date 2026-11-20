@@ -37,8 +37,12 @@ interface ReplayMinimapProps {
   getPlaybackRate: () => number
   isPlaying: boolean
   onSeek: (videoSeconds: number) => void
-  /** Moves the sync anchor by a fraction of a second. Rejects with a message to show. */
-  onNudge: (deltaSeconds: number) => Promise<void>
+  /**
+   * Moves the sync anchor by a fraction of a second. Rejects with a message to
+   * show. Left out where the map runs on a clock of its own and there is no
+   * video to be out of step with (the match report): the nudge row is then hidden.
+   */
+  onNudge?: (deltaSeconds: number) => Promise<void>
   /**
    * Where the Plays editor opens a round of this replay. When given, the HUD
    * links the round it shows there. Keep it stable: this component is memoized.
@@ -480,7 +484,7 @@ function ReplayMinimap({
   }
 
   const nudge = async (delta: number) => {
-    if (nudging) return
+    if (nudging || !onNudge) return
     setNudging(true)
     setNudgeProblem(null)
     try {
@@ -577,7 +581,7 @@ function ReplayMinimap({
           ))}
         </div>
 
-        {barrierOffset != null && (
+        {barrierOffset != null && onNudge && (
           <div className="flex items-center gap-1.5 text-[10px] text-text-muted">
             <span>Map out of step with the video?</span>
             <button

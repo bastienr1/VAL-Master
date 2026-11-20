@@ -573,7 +573,16 @@ export default function VodReview() {
         <span className="text-text-primary text-xs font-medium">
           {match.agent} on {match.map} · {match.score} {match.result}
         </span>
-        <span className="ml-auto text-text-muted text-xs">
+        {replay.bundle && (
+          <Link
+            to={`/report/${match.match_id}`}
+            title="What the replay says about this match, with the map beside it"
+            className="ml-auto text-val-cyan hover:underline text-xs"
+          >
+            Match report ↗
+          </Link>
+        )}
+        <span className={`${replay.bundle ? '' : 'ml-auto '}text-text-muted text-xs`}>
           {rounds.length > 0
             ? `${notedRoundCount}/${rounds.length} rounds noted`
             : `${notedRoundCount} rounds noted`}
