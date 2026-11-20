@@ -2,9 +2,12 @@ import { useMemo, useState } from 'react'
 import { Pencil, Trash2 } from 'lucide-react'
 import NoteMarkdown from './NoteMarkdown'
 import MomentTagChips from './MomentTagChips'
+import LooseMomentList from './LooseMomentList'
+import TagFilterBar from './TagFilterBar'
 import { REFERENCE_LABEL_COLORS, hexWithAlpha } from '../lib/tagColors'
 import { formatTime } from '../lib/youtube'
 import { REFERENCE_LABELS } from '../lib/constants'
+import { isFiltering, looseMoments, matchesTagFilter, type TagFilter } from '../lib/tagFilter'
 import type { MomentTag, ReferenceNote, ReviewTag } from '../lib/types'
 
 /**
@@ -24,8 +27,8 @@ interface ReferenceNotesPanelProps {
   tags: ReviewTag[]
   onRemoveMomentTag: (moment: MomentTag) => void
   /** Lifted so the timeline lane can dim to the same filter. */
-  tagFilter: string | null
-  onTagFilterChange: (tagId: string | null) => void
+  tagFilter: TagFilter
+  onTagFilterChange: (filter: TagFilter) => void
 }
 
 interface NoteCardProps {
@@ -157,10 +160,19 @@ export default function ReferenceNotesPanel({
 
   const visible = useMemo(() => {
     const byLabel = labelFilter ? notes.filter(n => n.label === labelFilter) : notes
-    if (!tagFilter) return byLabel
-    // A note matches a tag filter when one of its own moments carries the tag.
-    return byLabel.filter(n => (momentsByNote.get(n.id) ?? []).some(m => m.tag_id === tagFilter))
+    if (!isFiltering(tagFilter)) return byLabel
+    // A note is matched on its own moments' tags.
+    return byLabel.filter(n => matchesTagFilter(tagFilter, (momentsByNote.get(n.id) ?? []).map(m => m.tag_id)))
   }, [notes, labelFilter, tagFilter, momentsByNote])
+
+  /** The tagged seconds with no note that the filter keeps. A label filter is about notes, so it hides them. */
+  const visibleLoose = useMemo(
+    () =>
+      isFiltering(tagFilter) && !labelFilter
+        ? looseMoments(moments).filter(group => matchesTagFilter(tagFilter, group.moments.map(m => m.tag_id)))
+        : [],
+    [moments, tagFilter, labelFilter],
+  )
 
   return (
     <div className="bg-bg-card border border-bg-elevated rounded-lg overflow-hidden">
@@ -201,35 +213,12 @@ export default function ReferenceNotesPanel({
         </div>
       )}
 
-      {usedTags.length > 0 && (
-        <div className="px-3 py-2 border-b border-bg-elevated flex flex-wrap gap-1.5">
-          {usedTags.map(tag => {
-            const active = tagFilter === tag.id
-            return (
-              <button
-                key={tag.id}
-                type="button"
-                onClick={() => onTagFilterChange(active ? null : tag.id)}
-                style={
-                  active
-                    ? {
-                        backgroundColor: hexWithAlpha(tag.color, 0.12),
-                        color: tag.color,
-                        borderColor: hexWithAlpha(tag.color, 0.3),
-                      }
-                    : undefined
-                }
-                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border transition-colors ${
-                  active ? '' : 'bg-transparent text-text-muted border-bg-elevated hover:border-text-muted'
-                }`}
-              >
-                <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: tag.color }} />
-                {tag.name}
-              </button>
-            )
-          })}
-        </div>
-      )}
+      <TagFilterBar
+        tags={usedTags}
+        filter={tagFilter}
+        onChange={onTagFilterChange}
+        className="px-3 py-2 border-b border-bg-elevated flex flex-wrap items-center gap-1.5"
+      />
 
       <div className="p-2 space-y-1 max-h-[70vh] overflow-y-auto">
         {notes.length === 0 ? (
@@ -238,9 +227,11 @@ export default function ReferenceNotesPanel({
             watching to capture one.
           </p>
         ) : visible.length === 0 ? (
-          <p className="text-text-muted text-xs px-1 py-4 text-center">
-            {tagFilter ? 'No notes with that tag.' : 'No notes with that label.'}
-          </p>
+          visibleLoose.length === 0 && (
+            <p className="text-text-muted text-xs px-1 py-4 text-center">
+              {isFiltering(tagFilter) ? 'Nothing with these tags.' : 'No notes with that label.'}
+            </p>
+          )
         ) : (
           visible.map(note => (
             <NoteCard
@@ -255,6 +246,11 @@ export default function ReferenceNotesPanel({
               onRemoveMomentTag={onRemoveMomentTag}
             />
           ))
+        )}
+        {visibleLoose.length > 0 && (
+          <div className="pt-1">
+            <LooseMomentList groups={visibleLoose} tags={tags} onSeek={onSeek} onRemoveMomentTag={onRemoveMomentTag} />
+          </div>
         )}
       </div>
     </div>

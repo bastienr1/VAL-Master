@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
 import { hexWithAlpha } from '../lib/tagColors'
+import { momentsKept, NO_TAG_FILTER, type TagFilter } from '../lib/tagFilter'
 import type { MomentTag, ReviewTag } from '../lib/types'
 
 /**
@@ -17,8 +18,8 @@ interface MomentTagLaneProps {
   tags: ReviewTag[]
   duration: number
   onSeek: (seconds: number) => void
-  /** When set, moments on other tags are dimmed rather than hidden. */
-  activeTagId?: string | null
+  /** Under a filter, the tags of moments it does not keep are dimmed rather than hidden. */
+  filter?: TagFilter
 }
 
 function formatTime(seconds: number): string {
@@ -32,9 +33,10 @@ export default function MomentTagLane({
   tags,
   duration,
   onSeek,
-  activeTagId,
+  filter = NO_TAG_FILTER,
 }: MomentTagLaneProps) {
   const tagsById = useMemo(() => new Map(tags.map(t => [t.id, t])), [tags])
+  const kept = useMemo(() => momentsKept(moments, filter), [moments, filter])
 
   if (moments.length === 0 || duration <= 0) return null
 
@@ -52,7 +54,7 @@ export default function MomentTagLane({
           const tag = tagsById.get(moment.tag_id)
           const color = tag?.color ?? '#94A3B8'
           const pct = Math.min(100, Math.max(0, (moment.video_ts / duration) * 100))
-          const dimmed = !!activeTagId && moment.tag_id !== activeTagId
+          const dimmed = kept !== null && !kept.has(moment.id)
 
           return (
             <button

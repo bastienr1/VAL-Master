@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { listMomentTags, listReviewTags, removeMomentTag } from '../lib/momentTags'
 import { supabase } from '../lib/supabase'
+import { NO_TAG_FILTER, withoutTag, type TagFilter } from '../lib/tagFilter'
 import type { MomentTag, ReviewTag, RoundScreenshot, VodComment } from '../lib/types'
 
 /**
@@ -17,7 +18,7 @@ export function useMatchNotes(matchId: string | null | undefined, vodReviewId: s
   // Named `reviewTags` because the review page's `tags` is the legacy auto `vod_tags` list.
   const [reviewTags, setReviewTags] = useState<ReviewTag[]>([])
   const [moments, setMoments] = useState<MomentTag[]>([])
-  const [tagFilter, setTagFilter] = useState<string | null>(null)
+  const [tagFilter, setTagFilter] = useState<TagFilter>(NO_TAG_FILTER)
   const [captureOpen, setCaptureOpen] = useState(false)
   // Set → the capture panel is editing that note rather than creating a new one.
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null)
@@ -35,7 +36,7 @@ export function useMatchNotes(matchId: string | null | undefined, vodReviewId: s
     setHeldMatch(matchId)
     setScreenshots([])
     setMoments([])
-    setTagFilter(null)
+    setTagFilter(NO_TAG_FILTER)
   }
 
   useEffect(() => {
@@ -141,7 +142,7 @@ export function useMatchNotes(matchId: string | null | undefined, vodReviewId: s
   /** Deleting a tag cascades its moments server-side; mirror that locally. */
   const handleTagDeleted = useCallback((tagId: string) => {
     setMoments(prev => prev.filter(m => m.tag_id !== tagId))
-    setTagFilter(prev => (prev === tagId ? null : prev))
+    setTagFilter(prev => withoutTag(prev, tagId))
   }, [])
 
   const handleRemoveMomentTag = useCallback(async (moment: MomentTag) => {

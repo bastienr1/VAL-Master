@@ -2,6 +2,8 @@ import { useState, useMemo } from 'react'
 import { Filter, FilterX, ChevronDown, ChevronRight, Trash2, Pencil, Crosshair, Skull } from 'lucide-react'
 import NoteMarkdown from './NoteMarkdown'
 import MomentTagChips from './MomentTagChips'
+import LooseMomentList from './LooseMomentList'
+import TagFilterBar from './TagFilterBar'
 import { supabase } from '../lib/supabase'
 import type {
   MatchRound,
@@ -18,6 +20,7 @@ import {
   hexWithAlpha,
 } from '../lib/tagColors'
 import { getRoundVideoTime } from '../lib/roundResolver'
+import { isFiltering, looseMoments, matchesTagFilter, type TagFilter } from '../lib/tagFilter'
 
 interface NotesPanelProps {
   /** Moment tags on this review, and the vocabulary to render them with. */
@@ -25,8 +28,8 @@ interface NotesPanelProps {
   tags: ReviewTag[]
   onRemoveMomentTag: (moment: MomentTag) => void
   /** Lifted so the timeline lane dims to the same filter. */
-  tagFilter: string | null
-  onTagFilterChange: (tagId: string | null) => void
+  tagFilter: TagFilter
+  onTagFilterChange: (filter: TagFilter) => void
   comments: VodComment[]
   screenshots: RoundScreenshot[]
   rounds: MatchRound[]
@@ -221,10 +224,27 @@ export default function NotesPanel({
         ? comments.filter(c => c.round_number === activeRound)
         : comments
 
-    if (!tagFilter) return byRound
-    // A note matches a tag filter when one of its own moments carries the tag.
-    return byRound.filter(c => (momentsByNote.get(c.id) ?? []).some(m => m.tag_id === tagFilter))
+    if (!isFiltering(tagFilter)) return byRound
+    // A note is matched on its own moments' tags.
+    return byRound.filter(c => matchesTagFilter(tagFilter, (momentsByNote.get(c.id) ?? []).map(m => m.tag_id)))
   }, [comments, showAllNotes, activeRound, tagFilter, momentsByNote])
+
+  /**
+   * The tagged seconds with no note that the filter keeps, each with its round.
+   * Listed only under a filter: without one the notes are the list. They follow
+   * the round filter like the notes do, when the video is synced to the rounds.
+   */
+  const visibleLoose = useMemo(() => {
+    if (!isFiltering(tagFilter)) return []
+    const starts = barrierOffset == null ? [] : rounds.map(r => ({ n: r.round_number, at: getRoundVideoTime(r, rounds, barrierOffset) }))
+    // A tag sits a few seconds before its moment, which can be in the buy phase of its round.
+    const roundAt = (ts: number) => starts.filter(r => r.at - 30 <= ts).pop()?.n ?? null
+    return looseMoments(moments)
+      .filter(group => matchesTagFilter(tagFilter, group.moments.map(m => m.tag_id)))
+      .map(group => ({ ...group, round: roundAt(group.videoTs) }))
+      .filter(group => showAllNotes || activeRound == null || group.round == null || group.round === activeRound)
+      .map(({ round, ...group }) => ({ ...group, label: round == null ? undefined : `R${round}` }))
+  }, [moments, tagFilter, rounds, barrierOffset, showAllNotes, activeRound])
 
   const activeRoundData = useMemo(
     () => activeRound != null ? rounds.find(r => r.round_number === activeRound) ?? null : null,
@@ -299,45 +319,24 @@ export default function NotesPanel({
         </button>
       </div>
 
-      {usedTags.length > 0 && (
-        <div className="flex flex-wrap gap-1.5 px-1">
-          {usedTags.map(tag => {
-            const active = tagFilter === tag.id
-            return (
-              <button
-                key={tag.id}
-                type="button"
-                onClick={() => onTagFilterChange(active ? null : tag.id)}
-                style={
-                  active
-                    ? {
-                        backgroundColor: hexWithAlpha(tag.color, 0.12),
-                        color: tag.color,
-                        borderColor: hexWithAlpha(tag.color, 0.3),
-                      }
-                    : undefined
-                }
-                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border transition-colors ${
-                  active ? '' : 'bg-transparent text-text-muted border-bg-elevated hover:border-text-muted'
-                }`}
-              >
-                <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: tag.color }} />
-                {tag.name}
-              </button>
-            )
-          })}
-        </div>
-      )}
+      <TagFilterBar tags={usedTags} filter={tagFilter} onChange={onTagFilterChange} />
 
       {/* Notes list */}
       {visibleComments.length === 0 ? (
-        <div className="px-3 py-6 text-center">
-          <span className="italic text-text-muted text-sm">
-            {activeRound != null && !showAllNotes
-              ? 'No notes for this round yet'
-              : 'No notes yet — press T to capture an insight'}
-          </span>
-        </div>
+        // Under a filter the tagged moments below may be the whole answer, so no empty state then.
+        visibleLoose.length === 0 && (
+          <div className="px-3 py-6 text-center">
+            <span className="italic text-text-muted text-sm">
+              {isFiltering(tagFilter)
+                ? activeRound != null && !showAllNotes
+                  ? 'Nothing with these tags in this round. “All notes” shows the whole match.'
+                  : 'Nothing with these tags.'
+                : activeRound != null && !showAllNotes
+                  ? 'No notes for this round yet'
+                  : 'No notes yet — press T to capture an insight'}
+            </span>
+          </div>
+        )
       ) : (
         <div className="space-y-2">
           {visibleComments.map((c, i) => {
@@ -361,6 +360,8 @@ export default function NotesPanel({
           })}
         </div>
       )}
+
+      <LooseMomentList groups={visibleLoose} tags={tags} onSeek={onSeek} onRemoveMomentTag={onRemoveMomentTag} />
 
       {/* Round events expander */}
       {activeRoundData && (

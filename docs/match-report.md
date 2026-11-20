@@ -139,6 +139,14 @@ match id).
 `planDuelTags` is pure and tested; `matchReportTagging.ts` reads the
 vocabulary, the review's tags and notes, and inserts the plan's rows.
 
+Where they show: a kill's tags have no note, so the review's notes list did
+not show them. The review's tag chips are now a multi-select filter
+(`tagFilter.ts`, `TagFilterBar`): any number of tags, matched as "all" (KILL
+and B and DEFENSE) or "any" (KILL or DEATH). Under a filter the notes list is
+followed by the tagged moments that have no note (`LooseMomentList`), each a
+time to jump to with its round and tags, and the timeline lane dims every tag
+of a moment the filter does not keep. The same filter is on Pro Study.
+
 ## 6. Communication (`matchComms.ts`, local only)
 
 What was said in a match never goes to Supabase. The vault's
