@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, type RefObject } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import { Pause, Play } from 'lucide-react'
 import ReplayMinimap from '../ReplayMinimap'
 import { useReplayClock } from '../../hooks/useReplayClock'
@@ -29,11 +29,37 @@ interface ReportStageProps {
 
 const SPEEDS = [1, 2, 4]
 
+type StageView = 'both' | 'video' | 'map'
+const VIEWS: Array<{ id: StageView; label: string }> = [
+  { id: 'both', label: 'Video and map' },
+  { id: 'video', label: 'Video' },
+  { id: 'map', label: 'Map' },
+]
+const VIEW_KEY = 'matchReport.stageView'
+
+function readView(): StageView {
+  try {
+    const stored = window.localStorage.getItem(VIEW_KEY)
+    return stored === 'video' || stored === 'map' ? stored : 'both'
+  } catch {
+    return 'both'
+  }
+}
+
+/**
+ * The map is a square as wide as its column. In a wide panel that square would
+ * be taller than the window, so its width is held to the height the window has
+ * left: `reserved` is what sits above it. The map's own round and kill lists
+ * start below the fold on purpose; the panel scrolls to them.
+ */
+const mapBox = (reserved: string) => ({ maxWidth: `max(280px, calc(100vh - ${reserved}))` })
+
 /**
  * The replay beside the report (docs/match-report.md): the match's recording
  * with the minimap following it when there is a synced one, the minimap on its
  * own clock when there is not. Either way the text drives it through
  * `handleRef`, so a duel or a round in the report is one click from being seen.
+ * The panel it sits in is resizable; the stage fills whatever width it is given.
  */
 export default function ReportStage(props: ReportStageProps) {
   return props.video ? <VideoStage {...props} video={props.video} /> : <ClockStage {...props} />
@@ -46,6 +72,11 @@ function usePlaysHref(matchId: string) {
 function VideoStage({ bundle, video, matchId, handleRef }: ReportStageProps & { video: ReportVideo }) {
   const { containerRef, embedBlocked, isPlaying, getCurrentTime, seekTo, play } = useYouTubePlayer(video.videoId)
   const playsHref = usePlaysHref(matchId)
+  const [view, setViewState] = useState<StageView>(readView)
+  const setView = (next: StageView) => {
+    setViewState(next)
+    try { window.localStorage.setItem(VIEW_KEY, next) } catch { /* preference only */ }
+  }
 
   // The minimap is memoized and its frame loop outlives renders: it gets
   // callbacks that never change and read the player through a ref.
@@ -70,7 +101,22 @@ function VideoStage({ bundle, video, matchId, handleRef }: ReportStageProps & { 
   }, [bundle, video.barrierOffset, handleRef])
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-2" style={{ containerType: 'inline-size' }}>
+      <div className="flex gap-1 bg-bg-card border border-bg-elevated rounded-lg p-1" role="group" aria-label="What the replay panel shows">
+        {VIEWS.map(v => (
+          <button
+            key={v.id}
+            type="button"
+            onClick={() => setView(v.id)}
+            aria-pressed={view === v.id}
+            className={`flex-1 rounded-md px-2 py-1 text-xs font-medium transition-colors ${
+              view === v.id ? 'bg-val-cyan/10 text-val-cyan' : 'text-text-muted hover:text-text-secondary'
+            }`}
+          >
+            {v.label}
+          </button>
+        ))}
+      </div>
       {embedBlocked ? (
         <a
           href={`https://www.youtube.com/watch?v=${video.videoId}`}
@@ -81,19 +127,25 @@ function VideoStage({ bundle, video, matchId, handleRef }: ReportStageProps & { 
           Watch on YouTube ↗
         </a>
       ) : (
-        <div className="relative w-full bg-black rounded-lg overflow-hidden" style={{ paddingBottom: '56.25%' }}>
+        // Hidden, not unmounted, on the Map view: the player keeps its place and its sound.
+        <div className={`relative w-full bg-black rounded-lg overflow-hidden ${view === 'map' ? 'hidden' : ''}`} style={{ paddingBottom: '56.25%' }}>
           <div ref={containerRef} className="absolute inset-0 w-full h-full" />
         </div>
       )}
-      <ReplayMinimap
-        bundle={bundle}
-        barrierOffset={video.barrierOffset}
-        getVideoTime={getVideoTime}
-        getPlaybackRate={getPlaybackRate}
-        isPlaying={isPlaying}
-        onSeek={onSeek}
-        playsHref={playsHref}
-      />
+      {view !== 'video' && (
+        // Under the video the map gets the height the video leaves (56.25cqw is the video's own).
+        <div className="mx-auto w-full" style={mapBox(view === 'both' ? '56.25cqw - 9rem' : '9rem')}>
+          <ReplayMinimap
+            bundle={bundle}
+            barrierOffset={video.barrierOffset}
+            getVideoTime={getVideoTime}
+            getPlaybackRate={getPlaybackRate}
+            isPlaying={isPlaying}
+            onSeek={onSeek}
+            playsHref={playsHref}
+          />
+        </div>
+      )}
     </div>
   )
 }
@@ -126,7 +178,8 @@ function ClockStage({ bundle, matchId, handleRef }: ReportStageProps) {
   }, [bundle, clock.shownMs])
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-2 mx-auto w-full" style={mapBox('9rem')}>
+      {/* Above the map: under it, it would sit below the map's round and kill lists, out of view. */}
       <div className="bg-bg-card border border-bg-elevated rounded-lg px-3 py-2 flex items-center gap-2">
         <button
           type="button"

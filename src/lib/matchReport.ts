@@ -34,6 +34,13 @@ export const TRADE_WINDOW_MS = 5000
 /** A sample older than this says nothing about now (a body stops reporting after a death). */
 const STALE_SAMPLE_MS = 400
 const SPEED_WINDOW_MS = 300
+/**
+ * What a cast made starts close to it: a smoke up to 0.7 s before the cast is
+ * recorded, a projectile with it, an ultimate up to 2 s after (measured on the
+ * Lotus, Bind and Corrode replays of November 2026).
+ */
+const MADE_BEFORE_MS = 1000
+const MADE_AFTER_MS = 2000
 
 export interface ReportCallout {
   name: string
@@ -119,6 +126,22 @@ export interface ReportSmoke {
   afterDeath: boolean
 }
 
+/** One press of an ability key. */
+export interface ReportKitUse {
+  round: number
+  side: ReplaySide | null
+  slot: AbilitySlot
+  /** Replay time of the cast. */
+  t: number
+  clockS: number
+  /** Where the player stood. */
+  where: string | null
+  /** Where what it made ended up, when the replay recorded something of theirs starting with the cast. */
+  lands: string | null
+  /** Cast after the player's first death of the round. */
+  afterDeath: boolean
+}
+
 export interface ReportSideTotals {
   rounds: number
   won: number
@@ -174,6 +197,8 @@ export interface MatchReport {
   }
   kit: {
     casts: Partial<Record<AbilitySlot, number>>
+    /** Every cast, in time order. */
+    uses: ReportKitUse[]
     smokes: ReportSmoke[]
     /** Rounds with a second life: two deaths, or a death and a timed-out return. */
     secondLives: number[]
@@ -264,6 +289,9 @@ export function buildMatchReport(bundle: ReplayBundle, callouts: ReadonlyArray<R
   const rounds: ReportRound[] = []
   const duels: ReportDuel[] = []
   const smokes: ReportSmoke[] = []
+  const uses: ReportKitUse[] = []
+  const mine = bundle.effects.filter(e => e.owner === me).sort((a, b) => a.start - b.start)
+  const landed = new Set<number>()
   const dwellMaps: Record<ReplaySide, Map<string, number>> = { attacker: new Map(), defender: new Map() }
   const mateBySide: Record<ReplaySide, number[]> = { attacker: [], defender: [] }
   const secondLives: number[] = []
@@ -313,9 +341,31 @@ export function buildMatchReport(bundle: ReplayBundle, callouts: ReadonlyArray<R
     if (myDeaths.length > 1) secondLives.push(n)
 
     const casts: Partial<Record<AbilitySlot, number>> = {}
-    for (const cast of bundle.casts) {
+    for (const cast of [...bundle.casts].sort((a, b) => a.t - b.t)) {
       if (cast.round !== n || cast.player !== me) continue
-      if (cast.slot === 'C' || cast.slot === 'Q' || cast.slot === 'E' || cast.slot === 'X') casts[cast.slot] = (casts[cast.slot] ?? 0) + 1
+      if (cast.slot !== 'C' && cast.slot !== 'Q' && cast.slot !== 'E' && cast.slot !== 'X') continue
+      casts[cast.slot] = (casts[cast.slot] ?? 0) + 1
+      // What the cast made: the thing of theirs that starts nearest to it, each counted once.
+      let made = -1
+      for (let i = 0; i < mine.length; i++) {
+        const gap = mine[i].start - cast.t
+        if (gap > MADE_AFTER_MS) break
+        if (gap < -MADE_BEFORE_MS || landed.has(i)) continue
+        if (made < 0 || Math.abs(gap) < Math.abs(mine[made].start - cast.t)) made = i
+      }
+      if (made >= 0) landed.add(made)
+      // A projectile's record starts in the hand; its track ends where it came down.
+      const end = made >= 0 ? mine[made].track?.at(-1) : undefined
+      uses.push({
+        round: n,
+        side: round.side,
+        slot: cast.slot,
+        t: cast.t,
+        clockS: Math.round((cast.t - t0) / 100) / 10,
+        where: cast.x != null && cast.y != null ? place(cast.x, cast.y) : null,
+        lands: made >= 0 ? (end ? place(end[1], end[2]) : place(mine[made].x, mine[made].y)) : null,
+        afterDeath: firstDeath !== null && cast.t > firstDeath,
+      })
     }
     const nextBuy = bundle.rounds.find(r => r.n === n + 1)?.buyStartMs ?? Infinity
     for (const effect of bundle.effects) {
@@ -466,7 +516,7 @@ export function buildMatchReport(bundle: ReplayBundle, callouts: ReadonlyArray<R
       openingDeaths: rounds.filter(r => firstVictimOf(r.n)?.victim === me).length,
       openingKills: myKills.filter(d => d.first).length,
     },
-    kit: { casts, smokes, secondLives },
+    kit: { casts, uses, smokes, secondLives },
     notable: [],
     findings: [],
   }

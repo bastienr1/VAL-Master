@@ -224,6 +224,8 @@ test('casts are counted by key, and smokes are placed and marked when thrown aft
   )
   assert.ok(report)
   assert.deepEqual(report.kit.casts, { E: 2 })
+  // The first cast made the smoke that starts with it; nothing of theirs starts near the second.
+  assert.deepEqual(report.kit.uses.map(u => [u.slot, u.clockS, u.where, u.lands, u.afterDeath]), [['E', 2, 'A Site', 'B Site', false], ['E', 3, 'A Site', null, false]])
   assert.deepEqual(report.kit.smokes.map(s => [s.clockS, s.where, s.afterDeath]), [[2, 'B Site', false], [30, 'Mid', true]])
 })
 

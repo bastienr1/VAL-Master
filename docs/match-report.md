@@ -1,7 +1,8 @@
 # Match report
 
-> Status: step 1 (the numbers) and step 2 (the page, with the replay beside it)
-> are built on `feature/match-report` (2026-11-20). Steps 3 and 4 are not. The
+> Status: steps 1 to 3 are built on `feature/match-report` (2026-11-20): the
+> numbers, the page with the replay beside it, and the written notes and trend
+> (which need migration `20261120_match_reports.sql`). Step 4 is not. The
 > report began as a set of Python scripts in the vault
 > (`Valorant/_scripts/match_replay.py`, `match_report_page.py`) that write an
 > HTML page per match; this is the same report inside the app.
@@ -14,32 +15,44 @@ replay is pinned beside the text, so a line of the report is one click from
 being watched. The review page links to it ("Match report") once the match has
 replay data.
 
-Nothing is stored. The page computes the report in the browser from the minimap
-bundle the review page already attaches (`replays.ts`), in about 10 ms.
+The page computes the report in the browser from the minimap bundle the review
+page already attaches (`replays.ts`), in about 10 ms. Two things are stored, in
+`match_reports` (section 4): what a person wrote about the match, and a few
+counts for the trend.
 
 ## 2. Layout
 
-Two columns from `lg` up, one below it.
+Two columns from `lg` up, one below it. The divider between them drags, as on
+the review page (`useSplitter`, `side: 'left'`, remembered under
+`matchReport.stageWidth`): the replay panel starts at 560 px and can take
+everything but 420 px of text.
 
 - **Left, sticky: the stage** (`components/report/ReportStage.tsx`).
   - A match with a synced recording (`vod_reviews.youtube_url` and
     `barrier_drop_offset`): the YouTube player, and under it the minimap
-    following the video, exactly as on the review page.
+    following the video, exactly as on the review page. A switch picks Video
+    and map, Video, or Map; on Map the player is hidden, not unmounted.
   - A match without one: the minimap on a clock of its own
     (`hooks/useReplayClock.ts`) with play, a slider over the round on screen
     and 1×/2×/4×. Buy phases are skipped while playing.
+  - The map is a square as wide as its column, so in a wide panel its width is
+    held to the height the window has left; the map's round and kill lists
+    are below the fold and the panel scrolls to them.
   - `ReplayMinimap` is the review page's component, unchanged except that
     `onNudge` is now optional: without it the "out of step with the video" row
     is hidden.
 - **Right: the text** (`components/report/ReportSections.tsx`). Collapsible
   sections under a bar that stays in view, with Open all and Close all:
-  the short version, rounds, positioning, duels, kit.
+  the short version, rounds, positioning, duels, economy, kit, trend, next
+  session. Economy and next session appear when notes were written for them,
+  the trend when two or more games have stored counts.
 
-Every round, duel, notable kill and finding has a play button. It calls
+Every round, duel, notable kill, ability use, written note and finding has a
+play button. It calls
 `ReportStageHandle.watch(replayMs)`, which seeks the stage to 3 s before the
 moment (1 s before a round's barrier drop) and plays. With a recording that
-seeks the video, and the map follows. The duels table also shows the video time
-of each duel as a link to `/review/:matchId?t=`.
+seeks the video, and the map follows. The duels table and the Kit table also
+show the video time of each row as a link to `/review/:matchId?t=`.
 
 ## 3. The numbers (`lib/matchReport.ts`)
 
@@ -60,6 +73,8 @@ rounds differently at 47.05 s.
 | Setup, at 0:20 | the nearest callout at 10 s and 20 s after the barrier drop |
 | Teammate distance | mean distance to the nearest living teammate, once a second |
 | Second life | a round with two deaths; a death by oneself is a second life running out, not a duel |
+| Ability use | every cast of C, Q, E or X, with the callout the player stood on |
+| Where it went | the thing of theirs the replay records nearest the cast (1 s before to 2 s after), each counted once: a smoke where it stood, a projectile where its track ends |
 
 **Findings** are worked out by fixed rules from those numbers (kills standing,
 deaths moving, rounds survived and won, deaths in won rounds, opening deaths,
@@ -74,16 +89,37 @@ or more, standing on a running target.
 The loadout column comes from `match_rounds` (Henrik); a match with no rows
 there shows a dash. Armour at the barrier drop comes from the bundle's vitals.
 
-## 4. Not built yet
+## 4. Written notes and the trend (`match_reports`)
 
-- **Step 3, written judgments and trend.** A `match_reports` table holding the
-  notes written per match (the HTML reports' `notes.json`: what works, what to
-  work on, best paths, next session) and a few summary numbers so a trend over
-  the last games is one query. The rule-based findings stay as the default.
+Migration `supabase/migrations/20261120_match_reports.sql`: one row per match of
+a user, `notes jsonb` and `summary jsonb`, RLS own rows only. The page works
+without the table (`matchReports.ts` treats a missing table as nothing written)
+and says under the short version that the migration has not been run.
+
+- **`notes`** is what a person wrote: the vault's `notes.json` for the match
+  (`lede`, `works`, `work`, `paths`, `path_fixes`, `best_duels`, `positioning`,
+  `duels`, `economy`, `kit`, `next`). `matchReportNotes.ts` reads it tolerantly
+  and turns `<b>` into `**bold**`, the only markup the page renders. The
+  communication block is not stored: voice transcripts stay on the PC.
+- **On the page** written notes come first in each section and the rule-based
+  findings stay under them ("What the rules found"). A note about a round has a
+  play button; a best duel plays from its second of the round.
+- **`summary`** is twelve counts from `buildMatchReport` (version 1). The page
+  saves it the first time a match's report is opened, without touching `notes`,
+  then reads the trend: the last six games of the same mode with a summary, up
+  to the one on screen.
+
+Notes are written per match outside the app and inserted with SQL
+(`Valorant/_scripts/match_valmaster_report.mjs` in the vault builds the upsert
+from a match's `notes.json`). There is no editor for them in the app.
+
+## 4b. Not built yet
+
 - **Step 4, tags and communication.** A button that applies KILL, DEATH, side
   and site moment tags from the duels list (`addMomentTag`), and a
   communication section that reads `comms.json` from the linked replay folder
   without uploading it.
+- An editor for the written notes.
 - Economy beyond the loadout value (weapon, credits left, the teams' averages)
   is in Henrik's match record but not in `match_rounds`.
 
