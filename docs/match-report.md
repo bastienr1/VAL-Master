@@ -1,8 +1,10 @@
 # Match report
 
-> Status: steps 1 to 3 are built on `feature/match-report` (2026-11-20): the
-> numbers, the page with the replay beside it, and the written notes and trend
-> (which need migration `20261120_match_reports.sql`). Step 4 is not. The
+> Status: all four steps are built (2026-11-20). Steps 1 to 3 are in `main`:
+> the numbers, the page with the replay beside it, and the written notes and
+> trend (migration `20261120_match_reports.sql`). Step 4, on
+> `feature/match-report-tags`, adds one-click tags and the communication
+> section. The
 > report began as a set of Python scripts in the vault
 > (`Valorant/_scripts/match_replay.py`, `match_report_page.py`) that write an
 > HTML page per match; this is the same report inside the app.
@@ -43,9 +45,10 @@ everything but 420 px of text.
     is hidden.
 - **Right: the text** (`components/report/ReportSections.tsx`). Collapsible
   sections under a bar that stays in view, with Open all and Close all:
-  the short version, rounds, positioning, duels, economy, kit, trend, next
-  session. Economy and next session appear when notes were written for them,
-  the trend when two or more games have stored counts.
+  the short version, rounds, positioning, duels, communication, economy, kit,
+  trend, next session. Economy and next session appear when notes were written
+  for them, the trend when two or more games have stored counts, communication
+  when the linked replay folder has the match's file (section 6).
 
 Every round, duel, notable kill, ability use, written note and finding has a
 play button. It calls
@@ -113,17 +116,61 @@ Notes are written per match outside the app and inserted with SQL
 (`Valorant/_scripts/match_valmaster_report.mjs` in the vault builds the upsert
 from a match's `notes.json`). There is no editor for them in the app.
 
-## 4b. Not built yet
+## 5. Tags from the duels (`matchReportTags.ts`)
 
-- **Step 4, tags and communication.** A button that applies KILL, DEATH, side
-  and site moment tags from the duels list (`addMomentTag`), and a
-  communication section that reads `comms.json` from the linked replay folder
-  without uploading it.
+The Duels section has one button, "Tag kills and deaths on the video". It is
+enabled when the match has a synced video, because a moment tag is keyed to a
+video second (`moment_tags.video_ts`, `review_type` 'vod', `review_id` the
+match id).
+
+- Each duel calls for KILL or DEATH, ATTACK or DEFENSE, the site (A, B, C, or
+  MID) read from the callout, and the callout's own name in capitals (so a
+  vocabulary with "A SHORT" gets that too).
+- Tags are found by name in the user's vocabulary, whatever the case. A name
+  that is missing is skipped and listed under the button; none is created. A
+  callout with no tag of its name is the usual case and is not listed.
+- A tag sits 5 s before its duel. A death takes the `note_id` of the review
+  note at that second, when there is one. A kill moves to the next second free
+  of notes, since a tag at a note's second belongs to that note.
+- A tag of the same name within one second on the review counts as already
+  there, so a second press, or tags put on earlier by a script on another
+  clock, are never doubled. The count of those is shown.
+
+`planDuelTags` is pure and tested; `matchReportTagging.ts` reads the
+vocabulary, the review's tags and notes, and inserts the plan's rows.
+
+## 6. Communication (`matchComms.ts`, local only)
+
+What was said in a match never goes to Supabase. The vault's
+`match_valmaster_comms.py` writes `comms.v1.json` beside the match's bundle, in
+`<first 8 of the match id>-derived/` of the replay folder. `useMatchComms`
+finds that folder through the link the Match Library already keeps
+(`replayFolder.ts`, File System Access API), reads the file with
+`readReplayFolderFile` and parses it in the page. There is no table for it and
+the folder sync uploads only minimap bundles.
+
+- No linked folder, or no file for the match: the section is not shown.
+- Linked but the browser wants access confirmed (once per session): the section
+  shows one button, "Reconnect the replay folder".
+- With the file: the written verdict, four counts (share of lines, calls
+  checked that were right, deaths followed by information, words by phase),
+  what the calls do well and miss, each checked call against where the enemies
+  were, and every line by round. Calls and lines have play buttons.
+
+File shape, schema 1: `matchId`, `mine` (`lines`, `words`, `wordsByPhase`,
+`swears`), `team.lines`, `afterDeath[]` (`round`, `useful`), `checks[]`
+(`round`, `t`, `text`, `then`, `later`, `verdict`), `lines[]` (`round`, `t`,
+`who`, `text`), `notes` (`verdict`, `works`, `work`). Times are seconds after
+the round's barrier drop.
+
+## 7. Not built yet
+
 - An editor for the written notes.
 - Economy beyond the loadout value (weapon, credits left, the teams' averages)
   is in Henrik's match record but not in `match_rounds`.
+- Tags for a match with no video: there is no clock to key them to.
 
-## 5. Checking it
+## 8. Checking it
 
 `npm test` covers the numbers. For the page, open `/report/<match id>` on a
 match with replay data: one with a synced video (the stage is video and map)
