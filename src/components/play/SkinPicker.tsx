@@ -7,10 +7,12 @@ interface SkinPickerProps {
   onPick(skin: CanvasSkinId): void
   /** The toolbar's button look, closed. */
   buttonClass: string
+  /** False where the K key does not cycle the skins (outside the Plays editor): the hint about it is left out. */
+  cycleKey?: boolean
 }
 
 /** The toolbar's Skin button and its menu: each canvas skin with its colours. The K key cycles them (§2.11). */
-export default function SkinPicker({ skin, onPick, buttonClass }: SkinPickerProps) {
+export default function SkinPicker({ skin, onPick, buttonClass, cycleKey = true }: SkinPickerProps) {
   const [open, setOpen] = useState(false)
   const root = useRef<HTMLDivElement>(null)
 
@@ -37,7 +39,7 @@ export default function SkinPicker({ skin, onPick, buttonClass }: SkinPickerProp
         onClick={() => setOpen(o => !o)}
         aria-haspopup="menu"
         aria-expanded={open}
-        title={`Canvas skin: ${CANVAS_SKINS[skin].name} (K cycles)`}
+        title={`Canvas skin: ${CANVAS_SKINS[skin].name}${cycleKey ? ' (K cycles)' : ''}`}
         className={buttonClass}
       >
         <Palette className="w-3.5 h-3.5" />
@@ -75,9 +77,11 @@ export default function SkinPicker({ skin, onPick, buttonClass }: SkinPickerProp
               </button>
             )
           })}
-          <p className="px-2 pt-1.5 pb-1 text-[11px] text-text-secondary">
-            Press <kbd className="font-stats text-text-primary">K</kbd> to cycle, <kbd className="font-stats text-text-primary">Shift K</kbd> to go back.
-          </p>
+          {cycleKey && (
+            <p className="px-2 pt-1.5 pb-1 text-[11px] text-text-secondary">
+              Press <kbd className="font-stats text-text-primary">K</kbd> to cycle, <kbd className="font-stats text-text-primary">Shift K</kbd> to go back.
+            </p>
+          )}
         </div>
       )}
     </div>

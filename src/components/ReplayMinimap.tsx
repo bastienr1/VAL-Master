@@ -27,6 +27,7 @@ import {
 } from '../lib/replaySync'
 
 import { LAYERS, readLayers, writeLayers, type LayerKey, type Layers } from '../lib/replayLayers'
+import type { ReplayStage } from './ReplayPlaysStage'
 
 interface ReplayMinimapProps {
   bundle: ReplayBundle
@@ -48,6 +49,12 @@ interface ReplayMinimapProps {
    * links the round it shows there. Keep it stable: this component is memoized.
    */
   playsHref?: (round: number) => string
+  /**
+   * Draws the map in place of this component's own canvas (the Plays replay
+   * map, `usePlaysStage`). The clock, the rounds, the kills and the layer
+   * toggles stay here and drive it. Without one the minimap draws itself.
+   */
+  stage?: ReplayStage | null
 }
 
 const TEAM_COLOR = { ALLY: '#53CADC', ENEMY: '#FF4655' } as const
@@ -326,6 +333,7 @@ function ReplayMinimap({
   onSeek,
   onNudge,
   playsHref,
+  stage = null,
 }: ReplayMinimapProps) {
   const frameRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -406,9 +414,9 @@ function ReplayMinimap({
   }, [bundle])
 
   // The frame loop outlives renders, so it reads the latest inputs from a ref.
-  const live = useRef({ bundle, scene, layers, barrierOffset, isPlaying, getVideoTime, getPlaybackRate, killsByRound })
+  const live = useRef({ bundle, scene, layers, barrierOffset, isPlaying, getVideoTime, getPlaybackRate, killsByRound, stage })
   useEffect(() => {
-    live.current = { bundle, scene, layers, barrierOffset, isPlaying, getVideoTime, getPlaybackRate, killsByRound }
+    live.current = { bundle, scene, layers, barrierOffset, isPlaying, getVideoTime, getPlaybackRate, killsByRound, stage }
   })
 
   useEffect(() => {
@@ -417,7 +425,7 @@ function ReplayMinimap({
     // two reports, advance from the last one by wall-clock time so the map moves
     // every frame instead of in jumps.
     const clock = { reported: Number.NaN, at: 0 }
-    let drawn = { t: Number.NaN, size: 0, scene: null as Scene | null, layers: null as Layers | null }
+    let drawn = { t: Number.NaN, size: 0, scene: null as Scene | null, layers: null as Layers | null, stage: null as ReplayStage | null }
     let hudShown = { round: -1, shown: -1 }
 
     const tick = (now: number) => {
@@ -425,7 +433,7 @@ function ReplayMinimap({
       const state = live.current
       const canvas = canvasRef.current
       const frame = frameRef.current
-      if (!canvas || !frame || !state.scene) return
+      if (!frame || !state.scene || (!canvas && !state.stage)) return
 
       const anchor = replayAnchorMs(state.bundle) ?? 0
       let t = anchor // unsynced: show the R1 barrier drop
@@ -440,18 +448,26 @@ function ReplayMinimap({
         t = Math.max(0, Math.min(state.bundle.match.durationMs, t))
       }
 
-      const dpr = window.devicePixelRatio || 1
-      const size = Math.round(frame.clientWidth * dpr)
-      if (size === 0) return
-      if (canvas.width !== size) {
-        canvas.width = size
-        canvas.height = size
-      }
+      if (state.stage) {
+        // The stage draws the map: it is told the time and the layers when either changes.
+        if (drawn.t !== t || drawn.layers !== state.layers || drawn.stage !== state.stage) {
+          state.stage.show(t, state.layers)
+          drawn = { t, size: 0, scene: state.scene, layers: state.layers, stage: state.stage }
+        }
+      } else if (canvas) {
+        const dpr = window.devicePixelRatio || 1
+        const size = Math.round(frame.clientWidth * dpr)
+        if (size === 0) return
+        if (canvas.width !== size) {
+          canvas.width = size
+          canvas.height = size
+        }
 
-      if (drawn.t !== t || drawn.size !== size || drawn.scene !== state.scene || drawn.layers !== state.layers) {
-        const ctx = canvas.getContext('2d')
-        if (ctx) drawScene(ctx, size, state.bundle, state.scene, state.layers, t)
-        drawn = { t, size, scene: state.scene, layers: state.layers }
+        if (drawn.t !== t || drawn.size !== size || drawn.scene !== state.scene || drawn.layers !== state.layers || drawn.stage !== null) {
+          const ctx = canvas.getContext('2d')
+          if (ctx) drawScene(ctx, size, state.bundle, state.scene, state.layers, t)
+          drawn = { t, size, scene: state.scene, layers: state.layers, stage: null }
+        }
       }
 
       const round = roundAtReplayMs(state.bundle, t)
@@ -527,7 +543,7 @@ function ReplayMinimap({
   return (
     <div className="space-y-2">
       <div ref={frameRef} className="relative w-full aspect-square bg-bg-primary border border-bg-elevated rounded-lg overflow-hidden">
-        <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
+        {stage ? stage.node : <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />}
         {!synced && (
           <div className="absolute inset-x-0 bottom-0 bg-bg-primary/85 px-3 py-2 text-center text-[11px] text-val-yellow">
             Sync the round 1 barrier drop under the video to drive the map from the VOD.
@@ -562,6 +578,7 @@ function ReplayMinimap({
                 {text}
               </button>
             ))}
+            {stage?.controls}
           </span>
         </div>
 
@@ -642,7 +659,9 @@ function ReplayMinimap({
       </div>
 
       <p className="text-[10px] text-text-muted px-1">
-        Smoke and utility sizes are approximate: the replay records where and how long, not how big.
+        {stage
+          ? 'The wheel zooms the map and a drag moves it. The skin you pick here is the one Plays uses too.'
+          : 'Smoke and utility sizes are approximate: the replay records where and how long, not how big.'}
       </p>
     </div>
   )

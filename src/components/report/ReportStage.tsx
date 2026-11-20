@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import { Pause, Play } from 'lucide-react'
 import ReplayMinimap from '../ReplayMinimap'
+import { usePlaysStage } from '../../hooks/usePlaysStage'
 import { useReplayClock } from '../../hooks/useReplayClock'
 import { useYouTubePlayer } from '../../hooks/useYouTubePlayer'
 import type { ReplayBundle } from '../../lib/replayBundle'
@@ -72,6 +73,7 @@ function usePlaysHref(matchId: string) {
 function VideoStage({ bundle, video, matchId, handleRef }: ReportStageProps & { video: ReportVideo }) {
   const { containerRef, embedBlocked, isPlaying, getCurrentTime, seekTo, play } = useYouTubePlayer(video.videoId)
   const playsHref = usePlaysHref(matchId)
+  const playsStage = usePlaysStage(bundle)
   const [view, setViewState] = useState<StageView>(readView)
   const setView = (next: StageView) => {
     setViewState(next)
@@ -143,6 +145,7 @@ function VideoStage({ bundle, video, matchId, handleRef }: ReportStageProps & { 
             isPlaying={isPlaying}
             onSeek={onSeek}
             playsHref={playsHref}
+            stage={playsStage}
           />
         </div>
       )}
@@ -153,6 +156,7 @@ function VideoStage({ bundle, video, matchId, handleRef }: ReportStageProps & { 
 function ClockStage({ bundle, matchId, handleRef }: ReportStageProps) {
   const clock = useReplayClock(bundle)
   const playsHref = usePlaysHref(matchId)
+  const playsStage = usePlaysStage(bundle)
   const { seekMs, play } = clock
 
   useEffect(() => {
@@ -226,6 +230,7 @@ function ClockStage({ bundle, matchId, handleRef }: ReportStageProps) {
         isPlaying={clock.isPlaying}
         onSeek={clock.seekSeconds}
         playsHref={playsHref}
+        stage={playsStage}
       />
     </div>
   )

@@ -14,6 +14,7 @@ import { addMomentTag } from '../lib/momentTags'
 import { useMatchNotes } from '../hooks/useMatchNotes'
 import { useProfile, profileToPlayer } from '../lib/profile'
 import { useReplayBundle } from '../lib/replays'
+import { usePlaysStage } from '../hooks/usePlaysStage'
 import { applyReplayTiming } from '../lib/replaySync'
 import { getLoadedGameContent, loadGameContent } from '../lib/gameContent'
 import InlineDebrief from '../components/InlineDebrief'
@@ -95,6 +96,8 @@ export default function VodReview() {
 
   // Minimap bundle for this match, if one has been attached
   const replay = useReplayBundle(match?.match_id)
+  // The Map tab draws with the Plays replay canvas when the map allows it, else with the minimap's own.
+  const playsStage = usePlaysStage(replay.bundle)
   const [railTab, setRailTab] = useState<RailTab>(readRailTab)
   // Agent names for the timeline come from the content registry, which loads
   // on its own schedule; this flips once so the names fill in when it lands.
@@ -894,6 +897,7 @@ export default function VodReview() {
               onSeek={seekToTimestamp}
               onNudge={handleNudgeSync}
               playsHref={playsHref}
+              stage={playsStage}
             />
           )}
 
