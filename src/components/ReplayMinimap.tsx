@@ -578,6 +578,7 @@ function ReplayMinimap({
                 {text}
               </button>
             ))}
+            {stage?.controls}
           </span>
         </div>
 
@@ -659,7 +660,7 @@ function ReplayMinimap({
 
       <p className="text-[10px] text-text-muted px-1">
         {stage
-          ? 'The wheel zooms the map and a drag moves it. The map looks as you set it in Plays.'
+          ? 'The wheel zooms the map and a drag moves it. The skin you pick here is the one Plays uses too.'
           : 'Smoke and utility sizes are approximate: the replay records where and how long, not how big.'}
       </p>
     </div>

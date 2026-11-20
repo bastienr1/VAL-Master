@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import SkinPicker from '../components/play/SkinPicker'
 import ReplayPlaysStage, { type PlaysStageFrame, type PlaysStageSource, type ReplayStage } from '../components/ReplayPlaysStage'
 import { useGameContent } from './useGameContent'
+import { canvasSkin, type CanvasSkinId } from '../lib/canvasSkins'
 import { isDeathmatchBundle, type ReplayBundle } from '../lib/replayBundle'
 import { createFrameIds, frameStep, roundAt } from '../lib/replayFrame'
 import type { Layers } from '../lib/replayLayers'
@@ -9,6 +11,19 @@ import { fetchPlayerNames } from '../lib/replayNames'
 import { createValueStore } from '../lib/valueStore'
 
 const NO_NAMES: ReadonlyMap<string, string> = new Map()
+
+// The Plays editor's own key: one skin on this device, wherever the map is drawn.
+const SKIN_KEY = 'plays.canvasSkin'
+
+function readSkin(): CanvasSkinId {
+  try {
+    return canvasSkin(localStorage.getItem(SKIN_KEY)).id
+  } catch {
+    return canvasSkin(null).id
+  }
+}
+
+const SKIN_BUTTON = 'inline-flex items-center gap-1 text-text-muted hover:text-val-cyan transition-colors'
 
 /**
  * The Plays editor's replay map for a match, to stand in for the review
@@ -25,6 +40,15 @@ export function usePlaysStage(bundle: ReplayBundle | null | undefined): ReplaySt
   const { registry } = useGameContent()
   const [store] = useState(() => createValueStore<PlaysStageFrame | null>(null))
   const [named, setNamed] = useState<{ bundle: ReplayBundle; names: ReadonlyMap<string, string> } | null>(null)
+  const [skin, setSkin] = useState<CanvasSkinId>(readSkin)
+  const pickSkin = useCallback((next: CanvasSkinId) => {
+    setSkin(next)
+    try {
+      localStorage.setItem(SKIN_KEY, next)
+    } catch {
+      /* a skin is not worth an error */
+    }
+  }, [])
 
   const open = useMemo<PlaysStageSource | null>(() => {
     if (!bundle || !registry || isDeathmatchBundle(bundle)) return null
@@ -59,7 +83,14 @@ export function usePlaysStage(bundle: ReplayBundle | null | undefined): ReplaySt
   )
 
   return useMemo(
-    () => (open && bundle ? { show, node: <ReplayPlaysStage bundle={bundle} open={open} names={names} store={store} /> } : null),
-    [open, show, bundle, names, store],
+    () =>
+      open && bundle
+        ? {
+            show,
+            node: <ReplayPlaysStage bundle={bundle} open={open} names={names} store={store} skin={skin} />,
+            controls: <SkinPicker skin={skin} onPick={pickSkin} buttonClass={SKIN_BUTTON} cycleKey={false} />,
+          }
+        : null,
+    [open, show, bundle, names, store, skin, pickSkin],
   )
 }

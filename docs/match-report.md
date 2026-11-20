@@ -51,7 +51,10 @@ everything but 420 px of text.
     `ReplayMinimap` a `stage`: the minimap keeps the clock, the rounds, the
     kills list, the layer toggles and the sync nudge, and calls
     `stage.show(t, layers)` instead of drawing its own canvas. Read-only: the
-    wheel zooms, a drag pans. When the map cannot be drawn that way (registry
+    wheel zooms, a drag pans. A Skin button beside the layer toggles
+    (`stage.controls`, the Plays `SkinPicker`) picks the canvas skin; it is
+    stored under the Plays editor's own key, so one skin serves both. When
+    the map cannot be drawn that way (registry
     from the fallback source, with no callouts) the hook returns null and the
     minimap draws itself as before.
 - **Right: the text** (`components/report/ReportSections.tsx`). Collapsible

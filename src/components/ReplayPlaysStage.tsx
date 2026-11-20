@@ -16,10 +16,12 @@ import type { ValueStore } from '../lib/valueStore'
 /**
  * What draws the map in place of the minimap's own canvas: `node` goes in the
  * map's square, and `show` is called with the replay time and the layer
- * toggles whenever either changes.
+ * toggles whenever either changes. `controls`, when given, joins the layer
+ * toggles under the map.
  */
 export interface ReplayStage {
   node: ReactNode
+  controls?: ReactNode
   show: (replayMs: number, layers: Layers) => void
 }
 
@@ -39,8 +41,8 @@ export interface PlaysStageFrame {
 
 const noop = () => {}
 
-/** The canvas look picked in the Plays editor on this device, so the map is the same map in both places. */
-function readLook(): { sizes: CanvasSizes; skin: CanvasSkinId; showCallouts: boolean; showNames: boolean; showKit: boolean } {
+/** The sizes and labels picked in the Plays editor on this device, so the map is the same map in both places. */
+function readLook(): { sizes: CanvasSizes; showCallouts: boolean; showNames: boolean; showKit: boolean } {
   const read = (key: string) => {
     try {
       return localStorage.getItem(key)
@@ -54,7 +56,6 @@ function readLook(): { sizes: CanvasSizes; skin: CanvasSkinId; showCallouts: boo
   }
   return {
     sizes: parseCanvasSizes(read('plays.canvasSizes')),
-    skin: canvasSkin(read('plays.canvasSkin')).id,
     showCallouts: flag('plays.showCallouts'),
     showNames: flag('plays.showNames'),
     showKit: flag('plays.showKit'),
@@ -66,8 +67,10 @@ function readLook(): { sizes: CanvasSizes; skin: CanvasSkinId; showCallouts: boo
  * `store` (docs/plays-editor-v2.md §2.8). `usePlaysStage` owns the store and
  * hands this to the review minimap as its stage.
  */
-export default function ReplayPlaysStage({ bundle, open, names, store }: {
+export default function ReplayPlaysStage({ bundle, open, names, store, skin }: {
   bundle: ReplayBundle
+  /** The canvas skin, picked under the map and shared with the Plays editor. */
+  skin: CanvasSkinId
   open: PlaysStageSource
   names: ReadonlyMap<string, string>
   store: ValueStore<PlaysStageFrame | null>
@@ -101,7 +104,7 @@ export default function ReplayPlaysStage({ bundle, open, names, store }: {
 
   if (!shown) return null
   return (
-    <div className="absolute inset-0" style={{ backgroundColor: canvasSkin(look.skin).back }}>
+    <div className="absolute inset-0" style={{ backgroundColor: canvasSkin(skin).back }}>
       <PlayCanvas
         map={open.map}
         // "My side" on: the map turns with the owner's side. Off: attackers at the bottom.
@@ -115,7 +118,7 @@ export default function ReplayPlaysStage({ bundle, open, names, store }: {
         showNames={look.showNames}
         showKit={look.showKit}
         sizes={look.sizes}
-        skin={look.skin}
+        skin={skin}
         motion={motion}
         kills={kills}
         abilityVisible={abilityVisible}
