@@ -33,7 +33,7 @@ test("the vault's notes.json: snake_case keys, <b> emphasis, its section names",
   })
   assert.equal(notes.lede, '6–6 on defence, then 7–2 on attack.')
   assert.deepEqual(notes.works, [{ title: 'The attack half', body: '7 of 9 rounds won.', section: 'positioning' }])
-  assert.deepEqual(notes.work.map(c => c.section), [null, 'rounds'])
+  assert.deepEqual(notes.work.map(c => c.section), ['comms', 'rounds'])
   assert.deepEqual(notes.paths, [{ round: 9, title: 'The one against one', body: 'Mid Window, then A Crane.', clockS: null }])
   assert.deepEqual(notes.pathFixes.map(n => n.round), [6])
   assert.deepEqual(notes.bestDuels, [{ round: 9, title: 'The clutch', body: 'Guardian, 17 m.', clockS: 64.6 }])

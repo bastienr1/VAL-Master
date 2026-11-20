@@ -1,9 +1,12 @@
 import { useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { ChevronDown, ChevronRight, Play } from 'lucide-react'
+import type { MatchCommsState } from '../../hooks/useMatchComms'
+import { siteCountLabel } from '../../lib/matchComms'
 import type { AbilitySlot, MatchReport, ReportDuel, ReportFinding, ReportRound, Stance } from '../../lib/matchReport'
 import { OFF_CROSSHAIR_DEG } from '../../lib/matchReport'
 import { boldRuns, type NoteCard, type ReportNotes, type ReportSectionId, type RoundNote } from '../../lib/matchReportNotes'
+import type { DuelTagResult } from '../../lib/matchReportTagging'
 import type { TrendRow } from '../../lib/matchReports'
 import type { ReplaySide } from '../../lib/replayBundle'
 import type { MatchRound } from '../../lib/types'
@@ -33,6 +36,10 @@ interface ReportSectionsProps {
   onWatch: (replayMs: number) => void
   /** The video second of a replay time, when the match has a synced recording. */
   videoSecond: ((replayMs: number) => number) | null
+  /** Tags every kill and death on the match's video; null when the match has no synced video to tag. */
+  onTagDuels: (() => Promise<DuelTagResult>) | null
+  /** What was said, read from the linked replay folder on this device. */
+  comms: MatchCommsState
   matchId: string
 }
 
@@ -41,14 +48,15 @@ const SECTION_LABEL: Record<ReportSectionId, string> = {
   rounds: 'Rounds',
   positioning: 'Positioning',
   duels: 'Duels',
+  comms: 'Comms',
   economy: 'Economy',
   kit: 'Kit',
   trend: 'Trend',
   next: 'Next',
 }
-const SECTION_ORDER: ReportSectionId[] = ['findings', 'rounds', 'positioning', 'duels', 'economy', 'kit', 'trend', 'next']
+const SECTION_ORDER: ReportSectionId[] = ['findings', 'rounds', 'positioning', 'duels', 'comms', 'economy', 'kit', 'trend', 'next']
 const OPEN_AT_FIRST: Record<ReportSectionId, boolean> = {
-  findings: true, rounds: true, positioning: false, duels: true, economy: false, kit: false, trend: false, next: true,
+  findings: true, rounds: true, positioning: false, duels: true, comms: false, economy: false, kit: false, trend: false, next: true,
 }
 
 const SIDE_LABEL: Record<ReplaySide, string> = { attacker: 'Attack', defender: 'Defence' }
@@ -124,9 +132,11 @@ const Label = ({ children, tone = 'text-text-muted' }: { children: ReactNode; to
  * shows its moment on the stage beside it. What a person wrote about the match
  * comes first in each section; what the rules find is always there under it.
  */
-export default function ReportSections({ report, notes, trend, tableMissing, names, matchRounds, onWatch, videoSecond, matchId }: ReportSectionsProps) {
+export default function ReportSections({ report, notes, trend, tableMissing, names, matchRounds, onWatch, videoSecond, onTagDuels, comms, matchId }: ReportSectionsProps) {
   const [open, setOpen] = useState(OPEN_AT_FIRST)
   const [kitFilter, setKitFilter] = useState<AbilitySlot | 'all'>('all')
+  const [tagging, setTagging] = useState<{ busy: boolean; result: DuelTagResult | null; problem: string | null }>({ busy: false, result: null, problem: null })
+  const [saidRound, setSaidRound] = useState<number | null>(null)
 
   const { totals, sides } = report
   const kills = report.duels.filter(d => d.kind === 'kill')
@@ -142,6 +152,7 @@ export default function ReportSections({ report, notes, trend, tableMissing, nam
     rounds: true,
     positioning: true,
     duels: true,
+    comms: comms.status !== 'none',
     economy: notes.economy.length > 0,
     kit: true,
     trend: trend.length > 1,
@@ -157,6 +168,14 @@ export default function ReportSections({ report, notes, trend, tableMissing, nam
     requestAnimationFrame(() => document.getElementById(`report-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
   }
   const watch = (replayMs: number) => onWatch(replayMs - LEAD_MS)
+  const tagDuels = () => {
+    if (!onTagDuels || tagging.busy) return
+    setTagging({ busy: true, result: null, problem: null })
+    onTagDuels().then(
+      result => setTagging({ busy: false, result, problem: null }),
+      err => setTagging({ busy: false, result: null, problem: err instanceof Error ? err.message : String(err) }),
+    )
+  }
   /** A written note's moment: its second of the round, or the round's start. */
   const watchNote = (note: RoundNote) => {
     const round = roundByN.get(note.round)
@@ -451,6 +470,34 @@ export default function ReportSections({ report, notes, trend, tableMissing, nam
             <Tile value={totals.offCrosshairDeaths} of={deaths.length} label={`deaths with the killer ${OFF_CROSSHAIR_DEG}° or more off your crosshair`} tone="bad" />
             <Tile value={deaths.length - totals.tradedDeaths} of={deaths.length} label="deaths not traded" tone="bad" />
           </div>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 bg-bg-card border border-bg-elevated rounded-lg px-3 py-2">
+            <button
+              type="button"
+              onClick={tagDuels}
+              disabled={!onTagDuels || tagging.busy}
+              className="px-2.5 py-1 rounded-md text-xs font-medium bg-val-cyan/10 text-val-cyan border border-val-cyan/25 hover:bg-val-cyan/20 disabled:opacity-40 disabled:cursor-default transition-colors"
+            >
+              {tagging.busy ? 'Tagging…' : 'Tag kills and deaths on the video'}
+            </button>
+            <p className="text-xs text-text-secondary">
+              {!onTagDuels ? (
+                'Tags sit on the match’s video, and this match has no synced video.'
+              ) : tagging.problem ? (
+                <span className="text-val-red">{tagging.problem}</span>
+              ) : tagging.result ? (
+                <>
+                  {tagging.result.added === 0
+                    ? 'Every kill and death was tagged already.'
+                    : `Added ${tagging.result.added} tags on ${tagging.result.kills} kills and ${tagging.result.deaths} deaths.`}
+                  {tagging.result.added > 0 && tagging.result.already > 0 && ` ${tagging.result.already} were there already.`}
+                  {tagging.result.missing.length > 0 && ` Not in your tags, so skipped: ${tagging.result.missing.join(', ')}.`}{' '}
+                  <Link to={`/review/${matchId}`} className="text-val-cyan hover:underline">See them in the review</Link>
+                </>
+              ) : (
+                'KILL or DEATH, the side, the site and the place, five seconds before each duel. Uses the tags you already have; safe to press twice.'
+              )}
+            </p>
+          </div>
           {notes.bestDuels.length > 0 ? (
             <div>
               <Label>Your best duels</Label>
@@ -499,6 +546,120 @@ export default function ReportSections({ report, notes, trend, tableMissing, nam
             {totals.selfDeaths > 0 && ` ${totals.selfDeaths === 1 ? 'One more death was' : `${totals.selfDeaths} more deaths were`} a second life running out, which is not a duel.`}
           </p>
         </>
+      ))}
+
+      {section('comms', 'Communication', 'Read from your replay folder on this computer', (
+        comms.status === 'reconnect' ? (
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={comms.reconnect}
+              className="px-2.5 py-1 rounded-md text-xs font-medium bg-val-cyan/10 text-val-cyan border border-val-cyan/25 hover:bg-val-cyan/20 transition-colors"
+            >
+              Reconnect the replay folder
+            </button>
+            <p className="text-xs text-text-secondary">
+              What was said is read from “{comms.folderName}” on this computer. The browser asks you to confirm access once per session.
+            </p>
+          </div>
+        ) : comms.status === 'ready' && (() => {
+          const c = comms.comms
+          const right = c.checks.filter(check => check.verdict === 'right').length
+          const rounds = [...new Set(c.lines.map(line => line.round))].sort((x, y) => x - y)
+          const shownRound = saidRound !== null && rounds.includes(saidRound) ? saidRound : rounds[0] ?? null
+          const roundAt = (n: number, t: number) => (roundByN.get(n)?.barrierMs ?? 0) + t * 1000
+          return (
+            <>
+              {c.notes.verdict && <p className="text-sm text-text-primary">{c.notes.verdict}</p>}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                <Tile value={c.mine.lines} of={c.mine.lines + c.team.lines} label="lines were yours" tone="plain" />
+                <Tile value={right} of={c.checks.length} label="calls checked that were right" tone="good" />
+                <Tile value={c.afterDeath.useful} of={c.afterDeath.deaths} label="deaths followed by information" tone={c.afterDeath.useful * 2 < c.afterDeath.deaths ? 'bad' : 'plain'} />
+                <div className="bg-bg-card border border-bg-elevated rounded-lg px-3 py-2">
+                  <div className="font-stats text-xl">{c.mine.buyPct}<span className="text-xs text-text-muted">% / {c.mine.alivePct}% / {c.mine.deadPct}%</span></div>
+                  <div className="text-[11px] text-text-secondary">of your words in the buy phase, alive, dead</div>
+                </div>
+              </div>
+              {(c.notes.works.length > 0 || c.notes.work.length > 0) && (
+                <div className="grid gap-4 xl:grid-cols-2">
+                  <div>
+                    <Label tone="text-val-cyan">What the calls do well</Label>
+                    <Points lines={c.notes.works} />
+                  </div>
+                  <div>
+                    <Label tone="text-val-red">What they are missing</Label>
+                    <Points lines={c.notes.work} />
+                  </div>
+                </div>
+              )}
+              {c.checks.length > 0 && (
+                <div>
+                  <Label>Calls against the replay</Label>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs">
+                      <thead className="text-[10px] uppercase tracking-wider text-text-muted text-left whitespace-nowrap">
+                        <tr>
+                          <th className="pb-1" /><th className={TH}>Rd</th><th className={TH}>Time</th><th className={TH}>You said</th>
+                          <th className={TH}>Enemies then</th><th className={TH}>8 s later</th><th />
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {c.checks.map(check => (
+                          <tr key={`${check.round}-${check.t}`} className="border-t border-bg-elevated/60 hover:bg-bg-card/60">
+                            <td className="py-1 pr-2">
+                              {roundByN.has(check.round) && <WatchButton label={`Watch this call, round ${check.round}`} onClick={() => watch(roundAt(check.round, check.t))} />}
+                            </td>
+                            <td className="font-stats text-text-secondary pr-2">{check.round}</td>
+                            <td className="font-stats text-text-secondary pr-2">{check.t < 0 ? 'buy' : formatTime(check.t)}</td>
+                            <td className="pr-2">{check.text}</td>
+                            <td className="font-stats text-text-secondary pr-2 whitespace-nowrap">{siteCountLabel(check.then)}</td>
+                            <td className="font-stats text-text-secondary pr-2 whitespace-nowrap">{siteCountLabel(check.later)}</td>
+                            <td className={check.verdict === 'right' ? 'text-val-green' : check.verdict === 'wrong' ? 'text-val-red' : 'text-val-yellow'}>{check.verdict}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+              {shownRound !== null && (
+                <div>
+                  <div className="flex flex-wrap items-center gap-1 mb-2" role="group" aria-label="Round">
+                    <span className="text-[11px] uppercase tracking-wider text-text-muted mr-1">What was said, round</span>
+                    {rounds.map(n => (
+                      <button
+                        key={n}
+                        type="button"
+                        onClick={() => setSaidRound(n)}
+                        aria-pressed={shownRound === n}
+                        className={`min-w-6 px-1.5 py-0.5 rounded text-[11px] font-stats transition-colors ${
+                          shownRound === n ? 'bg-val-cyan/15 text-val-cyan' : 'bg-bg-card text-text-secondary hover:text-val-cyan'
+                        }`}
+                      >
+                        {n}
+                      </button>
+                    ))}
+                  </div>
+                  <ul className="max-h-80 overflow-y-auto space-y-0.5">
+                    {c.lines.filter(line => line.round === shownRound).map((line, i) => (
+                      <li key={`${line.t}-${i}`} className="flex items-start gap-2 text-xs px-1 py-0.5 rounded hover:bg-bg-card/60">
+                        {roundByN.has(line.round) && <WatchButton label={`Watch from this line, round ${line.round}`} onClick={() => onWatch(roundAt(line.round, line.t) - 1000)} />}
+                        <span className="font-stats text-text-muted w-9 shrink-0 pt-1">{line.t < 0 ? 'buy' : formatTime(line.t)}</span>
+                        <span className={`pt-1 ${line.who === 'me' ? 'text-text-primary' : 'text-text-secondary'}`}>
+                          <span className={line.who === 'me' ? 'text-val-cyan' : 'text-text-muted'}>{line.who === 'me' ? 'You' : 'Team'}:</span> {line.text}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              <p className="text-[11px] text-text-muted">
+                The lines were turned into text on this computer and are read from your replay folder. Nothing in this section is uploaded. The text has
+                errors on quiet words and names.
+              </p>
+            </>
+          )
+        })()
       ))}
 
       {section('economy', 'Economy', 'What the buys cost and kept', (

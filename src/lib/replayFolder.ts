@@ -123,6 +123,34 @@ async function findBundles(dir: DirectoryHandle, depth = 0): Promise<Array<Folde
   return found
 }
 
+/**
+ * A file the replay scripts wrote beside a match's bundle, in the same
+ * `<first 8 of the match id>-derived` folder (the match report's communication
+ * file, for one). Null when the folder holds no such file. Read on this device;
+ * nothing here uploads it.
+ */
+export async function readReplayFolderFile(folder: LinkedReplayFolder, matchId: string, fileName: string): Promise<File | null> {
+  if (folder.permission !== 'granted') throw new Error('The replay folder needs to be reconnected first.')
+  const wanted = `${matchId.slice(0, 8).toLowerCase()}-derived`
+  const search = async (dir: DirectoryHandle, depth: number): Promise<File | null> => {
+    for await (const entry of dir.values()) {
+      if (entry.kind !== 'directory') continue
+      if (entry.name.toLowerCase() === wanted) {
+        for await (const inner of entry.values()) {
+          if (inner.kind === 'file' && inner.name === fileName) return inner.getFile()
+        }
+        return null
+      }
+      if (depth < MAX_DEPTH && entry.name !== 'node_modules' && !entry.name.startsWith('.')) {
+        const found = await search(entry, depth + 1)
+        if (found) return found
+      }
+    }
+    return null
+  }
+  return search(folder.handle, 0)
+}
+
 /** Every match of this user that has replay data, with the stored bundle's size. */
 async function attachedReplays(): Promise<Map<string, number | null>> {
   const { data, error } = await supabase.from('match_replays').select('match_id, size_bytes')

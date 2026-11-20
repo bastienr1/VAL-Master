@@ -17,7 +17,7 @@
 import type { MatchReport } from './matchReport.ts'
 
 /** The sections of the report page a note can point at. */
-export type ReportSectionId = 'findings' | 'rounds' | 'positioning' | 'duels' | 'economy' | 'kit' | 'trend' | 'next'
+export type ReportSectionId = 'findings' | 'rounds' | 'positioning' | 'duels' | 'comms' | 'economy' | 'kit' | 'trend' | 'next'
 
 export interface NoteCard {
   title: string
@@ -54,7 +54,7 @@ export interface ReportNotes {
   next: NextNote[]
 }
 
-/** The vault's section names, on this page. `comms` and `lobby` have no section here. */
+/** The vault's section names, on this page. `lobby` has no section here. */
 const SECTION_OF: Record<string, ReportSectionId> = {
   short: 'findings',
   flow: 'rounds',
@@ -62,6 +62,7 @@ const SECTION_OF: Record<string, ReportSectionId> = {
   paths: 'positioning',
   positioning: 'positioning',
   duels: 'duels',
+  comms: 'comms',
   economy: 'economy',
   kit: 'kit',
   trend: 'trend',

@@ -4,10 +4,12 @@ import { SplitterHandle, useSplitter } from '../components/ColumnSplitter'
 import MatchRecapHeader from '../components/MatchRecapHeader'
 import ReportSections, { type ReportNames } from '../components/report/ReportSections'
 import ReportStage, { type ReportStageHandle, type ReportVideo } from '../components/report/ReportStage'
+import { useMatchComms } from '../hooks/useMatchComms'
 import { useMediaQuery } from '../hooks/useMediaQuery'
 import { getLoadedGameContent, loadGameContent, type GameContentRegistry } from '../lib/gameContent'
 import { buildMatchReport, type AbilitySlot } from '../lib/matchReport'
 import { parseReportNotes, reportSummary } from '../lib/matchReportNotes'
+import { applyDuelTags } from '../lib/matchReportTagging'
 import { loadReportTrend, loadStoredReport, saveReportSummary, type StoredMatchReport, type TrendRow } from '../lib/matchReports'
 import { useReplayBundle } from '../lib/replays'
 import { replayMsToVideoSeconds, weaponLabel } from '../lib/replaySync'
@@ -52,6 +54,7 @@ export default function MatchReport() {
   const [content, setContent] = useState<GameContentRegistry | null>(() => getLoadedGameContent())
   const replay = useReplayBundle(matchId)
   const stage = useRef<ReportStageHandle | null>(null)
+  const comms = useMatchComms(matchId)
   const isLg = useMediaQuery('(min-width: 1024px)')
   const { dragHandlers, panelProps } = useSplitter({
     initialWidth: STAGE_DEFAULT_W,
@@ -158,6 +161,12 @@ export default function MatchReport() {
     [bundle, video],
   )
 
+  // Tags live on the video's clock, so only a match with a synced video can be tagged.
+  const onTagDuels = useMemo(
+    () => (matchId && report && videoSecond ? () => applyDuelTags(matchId, report.duels, videoSecond) : null),
+    [matchId, report, videoSecond],
+  )
+
   if (!current || (data && (replay.status === 'loading' || !content))) {
     return (
       <div className="flex items-center justify-center py-24">
@@ -231,6 +240,8 @@ export default function MatchReport() {
               matchRounds={data.rounds}
               onWatch={onWatch}
               videoSecond={videoSecond}
+              onTagDuels={onTagDuels}
+              comms={comms}
               matchId={matchId}
             />
           </div>
