@@ -7,6 +7,7 @@ import Dashboard from './pages/Dashboard'
 import Home from './pages/Home'
 import MatchLibrary from './pages/MatchLibrary'
 import VodReview from './pages/VodReview'
+import MatchReport from './pages/MatchReport'
 import Login from './pages/Login'
 import Settings from './pages/Settings'
 import PlaybookIndex from './pages/PlaybookIndex'
@@ -65,6 +66,7 @@ function App() {
           <Route path="/maps/:slug" element={<MapHub />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/review/:matchId" element={<VodReview />} />
+          <Route path="/report/:matchId" element={<MatchReport />} />
           <Route path="/analytics" element={<Dashboard />} />
           <Route path="/playbook" element={<PlaybookIndex />} />
           <Route path="/playbook/:slug" element={<PlaybookReader />} />
