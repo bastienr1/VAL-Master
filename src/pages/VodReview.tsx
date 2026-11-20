@@ -775,7 +775,7 @@ export default function VodReview() {
                 tags={reviewTags}
                 duration={duration}
                 onSeek={seekToTimestamp}
-                activeTagId={tagFilter}
+                filter={tagFilter}
               />
 
               {/* Quick-drop, anchored under the player where the eye already is. */}

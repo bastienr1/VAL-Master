@@ -22,6 +22,7 @@ import { removeSavedDrill, saveDrill, savedDrillsResource, setSavedDrillCategory
 import { defaultScope, scopeOptions as scopeOptionsFor } from '../lib/savedDrillScope'
 import { addMomentTag, listMomentTags, listReviewTags, removeMomentTag } from '../lib/momentTags'
 import { REFERENCE_LABEL_COLORS, hexWithAlpha } from '../lib/tagColors'
+import { NO_TAG_FILTER, withoutTag, type TagFilter } from '../lib/tagFilter'
 import { formatTime } from '../lib/youtube'
 import type {
   DrillWithProgress,
@@ -121,7 +122,7 @@ export default function ProStudyReview() {
   // Moment tags: the vocabulary is global, the applications are this review's.
   const [tags, setTags] = useState<ReviewTag[]>([])
   const [moments, setMoments] = useState<MomentTag[]>([])
-  const [tagFilter, setTagFilter] = useState<string | null>(null)
+  const [tagFilter, setTagFilter] = useState<TagFilter>(NO_TAG_FILTER)
   const [quickDropOpen, setQuickDropOpen] = useState(false)
 
   // Explicit watched mark (decision 5 of 2026-10-03): the user sets it here,
@@ -375,7 +376,7 @@ export default function ProStudyReview() {
   /** Deleting a tag cascades its moments server-side; mirror that locally. */
   const handleTagDeleted = useCallback((tagId: string) => {
     setMoments(prev => prev.filter(m => m.tag_id !== tagId))
-    setTagFilter(prev => (prev === tagId ? null : prev))
+    setTagFilter(prev => withoutTag(prev, tagId))
   }, [])
 
   const handleRemoveMomentTag = useCallback(async (moment: MomentTag) => {
@@ -747,7 +748,7 @@ export default function ProStudyReview() {
             tags={tags}
             duration={duration}
             onSeek={seekTo}
-            activeTagId={tagFilter}
+            filter={tagFilter}
           />
 
           {/* Quick-drop, anchored under the player where the eye already is. */}
