@@ -43,6 +43,17 @@ everything but 420 px of text.
   - `ReplayMinimap` is the review page's component, unchanged except that
     `onNudge` is now optional: without it the "out of step with the video" row
     is hidden.
+  - **The map itself is the Plays replay canvas**, here and on the review's
+    Map tab: abilities in their shapes, the kill feed, tracers and death marks,
+    health, armour and what each agent has left, in the skin and sizes picked
+    in Plays. `usePlaysStage(bundle)` builds each frame with the Plays frame
+    builder (`frameStep`, `frameMotion`, `killMarks`) and hands
+    `ReplayMinimap` a `stage`: the minimap keeps the clock, the rounds, the
+    kills list, the layer toggles and the sync nudge, and calls
+    `stage.show(t, layers)` instead of drawing its own canvas. Read-only: the
+    wheel zooms, a drag pans. When the map cannot be drawn that way (registry
+    from the fallback source, with no callouts) the hook returns null and the
+    minimap draws itself as before.
 - **Right: the text** (`components/report/ReportSections.tsx`). Collapsible
   sections under a bar that stays in view, with Open all and Close all:
   the short version, rounds, positioning, duels, communication, economy, kit,
