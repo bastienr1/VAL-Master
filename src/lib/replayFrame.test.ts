@@ -466,6 +466,29 @@ test('a smoke put down far from the agent leaves nothing at the agent', () => {
   assert.equal(shown[0].seconds, 14)
 })
 
+test('a Ruse carries its age, and the one cast after death says so', () => {
+  const bundle = utilityFixture()
+  const clove = bundle.players.find(p => p.subject === OMEN)
+  assert.ok(clove)
+  clove.agentId = 'clove-uuid'
+  const withClove: ReplayAgentLookup = uuid => (uuid === 'clove-uuid' ? { name: 'Clove', abilities: [{ slot: 'Ability2', name: 'Ruse' }] } : lookup(uuid))
+  bundle.casts = []
+  bundle.effects = [
+    { start: 40000, end: 55000, kind: 'smoke', agent: 'Smonk', cls: 'GameObject_Smonk_NewSmoke_C', x: 2000, y: 0, owner: OMEN },
+    // Cast after death: the replay records it with no owner.
+    { start: 41000, end: 48000, kind: 'smoke', agent: 'Smonk', cls: 'GameObject_Smonk_NewSmoke_PDS_C', x: 0, y: 2000, owner: null },
+  ]
+  const shown = abilities(frameStep(bundle, 43500, withClove, T, createFrameIds()))
+  assert.equal(shown.length, 2)
+  assert.deepEqual(shown.map(a => a.agent), ['Clove', 'Clove'])
+  assert.deepEqual(shown.map(a => a.slot), ['Ability2', 'Ability2'])
+  assert.deepEqual(shown.map(a => a.radius), [398, 398])
+  assert.deepEqual(shown.map(a => a.age), [3500, 2500])
+  assert.deepEqual(shown.map(a => a.variant), [undefined, 'afterDeath'])
+  // With no Clove among the players the class's word is not taken: it stays nobody's.
+  assert.notEqual(abilities(frameStep(bundle, 43500, lookup, T, createFrameIds()))[1].agent, 'Clove')
+})
+
 test('what acts on the agent alone rides on them, and only that', () => {
   const bundle = utilityFixture()
   bundle.effects = [{ start: 1000, end: 1500, kind: 'other', agent: null, cls: 'Projectile_Wraith_4_Smoke_C', x: 0, y: 0, owner: OMEN, track: [[1000, 0, 0], [1500, 100, 0]] }]

@@ -498,6 +498,18 @@ export function frameStep(
     const player = subject ? playerBySubject.get(subject) : undefined
     return player ? lookup(player.agentId) : null
   }
+  /** The agent of effect `index`: its owner's, else its own, else the one its class names when a player has it. */
+  const infoOfEffect = (index: number) => {
+    const effect = bundle.effects[index]
+    const known = infoOfSubject(effect.owner) ?? lookup(effect.agent)
+    const named = known ? undefined : plan.info[index].agentName
+    if (!named) return known
+    for (const player of bundle.players) {
+      const info = lookup(player.agentId)
+      if (info && info.name.trim().toLowerCase() === named) return info
+    }
+    return null
+  }
   const deaths = deathsOf(bundle)
   const elements: PlayElement[] = []
 
@@ -549,7 +561,6 @@ export function frameStep(
    * that of the cast that put one of `sources` down, nearest in time.
    */
   const abilityOf = (index: number, sources: ReplayEffect[], id: string, at: PlayPos, thrown?: number): AbilityElement => {
-    const effect = effects[index]
     const { shape, radius, family: phase } = plan.info[index]
     let slot = plan.info[index].slot ?? (thrown !== undefined ? plan.info[thrown].slot : undefined) ?? null
     if (!slot) {
@@ -561,7 +572,7 @@ export function frameStep(
       }
       slot = cast ? KEY_TO_SLOT[cast.slot] ?? null : null
     }
-    const info = infoOfSubject(effect.owner) ?? lookup(effect.agent)
+    const info = infoOfEffect(index)
     const agent = info?.name.trim() || UNKNOWN_AGENT
     const look = lookOf(index, thrown)
     const el: AbilityElement = { kind: 'ability', id, agent, slot, shape, at, family: look.family }
@@ -572,6 +583,8 @@ export function frameStep(
       el.radius = named ?? FAMILY_RADIUS_CM[look.family]
     }
     if (slot) el.label = info?.abilities.find(a => a.slot === slot)?.name.trim() || SLOT_KEYS[slot]
+    const { variant } = plan.info[index]
+    if (variant) el.variant = variant
     return el
   }
 
@@ -579,7 +592,7 @@ export function frameStep(
   function lookOf(index: number, thrown?: number): AbilityLook {
     const { family, slot, shape } = plan.info[index]
     if (family) return { family }
-    const info = infoOfSubject(effects[index].owner) ?? lookup(effects[index].agent)
+    const info = infoOfEffect(index)
     const key = slot ?? (thrown !== undefined ? plan.info[thrown].slot : undefined) ?? null
     return abilityLook(info?.name ?? '', key, shape)
   }
@@ -597,6 +610,7 @@ export function frameStep(
     if (el.family && UNTIMED.has(el.family)) return
     const life = lifeLeft(start, end, t)
     if (life !== null) el.life = life
+    if (t >= start) el.age = t - start
     if (known && el.family && TIMED.has(el.family)) el.seconds = Math.ceil((end - t) / 1000)
   }
 

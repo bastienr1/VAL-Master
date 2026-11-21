@@ -14,7 +14,7 @@
  * taken structurally.
  */
 
-import { abilityLook, type AbilityFamily } from './agentAbilities.ts'
+import { abilityLook, type AbilityFamily, type AbilityVariant } from './agentAbilities.ts'
 import {
   calloutViewport,
   findCallout,
@@ -188,6 +188,10 @@ export interface PlacedAbility {
   life: number | null
   /** Whole seconds left, on a replay frame's timed utility; null otherwise. */
   seconds: number | null
+  /** Ms since it took effect, on a replay frame; null otherwise. */
+  age: number | null
+  /** A cast that looks and lasts differently (Ruse after death), on a replay frame; null otherwise. */
+  variant: AbilityVariant | null
   /** How it behaves, which decides how it is drawn (§2.14). */
   family: AbilityFamily
   /** The way it really went so far, on a replay frame. */
@@ -399,6 +403,8 @@ export function sceneForStep(
           path: path.length >= 2 ? path : null,
           life: typeof el.life === 'number' && Number.isFinite(el.life) ? clamp01(el.life) : null,
           seconds: typeof el.seconds === 'number' && Number.isFinite(el.seconds) ? el.seconds : null,
+          age: typeof el.age === 'number' && Number.isFinite(el.age) ? Math.max(0, el.age) : null,
+          variant: el.variant ?? null,
           family: el.family ?? abilityLook(el.agent, el.slot, el.shape).family,
           trail: el.trail ? el.trail.map(place).filter((p): p is Point => p !== null) : null,
           flyer: place(el.flyer),

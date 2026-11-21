@@ -24,7 +24,7 @@
  * type-checked with the tests.
  */
 
-import type { AbilityFamily } from './agentAbilities.ts'
+import { ABILITY_VARIANTS, type AbilityFamily, type AbilityVariant } from './agentAbilities.ts'
 import { worldToImage, type MapTransform, type Viewport } from './replayScene.ts'
 
 export const PLAY_DOC_VERSION = 2
@@ -133,6 +133,10 @@ export interface AbilityElement {
   life?: number
   /** A replay frame's: whole seconds left, on what runs on a timer. Not kept in a strat. */
   seconds?: number
+  /** A replay frame's: ms since it took effect, for what is drawn on the game's own clock (Ruse). Not kept in a strat. */
+  age?: number
+  /** From a replay: a cast that looks and lasts differently (Ruse after death). A captured frame keeps it, so the smoke keeps its look. */
+  variant?: AbilityVariant
   /** A replay frame's: how the ability behaves, when this phase differs from the ability's own. Not kept in a strat. */
   family?: AbilityFamily
   /** A replay frame's: the way it really went so far. Not kept in a strat. */
@@ -526,6 +530,10 @@ function parseElements(
         if (life !== null && life >= 0 && life <= 1) el.life = life
         const seconds = finite(e.seconds)
         if (seconds !== null && seconds >= 0) el.seconds = seconds
+        const age = finite(e.age)
+        if (age !== null && age >= 0) el.age = age
+        const variant = oneOf(e.variant, ABILITY_VARIANTS)
+        if (variant) el.variant = variant
         const family = oneOf(e.family, ABILITY_FAMILIES)
         if (family) el.family = family
         const trail = list(e.trail).map(parsePos).filter((pos): pos is PlayPos => pos !== null)
