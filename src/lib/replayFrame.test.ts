@@ -489,6 +489,28 @@ test('a Ruse carries its age, and the one cast after death says so', () => {
   assert.notEqual(abilities(frameStep(bundle, 43500, lookup, T, createFrameIds()))[1].agent, 'Clove')
 })
 
+test('a Shock Bolt is shown for its arming and its blast, 0.85 s, and carries its age', () => {
+  const bundle = utilityFixture()
+  bundle.casts = []
+  bundle.effects = [
+    { start: 40000, end: 40800, kind: 'other', agent: 'Hunter', cls: 'Projectile_Hunter_4_ExplosiveBolt_C', x: 0, y: 0, owner: SOVA, track: [[40000, 0, 0], [40800, 2000, 0]] },
+    // The explosion's actor starts as the dart lands and stays 4 s, long after the blast.
+    { start: 40800, end: 44800, kind: 'damage_zone', agent: 'Hunter', cls: 'GameObject_Hunter_4_ExplosiveBolt_Explosion_C', x: 2000, y: 0, owner: SOVA },
+  ]
+  const at = (t: number) => abilities(frameStep(bundle, t, lookup, T, createFrameIds()))
+  const armed = at(41000)[0]
+  assert.equal(armed.agent, 'Sova')
+  assert.equal(armed.slot, 'Ability1')
+  assert.equal(armed.family, 'burst')
+  assert.equal(armed.radius, 400)
+  assert.equal(armed.age, 200)
+  assert.equal(armed.progress, undefined)
+  // Whose it is comes from its owner, so two Sovas, one a side, each keep their colour.
+  assert.equal(armed.team, 'ally')
+  assert.equal(at(41600)[0].age, 800)
+  assert.equal(at(41700).length, 0)
+})
+
 test('what acts on the agent alone rides on them, and only that', () => {
   const bundle = utilityFixture()
   bundle.effects = [{ start: 1000, end: 1500, kind: 'other', agent: null, cls: 'Projectile_Wraith_4_Smoke_C', x: 0, y: 0, owner: OMEN, track: [[1000, 0, 0], [1500, 100, 0]] }]
@@ -539,10 +561,11 @@ test('a burst is over by its own clock while its actor stays', () => {
   bundle.effects = [{ start: 50000, end: 54000, kind: 'other', agent: null, cls: 'GameObject_Hunter_4_ExplosiveBolt_Explosion_C', x: 0, y: 0, owner: SOVA }]
   const ids = createFrameIds()
   const blast = (t: number) => abilities(frameStep(bundle, t, lookup, T, ids))
-  assert.equal(blast(50600)[0].family, 'burst')
-  near(blast(50600)[0].life, 0.5, 'life')
-  assert.equal(blast(50600)[0].seconds, undefined)
-  assert.equal(blast(51300).length, 0)
+  // Shock Bolt: 0.4 s arming and 0.45 s of blast.
+  assert.equal(blast(50425)[0].family, 'burst')
+  near(blast(50425)[0].life, 0.5, 'life')
+  assert.equal(blast(50425)[0].seconds, undefined)
+  assert.equal(blast(50900).length, 0)
 })
 
 test('a device has no clock; a scout is where it is now, with the way it went', () => {

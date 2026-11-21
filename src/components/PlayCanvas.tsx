@@ -50,7 +50,9 @@ import { useGameContent } from '../hooks/useGameContent'
 import { type GameAgent, type GameMap } from '../lib/gameContent'
 import { abilityShape, agentInk } from '../lib/agentAbilities'
 import { isRuse } from '../lib/ruseSmoke'
+import { isShockDart, shockSeed } from '../lib/shockDart'
 import { RuseSmoke } from './RuseSmoke'
+import { ShockDart } from './ShockDart'
 import {
   elementAt,
   newId,
@@ -1289,14 +1291,16 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
   })
 
   /**
-   * The team colour of whoever threw an ability: the step's agent element of
-   * that name, ally when the step has none.
+   * True when the other team threw an ability: the side the replay gives it,
+   * else that of the step's agent element of that name, ally when there is none.
    */
-  const throwerRing = (name: string) => {
-    const key = name.trim().toLowerCase()
-    const thrower = key ? scene.agents.find(a => a.agent.trim().toLowerCase() === key) : undefined
-    return thrower?.team === 'enemy' ? skin.enemy : skin.ally
+  const thrownByEnemy = (item: PlacedAbility) => {
+    if (item.team) return item.team === 'enemy'
+    const key = item.agent.trim().toLowerCase()
+    return key !== '' && scene.agents.find(a => a.agent.trim().toLowerCase() === key)?.team === 'enemy'
   }
+  /** The team colour of whoever threw an ability. */
+  const throwerRing = (item: PlacedAbility) => (thrownByEnemy(item) ? skin.enemy : skin.ally)
 
   /** The drag offset of an ability's hand: only while its `from` handle is dragged. */
   const handOffsetOf = (id: string): Point => (live && live.id === id && live.part === 'from' ? [live.dx, live.dy] : [0, 0])
@@ -1343,7 +1347,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
 
   /** The token (§2.14) about the origin: every ability, one object. Square for a device; the clock, when it has one, always in the same place. */
   const tokenOf = (item: PlacedAbility, ink: string, icon: string | null, flying: boolean) => {
-    const ring = throwerRing(item.agent)
+    const ring = throwerRing(item)
     // A burst's and a wave's area is its own clock.
     const clocked = item.life !== null && !flying && item.family !== 'burst' && item.family !== 'wave'
     const scale = item.family === 'self' ? `scale(${k * CHIP_SCALE})` : sized
@@ -1417,9 +1421,19 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
         }
         return <circle r={r} {...wash(CLOUD_FILL)} />
       case 'burst': {
-        if (life === null) return <circle r={r} {...wash(BURST_WASH)} strokeDasharray={dashes(GHOST_DASH)} />
-        // Its true reach, fading; the glow itself is drawn over the agents (`popLayer`).
-        return <circle r={r} fill={ink} fillOpacity={BURST_WASH * life} />
+        const plain =
+          life === null ? (
+            <circle r={r} {...wash(BURST_WASH)} strokeDasharray={dashes(GHOST_DASH)} />
+          ) : (
+            // Its true reach, fading; the glow itself is drawn over the agents (`popLayer`).
+            <circle r={r} fill={ink} fillOpacity={BURST_WASH * life} />
+          )
+        // Sova's Shock Bolt is the game's own, in its team's colour (§2.22); any other is the plain burst.
+        // Going off on a replay it is drawn over the agents, with the other pops (`popLayer`).
+        if (isShockDart(item.agent, item.slot)) {
+          return life === null ? <ShockDart r={r} age={null} enemy={thrownByEnemy(item)} seed={shockSeed(item.id)} k={k} still={reducedMotion} fallback={plain} /> : null
+        }
+        return plain
       }
       case 'reveal': {
         if (life === null) return <circle r={r} {...hollow} />
@@ -1837,6 +1851,14 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
     const { life } = item
     const ink = inkOf(item)
     const [dx, dy] = offsetOf(item.id)
+    if (isShockDart(item.agent, item.slot)) {
+      // A Shock Bolt arms and goes off as the game draws it.
+      return [
+        <g key={`pop:${item.id}`} style={{ ...placement(item.x + dx, item.y + dy), mixBlendMode: lightMap ? 'normal' : 'screen' }} pointerEvents="none">
+          <ShockDart r={item.r} age={item.age} enemy={thrownByEnemy(item)} seed={shockSeed(item.id)} k={k} still={reducedMotion} fallback={null} />
+        </g>,
+      ]
+    }
     const size = Math.max(item.r, POP_MIN_R * k)
     const out = 1 - life ** 4
     const flare = life ** 2

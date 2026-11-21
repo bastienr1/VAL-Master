@@ -137,6 +137,8 @@ export interface AbilityElement {
   age?: number
   /** From a replay: a cast that looks and lasts differently (Ruse after death). A captured frame keeps it, so the smoke keeps its look. */
   variant?: AbilityVariant
+  /** From a replay: the side of whoever threw it, which the agent's name cannot tell when both teams picked it. A captured frame keeps it. */
+  team?: Team
   /** A replay frame's: how the ability behaves, when this phase differs from the ability's own. Not kept in a strat. */
   family?: AbilityFamily
   /** A replay frame's: the way it really went so far. Not kept in a strat. */
@@ -534,6 +536,8 @@ function parseElements(
         if (age !== null && age >= 0) el.age = age
         const variant = oneOf(e.variant, ABILITY_VARIANTS)
         if (variant) el.variant = variant
+        const side = oneOf(e.team, ['ally', 'enemy'] as const)
+        if (side) el.team = side
         const family = oneOf(e.family, ABILITY_FAMILIES)
         if (family) el.family = family
         const trail = list(e.trail).map(parsePos).filter((pos): pos is PlayPos => pos !== null)

@@ -192,6 +192,8 @@ export interface PlacedAbility {
   age: number | null
   /** A cast that looks and lasts differently (Ruse after death), on a replay frame; null otherwise. */
   variant: AbilityVariant | null
+  /** The side of whoever threw it, when the replay says; null otherwise. */
+  team: Team | null
   /** How it behaves, which decides how it is drawn (§2.14). */
   family: AbilityFamily
   /** The way it really went so far, on a replay frame. */
@@ -405,6 +407,7 @@ export function sceneForStep(
           seconds: typeof el.seconds === 'number' && Number.isFinite(el.seconds) ? el.seconds : null,
           age: typeof el.age === 'number' && Number.isFinite(el.age) ? Math.max(0, el.age) : null,
           variant: el.variant ?? null,
+          team: el.team ?? null,
           family: el.family ?? abilityLook(el.agent, el.slot, el.shape).family,
           trail: el.trail ? el.trail.map(place).filter((p): p is Point => p !== null) : null,
           flyer: place(el.flyer),
