@@ -91,7 +91,8 @@ import {
 import { DEFAULT_CANVAS_SIZES, agentScale, calloutUnits, nameUnits, type CanvasSizes } from '../lib/canvasSizes'
 import type { AgentMotion } from '../lib/replayMotion'
 import { KILL_FEED_MAX, KILL_FRESH_MS, KILL_IMPACT_MS, KILL_LINE_MS, KILL_RING_MS, KILL_TRACER_MS, type KillMark, type KillPerson } from '../lib/replayKills'
-import { canvasSkin, hexChannels, skinDrawColor, skinMapMatrix, type CanvasSkin, type CanvasSkinId } from '../lib/canvasSkins'
+import { canvasSkin, hexChannels, skinDrawColor, skinLinesMatrix, skinMapMatrix, type CanvasSkin, type CanvasSkinId } from '../lib/canvasSkins'
+import { mapGroundUrl } from '../lib/mapGround'
 import type { ControlGrid } from '../lib/mapControl'
 import type { PlaySide } from '../lib/types'
 
@@ -547,6 +548,9 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
   const boxClip = `${uid}-box`
   const tileClip = `${uid}-tile`
   const tint = `${uid}-tint`
+  const lines = `${uid}-lines`
+  /** The map's baked ground, on a skin that shows one: the map art then gives only its wall lines, over it. */
+  const groundUrl = skin.ground ? mapGroundUrl(map.uuid, skin.ground.look) : null
   const arrowHead = (color: string) => `${uid}-head-${colorKey(color)}`
   const badgeClip = `${uid}-badge`
   const throwHead = (color: string) => `${uid}-throw-${colorKey(color)}`
@@ -2330,6 +2334,17 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
             </feComponentTransfer>
             <feColorMatrix type="matrix" values={skinMapMatrix(skin)} />
           </filter>
+          {groundUrl && (
+            <filter id={lines} colorInterpolationFilters="sRGB">
+              <feColorMatrix type="matrix" values={LUMINANCE_MATRIX} />
+              <feComponentTransfer>
+                <feFuncR type="gamma" exponent={FLOOR_GAMMA} />
+                <feFuncG type="gamma" exponent={FLOOR_GAMMA} />
+                <feFuncB type="gamma" exponent={FLOOR_GAMMA} />
+              </feComponentTransfer>
+              <feColorMatrix type="matrix" values={skinLinesMatrix(skin)} />
+            </filter>
+          )}
           {headColors.map(color => (
             <marker
               key={color}
@@ -2367,6 +2382,20 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
         <rect ref={backdropRef} x={visible.x} y={visible.y} width={visible.w} height={visible.h} fill={skin.back} />
 
         <g clipPath={`url(#${boxClip})`}>
+          {groundUrl && skin.ground && (
+            // Baked on the map art's own world rectangle: same placement, same turn.
+            <g transform={`rotate(${scene.turns * 90} ${VIEW_SIZE / 2} ${VIEW_SIZE / 2})`} pointerEvents="none">
+              <image
+                href={groundUrl}
+                x={(-view.u / view.size) * VIEW_SIZE}
+                y={(-view.v / view.size) * VIEW_SIZE}
+                width={imageSize}
+                height={imageSize}
+                preserveAspectRatio="none"
+                opacity={skin.ground.opacity}
+              />
+            </g>
+          )}
           {map.displayIcon && (
             // The picture turns about the centre; everything else is placed
             // already turned by the scene, so it stays upright.
@@ -2378,8 +2407,8 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
                 width={imageSize}
                 height={imageSize}
                 preserveAspectRatio="none"
-                filter={`url(#${tint})`}
-                opacity={skin.mapOpacity}
+                filter={`url(#${groundUrl ? lines : tint})`}
+                opacity={groundUrl && skin.ground ? skin.ground.lines : skin.mapOpacity}
               />
             </g>
           )}
