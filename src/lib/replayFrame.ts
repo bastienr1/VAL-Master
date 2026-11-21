@@ -585,6 +585,8 @@ export function frameStep(
     if (slot) el.label = info?.abilities.find(a => a.slot === slot)?.name.trim() || SLOT_KEYS[slot]
     const { variant } = plan.info[index]
     if (variant) el.variant = variant
+    const thrower = playerBySubject.get(effects[index].owner ?? '')
+    if (thrower) el.team = thrower.team === 'ALLY' ? 'ally' : 'enemy'
     return el
   }
 

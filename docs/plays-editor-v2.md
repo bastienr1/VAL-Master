@@ -917,6 +917,45 @@ is the first ability with a look of its own; every other smoke is unchanged.
   stands still under `prefers-reduced-motion`.
 - **Without WebGL**, or until the textures are in, it is the plain circle.
 
+### 2.22 Sova's Shock Bolt, as in the game
+
+Sova's Shock Bolt arms and goes off as the game draws it, seen from straight
+above, in place of the plain burst of §2.14. Its flight is unchanged.
+
+- **The figures** (`src/lib/shockDart.ts`, pure, tested) are read from the game
+  files (13.10): the tuning table `AbilityTuning_Hunter_4_BoltExplosive` and
+  the actor `GameObject_Hunter_4_ExplosiveBolt_Explosion`. Damage 75 inside
+  1.5 m, down to 30 at 4.0 m, where it ends. It lands, waits 0.4 s, then goes
+  off; the blast is seen for about 0.45 s. Its actor stays 4.0 s, which is what
+  the replays record, with nothing to see after the blast: the catalogue gives
+  Sova's Q `timed('burst', 850)`, so the board drops it when the blast is over
+  (it was the default 1.2 s, counted from the landing).
+- **The clock** is the ability's `age` (§2.21): ms since the explosion's actor
+  appeared, which is the moment the dart lands. `shockState(age)` is the whole
+  picture at that moment; the lightning of one dart is seeded from its element
+  id, so a paused frame does not flicker.
+- **The picture** (`src/lib/shockDartPaint.ts`, `src/components/ShockDart.tsx`),
+  from the two effects' own emitters with their sizes and lifetimes, on a 2D
+  canvas drawn additively. Arming (`Hunter_4_AOE_Radius_VFX`): a ball showing
+  the reach, a swelling core, a spark growing from 1 m to 4 m, and a dashed
+  ring at the full-damage radius. Blast (`Hunter_4_AOE_Revised_Vfx`): a white
+  flash, two glowing balls, the 4.03 m ball from 0.1 s for 0.2 s, three arms of
+  lightning for 0.325 s, the spark for 0.4 s, the shell at its edge. The spark
+  and the arms are the game's sprite sheets (`src/assets/shock`). In the game
+  the arms stand 4.5 m tall on the ball; from above they are laid from the
+  centre to its edge.
+- **Whose it is.** The game draws an enemy's in red (the `_FOE_` effects,
+  colour 10, 0.2, 0.1) and an ally's in blue (0.1, 1, 10). A replay ability now
+  carries `team`, the side of its owner, so two Sovas, one a side, each keep
+  their colour; the ring of every ability's token uses it too, where it was
+  the first agent of that name. Without it (a strat) the agent's element of
+  that name decides, as before.
+- **Where it is drawn.** On a replay, over the agents with the board's other
+  pops (`popLayer`), blended the same way, so a smoke or a tile does not hide
+  it. In a strat, where it has no clock, it is an area like any other: armed,
+  its reach showing, its spark crackling, still under `prefers-reduced-motion`.
+- **Until the sprites are in** a placed one is the plain dashed burst.
+
 ## 3. Document v2 (`src/lib/playDoc.ts`)
 
 ```ts

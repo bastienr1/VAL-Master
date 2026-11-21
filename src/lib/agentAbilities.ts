@@ -240,7 +240,8 @@ const LOOKS: Record<string, [Look, Look, Look, Look]> = {
   reyna: [timed('burst', 2000), 'self', 'self', 'self'],
   sage: ['wall', 'zone', 'self', 'self'],
   skye: ['self', 'scout', 'burst', 'scout'],
-  sova: ['scout', 'burst', 'reveal', 'self'],
+  // Shock Bolt arms for 0.4 s and its blast is seen for 0.45 s (shockDart.ts); its actor stays 4 s.
+  sova: ['scout', timed('burst', 850), 'reveal', 'self'],
   tejo: ['scout', 'burst', 'zone', 'zone'],
   veto: ['device', 'device', 'device', 'self'],
   viper: ['zone', 'cloud', 'wall', 'cloud'],
