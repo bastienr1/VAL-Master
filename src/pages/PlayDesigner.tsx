@@ -1165,6 +1165,7 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
         delete landed.progress
         delete landed.life
         delete landed.seconds
+        delete landed.age
         delete landed.family
         delete landed.trail
         delete landed.flyer

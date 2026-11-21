@@ -21,7 +21,7 @@
  * Pure, no imports beyond types, so `node --test` can type-check it.
  */
 
-import type { AbilityFamily } from './agentAbilities.ts'
+import type { AbilityFamily, AbilityVariant } from './agentAbilities.ts'
 import type { AbilitySlot, UtilityKind } from './playDoc.ts'
 
 /**
@@ -51,6 +51,10 @@ export interface EffectClassInfo {
   wireEnd?: boolean
   /** An ultimate point orb, drawn as a map marker. */
   orb?: boolean
+  /** A cast that looks and lasts differently from the ability's usual one. */
+  variant?: AbilityVariant
+  /** Whose it is, lower-cased agent name, for an actor the replay records with no owner (its caster is dead). */
+  agentName?: string
 }
 
 const C: AbilitySlot = 'Grenade'
@@ -111,8 +115,8 @@ const TABLE: Record<string, EffectClassInfo> = {
 
   // Clove (Smonk)
   GameObject_Smonk_NewSmoke_C: placed('smoke', E),
-  // Ruse cast after death.
-  GameObject_Smonk_NewSmoke_PDS_C: placed('smoke', E),
+  // Ruse cast after death: the replay gives it no owner.
+  GameObject_Smonk_NewSmoke_PDS_C: { ...placed('smoke', E), variant: 'afterDeath', agentName: 'clove' },
   Projectile_Smonk_DecayNade_C: p('stun', Q),
   // Meddle's burst; drawn as the board's Meddle (stun), not as a molly.
   GameObject_Smonk_Q_DecayExplosion_C: l('stun', Q),

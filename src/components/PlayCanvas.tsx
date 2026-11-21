@@ -49,6 +49,8 @@ import { Maximize2 } from 'lucide-react'
 import { useGameContent } from '../hooks/useGameContent'
 import { type GameAgent, type GameMap } from '../lib/gameContent'
 import { abilityShape, agentInk } from '../lib/agentAbilities'
+import { isRuse } from '../lib/ruseSmoke'
+import { RuseSmoke } from './RuseSmoke'
 import {
   elementAt,
   newId,
@@ -1405,6 +1407,10 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
     const hollow = { fill: 'none', stroke: ink, strokeOpacity: AREA_RING, strokeWidth: RING_WIDTH * k, strokeDasharray: dashes(GHOST_DASH) }
     switch (item.family) {
       case 'cloud':
+        // Clove's smoke is the game's own, animated (§2.21); any other is the plain circle.
+        if (isRuse(item.agent, item.slot)) {
+          return <RuseSmoke r={r} age={item.age} cast={item.variant === 'afterDeath' ? 'afterDeath' : 'alive'} k={k} still={reducedMotion} fallback={<circle r={r} {...wash(CLOUD_FILL)} />} />
+        }
         return <circle r={r} {...wash(CLOUD_FILL)} />
       case 'burst': {
         if (life === null) return <circle r={r} {...wash(BURST_WASH)} strokeDasharray={dashes(GHOST_DASH)} />

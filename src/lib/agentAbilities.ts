@@ -66,8 +66,8 @@ const TABLE: Record<string, Record<AbilitySlot, Entry>> = {
   // Incendiary 4.5 m, Sky Smoke 4.15 m, Orbital Strike 9 m.
   brimstone: { Grenade: ['other', 250], Ability1: ['molly', 450], Ability2: ['smoke', 415], Ultimate: ['molly', 900] },
   chamber: { Grenade: ['trap', 250], Ability1: 'other', Ability2: 'other', Ultimate: 'ult' },
-  // Meddle 4 m, Ruse 4 m.
-  clove: { Grenade: 'other', Ability1: ['stun', 400], Ability2: ['smoke', 400], Ultimate: 'ult' },
+  // Meddle 4 m. Ruse 3.98 m: the game's own sight-blocking sphere (ruseSmoke.ts).
+  clove: { Grenade: 'other', Ability1: ['stun', 400], Ability2: ['smoke', 398], Ultimate: 'ult' },
   // Cyber Cage 3.72 m.
   cypher: { Grenade: 'trap', Ability1: ['smoke', 372], Ability2: 'recon', Ultimate: 'other' },
   // GravNet 6.5 m.
@@ -154,6 +154,10 @@ export function abilityShape(agentName: string, slot: AbilitySlot): AbilityShape
  * - `self`: acts on the agent alone, with nothing on the map (a dash, a heal).
  */
 export type AbilityFamily = 'cloud' | 'zone' | 'burst' | 'wall' | 'wave' | 'device' | 'scout' | 'reveal' | 'self'
+
+/** A cast that looks and lasts differently from the ability's usual one: Ruse placed after Clove's death. */
+export type AbilityVariant = 'afterDeath'
+export const ABILITY_VARIANTS: readonly AbilityVariant[] = ['afterDeath']
 
 export interface AbilityLook {
   family: AbilityFamily

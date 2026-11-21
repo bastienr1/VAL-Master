@@ -853,6 +853,46 @@ drawer. No migration.
   angle's first kill, a chip to 2 s before its own; the chip of the moment shown
   is ringed. With the video synced, a jump moves the video too.
 
+### 2.21 Clove's smoke, as in the game
+
+Clove's Ruse is drawn as the game's own smoke seen from straight above, at the
+game's size and on the game's clock, in place of the plain circle of §2.14. It
+is the first ability with a look of its own; every other smoke is unchanged.
+
+- **The figures** (`src/lib/ruseSmoke.ts`, pure, tested) are read from the game
+  files (13.10): `GameObject_Smonk_NewSmoke`, its child `_PDS` (cast after
+  death) and their parent `GameObject_NewSmokeZone_Parent`. Announced for 1.0 s,
+  forms over 0.75 s, stays 13.5 s (5.5 s after death) counted from the end of
+  the announcement, warns for its last 1.5 s, contracts over 0.5 s. So its
+  actor lives 15.0 s (7.0 s), which is what the replays record. It blocks sight
+  to 3.98 m (the table's radius for Ruse is now 398) from 0.255 s into the
+  forming until 0.4 s into the contract; the shell that is seen is 4.10 m.
+- **The clock.** A replay frame's ability carries `age`, the ms since it took
+  effect, and a Ruse cast after death carries `variant: 'afterDeath'` from its
+  class (`utilityClasses.ts`). `ruseState(age, cast)` is the whole picture at
+  that moment, so a paused or scrubbed replay shows the smoke as it was. A
+  captured step drops `age` and keeps `variant`.
+- **Whose it is.** The replay records a Ruse cast after death with no owner
+  (its caster is dead). Its class names the agent (`agentName: 'clove'`), and
+  the frame takes that when a player of the match has that agent, so the smoke
+  gets Clove's token and look instead of nobody's.
+- **The picture** (`src/lib/ruseSmokeGl.ts`, `src/components/RuseSmoke.tsx`).
+  The game's sphere, wrapped as the game wraps it, with its stripe texture,
+  smoke texture and colour ramps (`src/assets/ruse`) drifting at the material's
+  speeds: one turn in 20 s, flowing out from the centre. Alive: wide white
+  stripes over a pink, lavender and ice-blue cover. After death: blue-violet
+  stripes over dark indigo. One WebGL context draws every smoke; each is copied
+  into its own canvas inside a `foreignObject`, under the agents like any area.
+  How the layers mix is rebuilt by eye from in-game pictures, because the
+  cooked materials hold the textures and numbers but not the node graph.
+- **The phases.** Announced: a small orb, the footprint dashed, two ripples out
+  to it. Forming: it dissolves in from the centre through a magenta-to-blue and
+  an orange edge, a tenth too big, and settles. Ending: the game's cyan
+  triangles flicker round its edge. Contracting: it is eaten away in wisps.
+- **In a strat** a placed Ruse has no clock: it is whole and only drifts, and
+  stands still under `prefers-reduced-motion`.
+- **Without WebGL**, or until the textures are in, it is the plain circle.
+
 ## 3. Document v2 (`src/lib/playDoc.ts`)
 
 ```ts
