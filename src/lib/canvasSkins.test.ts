@@ -13,6 +13,7 @@ import {
   hexChannels,
   nextCanvasSkin,
   skinDrawColor,
+  skinLinesMatrix,
   skinMapMatrix,
 } from './canvasSkins.ts'
 import { UTILITY_COLORS } from './playScene.ts'
@@ -55,6 +56,39 @@ test('the map tint takes grey 0 to the floor and grey 1 to the wall, keeping alp
 test('Teal keeps the map tint the editor has always had', () => {
   const m = skinMapMatrix(CANVAS_SKINS.teal).split(/\s+/).map(Number)
   assert.ok(Math.abs(m[0] - 0.17) < 0.01 && Math.abs(m[6] - 0.7) < 0.01 && Math.abs(m[12] - 0.79) < 0.01)
+})
+
+test('only the two World skins show a baked ground, one per look, and their opacities are fractions', () => {
+  const looks: Record<string, string> = { world: 'lit', worldUnlit: 'unlit' }
+  for (const id of CANVAS_SKIN_IDS) {
+    const ground = CANVAS_SKINS[id].ground
+    assert.equal(ground?.look, looks[id], id)
+    if (ground) {
+      assert.ok(ground.opacity > 0 && ground.opacity <= 1, id)
+      assert.ok(ground.lines > 0 && ground.lines <= 1, id)
+    }
+  }
+})
+
+test('the two World skins differ only by the look of their ground', () => {
+  const lit = CANVAS_SKINS.world
+  const unlit = CANVAS_SKINS.worldUnlit
+  assert.deepEqual({ ...lit, id: unlit.id, name: unlit.name, blurb: unlit.blurb, ground: unlit.ground }, unlit)
+  assert.notEqual(lit.name, unlit.name)
+  assert.notEqual(lit.blurb, unlit.blurb)
+  assert.deepEqual({ ...lit.ground, look: 'unlit' }, unlit.ground)
+})
+
+test('the lines matrix paints the wall colour, clear at the floor grey and solid at white', () => {
+  const skin = CANVAS_SKINS.world
+  const m = skinLinesMatrix(skin).split(/\s+/).map(Number)
+  assert.equal(m.length, 20)
+  assert.deepEqual([0, 1, 2].map(i => Math.round(m[i * 5 + 4] * 255)), hexChannels(skin.wall))
+  const alpha = (grey: number) => Math.min(1, Math.max(0, m[15] * grey + m[19]))
+  assert.equal(alpha(0), 0)
+  assert.equal(alpha(0.5), 0)
+  assert.equal(alpha(1), 1)
+  assert.ok(alpha(0.8) > 0 && alpha(0.8) < 1)
 })
 
 test('the shortcut walks every skin and wraps both ways', () => {

@@ -1,15 +1,17 @@
 /**
  * The looks of the plays canvas (docs/plays-editor-v2.md §2.11): every colour
  * the canvas draws with, per skin. The map art is tinted from two colours, the
- * floor's and the walls', so a skin needs no art of its own.
+ * floor's and the walls', so a skin needs no art of its own. The two World
+ * skins are the exception: they show a map's baked ground where one exists.
  *
- * Pure, no imports beyond `playScene`, so `node --test` can type-check it.
+ * Pure, no imports beyond `playScene` and types, so `node --test` can type-check it.
  */
 
 import { UTILITY_COLORS } from './playScene.ts'
+import type { GroundLook } from './mapGround.ts'
 import type { UtilityKind } from './playDoc.ts'
 
-export const CANVAS_SKIN_IDS = ['graphite', 'teal', 'blueprint', 'radar', 'sand', 'contrast'] as const
+export const CANVAS_SKIN_IDS = ['graphite', 'teal', 'blueprint', 'radar', 'sand', 'contrast', 'world', 'worldUnlit'] as const
 export type CanvasSkinId = (typeof CANVAS_SKIN_IDS)[number]
 
 export interface CanvasSkin {
@@ -23,6 +25,13 @@ export interface CanvasSkin {
   floor: string
   wall: string
   mapOpacity: number
+  /**
+   * Only on a skin that shows the map's baked ground where one exists
+   * (`mapGround.ts`): which look of the ground, its opacity over `back`, and
+   * the opacity of the map art's wall lines drawn over it in `wall`. A map with
+   * no bake is tinted from `floor` and `wall` like on any other skin.
+   */
+  ground?: { look: GroundLook; opacity: number; lines: number }
   callout: string
   ally: string
   enemy: string
@@ -46,6 +55,20 @@ export interface CanvasSkin {
 
 const DARK_CARD = { card: '#111827', cardBorder: '#242938', cardText: '#F1F5F9', cardMuted: '#94A3B8' }
 const DARK = { spike: '#FFCA3A', label: '#CBD5E1', ink: '#FFFFFF', utility: UTILITY_COLORS, ...DARK_CARD }
+/** What the two World skins share: Graphite's colours, with brighter callouts to read over a picture. */
+const WORLD = {
+  ...DARK,
+  back: '#0C0E12',
+  floor: '#000000',
+  wall: '#C9CDD6',
+  mapOpacity: 0.75,
+  callout: '#E2E5EA',
+  ally: '#6FB7FF',
+  enemy: '#FF5A5F',
+  tile: '#1C1F26',
+  allyName: '#E5E7EB',
+  enemyName: '#FFB3B5',
+}
 
 export const CANVAS_SKINS: Record<CanvasSkinId, CanvasSkin> = {
   graphite: {
@@ -160,6 +183,20 @@ export const CANVAS_SKINS: Record<CanvasSkinId, CanvasSkin> = {
     allyName: '#FFFFFF',
     enemyName: '#FFC98A',
   },
+  world: {
+    ...WORLD,
+    id: 'world',
+    name: 'World lit',
+    blurb: "The map's real ground under the game's own sun and lamps. Team Deathmatch maps look like Graphite",
+    ground: { look: 'lit', opacity: 0.92, lines: 0.8 },
+  },
+  worldUnlit: {
+    ...WORLD,
+    id: 'worldUnlit',
+    name: 'World unlit',
+    blurb: "The same ground in even light, every floor in its plain colour. Team Deathmatch maps look like Graphite",
+    ground: { look: 'unlit', opacity: 0.92, lines: 0.8 },
+  },
 }
 
 export const DEFAULT_CANVAS_SKIN: CanvasSkinId = 'graphite'
@@ -199,6 +236,24 @@ export function skinMapMatrix(skin: Pick<CanvasSkin, 'floor' | 'wall'>): string 
     })
     .concat('0 0 0 1 0')
     .join('  ')
+}
+
+/** Squared luminance at which a pixel of the map art starts to count as wall line, and where it is fully one. */
+const LINE_FROM = 0.6
+const LINE_FULL = 0.95
+
+/**
+ * The `feColorMatrix` values that keep only the map art's wall lines, for
+ * drawing them over a baked ground: applied after the same luminance and gamma
+ * passes as `skinMapMatrix`, every pixel takes the skin's wall colour and its
+ * alpha rises from 0 at the floor's grey to 1 at the lines' white, so the
+ * floor fill and the void around the map both vanish.
+ */
+export function skinLinesMatrix(skin: Pick<CanvasSkin, 'wall'>): string {
+  const w = channels(skin.wall).map(c => Number((c / 255).toFixed(4)))
+  const gain = Number((1 / (LINE_FULL - LINE_FROM)).toFixed(4))
+  const offset = Number((-LINE_FROM * gain).toFixed(4))
+  return [`0 0 0 0 ${w[0]}`, `0 0 0 0 ${w[1]}`, `0 0 0 0 ${w[2]}`, `${gain} 0 0 0 ${offset}`].join('  ')
 }
 
 /** A drawing's stored colour as this skin shows it: stored white is the skin's ink, so it stays visible on a light map. */

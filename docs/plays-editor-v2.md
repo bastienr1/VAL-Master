@@ -549,9 +549,9 @@ always means "thrown from"; a wall's extent is its `path`.
 
 ### 2.11 Canvas skins
 
-Six looks for the canvas (`src/lib/canvasSkins.ts`, pure, tested): Graphite
-(the default), Teal (the original look), Blueprint (light), Radar, Sand and
-High contrast. A skin is about 25 colours: the void around the map, the map
+Eight looks for the canvas (`src/lib/canvasSkins.ts`, pure, tested): Graphite
+(the default), Teal (the original look), Blueprint (light), Radar, Sand,
+High contrast, World lit and World unlit. A skin is about 25 colours: the void around the map, the map
 art's two tints, callouts, teams, the spike, tiles, name and label colours,
 selection ink, the hover card, and the 11 utility colours.
 
@@ -561,6 +561,30 @@ grey 0 becomes the floor, grey 1 the wall. A drawing stored in white is shown
 in the skin's ink (`skinDrawColor`), so it stays visible on the light skin
 without changing the saved play. The map-control overlay and the replay
 transport's track and share dots use the skin's team colours.
+
+The two World skins are the only ones with art of their own. On a map that
+has a baked ground (`src/lib/mapGround.ts`: the level's own floor textures seen
+straight down with the roofs removed, framed on the same world rectangle as the
+Riot art) the canvas draws that picture first, dimmed (`ground.opacity`), then
+the Riot art through `skinLinesMatrix`, which keeps only its wall lines in the
+skin's wall colour (`ground.lines`). On a map with no bake they tint the Riot
+art like any other skin.
+
+A ground comes in two looks, one file each
+(`public/maps/ground/<map uuid>-<look>.webp`), and the two skins differ only by
+which one they show (`ground.look`):
+
+- **World lit** (`lit`): lit by the level's own sun, sky and lamps, so each
+  room keeps the warm or cool mood it has in the game, with real shadows.
+- **World unlit** (`unlit`): one even light with no room lighting, so every
+  floor shows its plain colour and nothing sits in shadow.
+
+The 13 standard maps have a bake (2026-11-21): Abyss, Ascent, Bind, Breeze,
+Corrode, Fracture, Haven, Icebox, Lotus, Pearl, Split, Summit and Sunset. The
+Team Deathmatch maps have no minimap transform, so no bake. The pictures are
+made outside the app, by the scripts in `VAL_REPLAY_HOME/mapbake`
+(`run_map.py <Map>`), and a map is added by copying its two files and listing
+it in `GROUND_MAPS`.
 
 The toolbar's **Skin** button opens a menu with each skin's colours; **K**
 cycles forward and **Shift K** back, with a toast naming the skin. The choice
