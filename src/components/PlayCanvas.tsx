@@ -55,6 +55,8 @@ import { isSkySmoke } from '../lib/skySmoke'
 import { isCove } from '../lib/coveSmoke'
 import { isWaveform } from '../lib/waveformSmoke'
 import { isDarkCover } from '../lib/darkCover'
+import { hotHandsClock, isHotHands } from '../lib/hotHands'
+import { incendiaryClock, isIncendiary } from '../lib/incendiary'
 import { isPoisonCloud } from '../lib/poisonCloud'
 import { isShockDart, shockSeed } from '../lib/shockDart'
 import { RuseSmoke } from './RuseSmoke'
@@ -63,6 +65,8 @@ import { SkySmoke } from './SkySmoke'
 import { CoveSmoke } from './CoveSmoke'
 import { WaveformSmoke } from './WaveformSmoke'
 import { DarkCover } from './DarkCover'
+import { HotHands } from './HotHands'
+import { Incendiary } from './Incendiary'
 import { PoisonCloud } from './PoisonCloud'
 import { ShockDart } from './ShockDart'
 import {
@@ -314,8 +318,8 @@ const LIFE_WIDTH = 3
 /** Under the ring, so it reads on any floor: this much wider, this dark. */
 const LIFE_BACK = 2
 const LIFE_BACK_OPACITY = 0.7
-/** A game-look smoke has no token (§2.24): its ring goes round the cloud, this far out, clear of its rim and end telegraph. */
-const SMOKE_RING_REACH = 1.1
+/** A game-look area has no token (§2.24, §2.25): its ring goes round it, this far out, clear of its rim and end telegraph. */
+const GAME_RING_REACH = 1.1
 const BADGE_GLYPH = 22
 /** The letter drawn instead when the registry has no glyph. */
 const BADGE_LETTER = 14
@@ -1438,22 +1442,6 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
   }
 
   /**
-   * The clock of a game-look smoke (§2.24), about its centre. The cloud says
-   * what it is, so it has no token: the time-left ring goes round the smoke,
-   * at its size on the map and the token ring's width on screen, and the
-   * seconds stand at its centre. Nothing while it flies, nor in a strat.
-   */
-  const smokeClockOf = (item: PlacedAbility, ink: string, flying: boolean) => {
-    if (flying || (item.life === null && item.seconds === null)) return null
-    return (
-      <g pointerEvents="none">
-        {item.life !== null && lifeRing(item.r * SMOKE_RING_REACH, item.life, ink, k)}
-        {item.seconds !== null && <g transform={sized}>{secondsLeft(item.seconds, 0)}</g>}
-      </g>
-    )
-  }
-
-  /**
    * A controller's smoke drawn as the game draws it (§2.21, §2.23), at its
    * sight-blocking radius `item.r`; null for a cloud the board draws plain.
    */
@@ -1475,8 +1463,52 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
     return null
   }
 
-  /** Whether an ability is a smoke the board draws as the game does: such a cloud needs no token. */
-  const isGameSmoke = (item: PlacedAbility) => item.family === 'cloud' && gameSmoke(item, null) !== null
+  /**
+   * A molly drawn as the game draws it (§2.25), at the radius its fire hurts
+   * in, `item.r`; null for a zone the board draws plain.
+   */
+  const gameMolly = (item: PlacedAbility, fallback: ReactNode): ReactNode => {
+    const { agent, slot, r, age } = item
+    const shared = { r, age, k, still: reducedMotion, fallback, enemy: thrownByEnemy(item) }
+    if (isIncendiary(agent, slot)) return <Incendiary {...shared} />
+    if (isHotHands(agent, slot)) return <HotHands {...shared} />
+    return null
+  }
+
+  /** Whether an ability is one the board draws as the game does: such an area says what it is and needs no token. */
+  const hasGameLook = (item: PlacedAbility) =>
+    (item.family === 'cloud' && gameSmoke(item, null) !== null) || (item.family === 'zone' && gameMolly(item, null) !== null)
+
+  /**
+   * What the clock of a game-look area counts, null when it has none (in a
+   * strat, or once there is nothing left to count). A smoke's is its actor's
+   * life, as the token's was. A molly's is its burn, read from its age: the
+   * actor outlives the fire by seconds in which nothing hurts (§2.25).
+   */
+  const gameClock = (item: PlacedAbility): { life: number | null; seconds: number | null } | null => {
+    if (item.family === 'zone') {
+      if (item.age === null) return null
+      return isIncendiary(item.agent, item.slot) ? incendiaryClock(item.age) : hotHandsClock(item.age)
+    }
+    return item.life === null && item.seconds === null ? null : { life: item.life, seconds: item.seconds }
+  }
+
+  /**
+   * The clock of a game-look area (§2.24, §2.25), about its centre. It has no
+   * token: the time-left ring goes round it, at its size on the map and the
+   * token ring's width on screen, and the seconds stand at its centre.
+   * Nothing while it flies, nor in a strat.
+   */
+  const gameClockOf = (item: PlacedAbility, ink: string, flying: boolean) => {
+    const clock = flying ? null : gameClock(item)
+    if (!clock) return null
+    return (
+      <g pointerEvents="none">
+        {clock.life !== null && lifeRing(item.r * GAME_RING_REACH, clock.life, ink, k)}
+        {clock.seconds !== null && <g transform={sized}>{secondsLeft(clock.seconds, 0)}</g>}
+      </g>
+    )
+  }
 
   /** The area of a landed ability about its centre: one drawing per family, so alike abilities look alike. */
   const areaOf = (item: PlacedAbility, ink: string): ReactNode => {
@@ -1525,8 +1557,11 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
       case 'scout':
       case 'self':
         return null
-      default:
-        return <circle r={r} {...wash(ZONE_FILL)} />
+      default: {
+        // The mollies that have one are the game's own fire (§2.25); any other zone is the plain disc.
+        const plain = <circle r={r} {...wash(ZONE_FILL)} />
+        return (item.family === 'zone' ? gameMolly(item, plain) : null) ?? plain
+      }
     }
   }
 
@@ -1628,7 +1663,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
         {comet && <circle cx={comet[0]} cy={comet[1]} r={COMET_R * k} fill={ink} stroke={TOKEN_FILL} strokeWidth={COMET_HALO * k} pointerEvents="none" />}
         <g style={placement(badge[0], badge[1])}>
           {!area && <circle r={HIT_R * k} fill="transparent" />}
-          {isGameSmoke(item) ? smokeClockOf(item, ink, flying) : tokenOf(item, ink, icon, flying)}
+          {hasGameLook(item) ? gameClockOf(item, ink, flying) : tokenOf(item, ink, icon, flying)}
         </g>
       </g>
     )
@@ -2112,9 +2147,9 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
       const { at, from, path, flying, badge } = abilityLayout(ability)
       // Round the area at the landing; round the badge alone in flight or on a wall's path.
       const [cx, cy] = flying || path ? badge : at
-      // A game-look smoke on a clock has its time ring round it: the selection goes outside that.
-      const ringed = !flying && ability.life !== null && isGameSmoke(ability)
-      const extent = ringed ? ability.r * SMOKE_RING_REACH + LIFE_WIDTH * k : abilityExtent(ability, k)
+      // A game-look area on a clock has its time ring round it: the selection goes outside that.
+      const ringed = !flying && hasGameLook(ability) && gameClock(ability)?.life != null
+      const extent = ringed ? ability.r * GAME_RING_REACH + LIFE_WIDTH * k : abilityExtent(ability, k)
       return (
         <g key={`sel:${ability.id}`}>
           <g pointerEvents="none" style={placement(cx, cy)}>

@@ -998,11 +998,12 @@ page in the vault (`VAL-Master-Plays/prototypes/<name>/`) from the game files
 
 The seven smokes drawn as the game draws them (Ruse §2.21; Nebula, Sky Smoke,
 Cove, Waveform, Dark Cover, Poison Cloud §2.23) say what they are, so the token
-of §2.14 is no longer drawn on them (`isGameSmoke` in `PlayCanvas.tsx`: a
-`cloud` that `gameSmoke` has a look for). Every other ability keeps its token.
+of §2.14 is no longer drawn on them (`hasGameLook` in `PlayCanvas.tsx`: a
+`cloud` that `gameSmoke` has a look for, and since §2.25 a `zone` that
+`gameMolly` has one for). Every other ability keeps its token.
 
-- **The clock** (`smokeClockOf`) is the token's own, moved: the time-left ring
-  goes round the cloud at 1.1 × its sight radius (`SMOKE_RING_REACH`, clear of
+- **The clock** (`gameClockOf`) is the token's own, moved: the time-left ring
+  goes round the cloud at 1.1 × its sight radius (`GAME_RING_REACH`, clear of
   the rim and of the end telegraphs, which reach 1.08), 3 px wide on screen
   whatever the zoom, in the agent's colour over the same dark backing; the
   seconds stand at the smoke's centre in the token's type. Ring and seconds are
@@ -1016,6 +1017,40 @@ of §2.14 is no longer drawn on them (`isGameSmoke` in `PlayCanvas.tsx`: a
 - **Not kept:** the team colour the token's ring gave (the smokes that have an
   enemy treatment show it themselves, §2.23), and the glyph where WebGL is
   missing: the plain circle then has its ring and seconds only.
+
+### 2.25 Two mollies, as in the game
+
+Brimstone's Incendiary and Phoenix's Hot Hands are drawn as the game draws
+their fire, seen from straight above, built the way the smokes were (§2.23):
+a prototype page in the vault (`VAL-Master-Plays/prototypes/incendiary` and
+`hot-hands`) from the game files (13.10), checked against in-game pictures,
+then ported here. Every other `zone` is still the plain disc of §2.14.
+
+- **One module set per molly**, with the smokes' contract: a pure, tested
+  timeline (`src/lib/incendiary.ts`, `src/lib/hotHands.ts`: the figures with
+  their sources, `<name>State(ageMs)`, an idle state for one placed in a strat,
+  the board test `isIncendiary` / `isHotHands`), a painter on the shared
+  `smokeGl.ts` (`<name>Gl.ts`, textures in `src/assets/incendiary` and
+  `src/assets/hothands`) and a component (`Incendiary.tsx`, `HotHands.tsx`:
+  `r`, `age`, `enemy`, `k`, `still`, `fallback`). `gameMolly` in
+  `PlayCanvas.tsx` picks them.
+- **Sizes.** `r` is the radius the fire hurts in (`ClampedRadius`): Incendiary
+  4.50 m, Hot Hands 4.75 m (the table had 4.50). The fire is drawn as the full
+  circle; in the game it stops at walls and ledges.
+- **Clocks.** The patch actor's life is the animation's clock, `age`: the fire
+  spreads at 6 m/s (Incendiary after 0.2 s, whole by 0.95 s; Hot Hands whole
+  by 0.79 s), burns, then dies out while the actor lingers. Incendiary: burn
+  8.0 s, actor 11.0 s. Hot Hands: burn 4.2 s, actor 7.2 s. Both match the
+  replays' actor lives.
+- **The countdown counts the burn, not the actor.** These have no token
+  (§2.24); their ring and seconds come from `incendiaryClock(age)` /
+  `hotHandsClock(age)`: full at the landing, empty when the fire stops
+  hurting (8.0 s, 4.2 s), then gone, while the dying fire stays drawn for the
+  actor's last 3 s. The plain disc counted the actor's 11.0 s and 7.2 s.
+- **Whose it is.** The enemy treatments are the files' `_FOE` ones (a redder
+  flame; Incendiary's edge line thinner).
+- **In a strat** a placed molly is whole and burning, still under
+  `prefers-reduced-motion`.
 
 ## 3. Document v2 (`src/lib/playDoc.ts`)
 
