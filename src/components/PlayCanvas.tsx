@@ -311,7 +311,11 @@ const KIT_PIPS_MAX = 4
 /** The time-left ring around the token: its radius and width. */
 const LIFE_R = BADGE_R + BADGE_RING + 3
 const LIFE_WIDTH = 3
-const LIFE_LENGTH = 2 * Math.PI * LIFE_R
+/** Under the ring, so it reads on any floor: this much wider, this dark. */
+const LIFE_BACK = 2
+const LIFE_BACK_OPACITY = 0.7
+/** A game-look smoke has no token (§2.24): its ring goes round the cloud, this far out, clear of its rim and end telegraph. */
+const SMOKE_RING_REACH = 1.1
 const BADGE_GLYPH = 22
 /** The letter drawn instead when the registry has no glyph. */
 const BADGE_LETTER = 14
@@ -502,6 +506,48 @@ function abilityExtent(item: PlacedAbility, k: number): number {
   if (item.path || item.family === 'device' || item.family === 'scout' || item.family === 'self') return BADGE_R * k
   if (item.family === 'wall') return Math.max(item.r * 2, WALL_BAR_MIN * k) / 2
   return item.r
+}
+
+/**
+ * Time left, about the origin: a ring full when it starts, emptying clockwise
+ * from the top. `unit` is one screen pixel in the units it is drawn in: 1
+ * inside a token, the marker scale round an area on the map.
+ */
+function lifeRing(radius: number, life: number, ink: string, unit: number): ReactNode {
+  const length = 2 * Math.PI * radius
+  return (
+    <g transform="rotate(-90)">
+      <circle r={radius} fill="none" stroke={TOKEN_FILL} strokeOpacity={LIFE_BACK_OPACITY} strokeWidth={(LIFE_WIDTH + LIFE_BACK) * unit} />
+      <circle
+        r={radius}
+        fill="none"
+        stroke={ink}
+        strokeWidth={LIFE_WIDTH * unit}
+        strokeLinecap="round"
+        strokeDasharray={`${(length * life).toFixed(2)} ${length.toFixed(2)}`}
+      />
+    </g>
+  )
+}
+
+/** Whole seconds left, centred at `y`. */
+function secondsLeft(seconds: number, y: number): ReactNode {
+  return (
+    <text
+      y={y}
+      textAnchor="middle"
+      dominantBaseline="central"
+      fontFamily={FONT}
+      fontWeight="bold"
+      fontSize={SECONDS_SIZE}
+      fill={WHITE}
+      stroke={TOKEN_FILL}
+      strokeWidth={3}
+      paintOrder="stroke"
+    >
+      {seconds}
+    </text>
+  )
 }
 
 /** A repeatable 0…1 from a kill's key: the same kill always bursts the same way, frame to frame. */
@@ -1370,20 +1416,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
         ) : (
           <circle r={BADGE_R} fill={TOKEN_FILL} stroke={ring} strokeWidth={BADGE_RING} />
         )}
-        {clocked && item.life !== null && (
-          // Time left: full when it starts, emptying clockwise from the top.
-          <g transform="rotate(-90)">
-            <circle r={LIFE_R} fill="none" stroke={TOKEN_FILL} strokeOpacity={0.7} strokeWidth={LIFE_WIDTH + 2} />
-            <circle
-              r={LIFE_R}
-              fill="none"
-              stroke={ink}
-              strokeWidth={LIFE_WIDTH}
-              strokeLinecap="round"
-              strokeDasharray={`${(LIFE_LENGTH * item.life).toFixed(2)} ${LIFE_LENGTH.toFixed(2)}`}
-            />
-          </g>
-        )}
+        {clocked && item.life !== null && lifeRing(LIFE_R, item.life, ink, 1)}
         {icon ? (
           <image
             href={icon}
@@ -1399,22 +1432,23 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
             {UTILITY_STYLE[item.shape].label.slice(0, 1)}
           </text>
         )}
-        {item.seconds !== null && !flying && (
-          <text
-            y={SECONDS_Y}
-            textAnchor="middle"
-            dominantBaseline="central"
-            fontFamily={FONT}
-            fontWeight="bold"
-            fontSize={SECONDS_SIZE}
-            fill={WHITE}
-            stroke={TOKEN_FILL}
-            strokeWidth={3}
-            paintOrder="stroke"
-          >
-            {item.seconds}
-          </text>
-        )}
+        {item.seconds !== null && !flying && secondsLeft(item.seconds, SECONDS_Y)}
+      </g>
+    )
+  }
+
+  /**
+   * The clock of a game-look smoke (§2.24), about its centre. The cloud says
+   * what it is, so it has no token: the time-left ring goes round the smoke,
+   * at its size on the map and the token ring's width on screen, and the
+   * seconds stand at its centre. Nothing while it flies, nor in a strat.
+   */
+  const smokeClockOf = (item: PlacedAbility, ink: string, flying: boolean) => {
+    if (flying || (item.life === null && item.seconds === null)) return null
+    return (
+      <g pointerEvents="none">
+        {item.life !== null && lifeRing(item.r * SMOKE_RING_REACH, item.life, ink, k)}
+        {item.seconds !== null && <g transform={sized}>{secondsLeft(item.seconds, 0)}</g>}
       </g>
     )
   }
@@ -1440,6 +1474,9 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
     }
     return null
   }
+
+  /** Whether an ability is a smoke the board draws as the game does: such a cloud needs no token. */
+  const isGameSmoke = (item: PlacedAbility) => item.family === 'cloud' && gameSmoke(item, null) !== null
 
   /** The area of a landed ability about its centre: one drawing per family, so alike abilities look alike. */
   const areaOf = (item: PlacedAbility, ink: string): ReactNode => {
@@ -1591,7 +1628,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
         {comet && <circle cx={comet[0]} cy={comet[1]} r={COMET_R * k} fill={ink} stroke={TOKEN_FILL} strokeWidth={COMET_HALO * k} pointerEvents="none" />}
         <g style={placement(badge[0], badge[1])}>
           {!area && <circle r={HIT_R * k} fill="transparent" />}
-          {tokenOf(item, ink, icon, flying)}
+          {isGameSmoke(item) ? smokeClockOf(item, ink, flying) : tokenOf(item, ink, icon, flying)}
         </g>
       </g>
     )
@@ -2075,10 +2112,13 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
       const { at, from, path, flying, badge } = abilityLayout(ability)
       // Round the area at the landing; round the badge alone in flight or on a wall's path.
       const [cx, cy] = flying || path ? badge : at
+      // A game-look smoke on a clock has its time ring round it: the selection goes outside that.
+      const ringed = !flying && ability.life !== null && isGameSmoke(ability)
+      const extent = ringed ? ability.r * SMOKE_RING_REACH + LIFE_WIDTH * k : abilityExtent(ability, k)
       return (
         <g key={`sel:${ability.id}`}>
           <g pointerEvents="none" style={placement(cx, cy)}>
-            <circle r={abilityExtent(ability, k) + 8 * k} {...dashedMap} />
+            <circle r={extent + 8 * k} {...dashedMap} />
           </g>
           {from && (
             // The hand: the select tool drags it to move `from`.

@@ -994,6 +994,29 @@ page in the vault (`VAL-Master-Plays/prototypes/<name>/`) from the game files
   lookup now also tries it lower-cased, so those agents (Miks among them) get
   their name, portrait and abilities.
 
+### 2.24 A game-look smoke has no token
+
+The seven smokes drawn as the game draws them (Ruse §2.21; Nebula, Sky Smoke,
+Cove, Waveform, Dark Cover, Poison Cloud §2.23) say what they are, so the token
+of §2.14 is no longer drawn on them (`isGameSmoke` in `PlayCanvas.tsx`: a
+`cloud` that `gameSmoke` has a look for). Every other ability keeps its token.
+
+- **The clock** (`smokeClockOf`) is the token's own, moved: the time-left ring
+  goes round the cloud at 1.1 × its sight radius (`SMOKE_RING_REACH`, clear of
+  the rim and of the end telegraphs, which reach 1.08), 3 px wide on screen
+  whatever the zoom, in the agent's colour over the same dark backing; the
+  seconds stand at the smoke's centre in the token's type. Ring and seconds are
+  the helpers the token uses (`lifeRing`, `secondsLeft`), and they read the same
+  `life` and `seconds` of the replay frame, so the ring drains over the actor's
+  real life.
+- **In flight** there is the dashed landing circle and the comet, no token.
+- **In a strat**, where a smoke has no clock, there is the smoke alone.
+- **Selected** on a replay frame, the dashed selection circle sits outside the
+  time ring.
+- **Not kept:** the team colour the token's ring gave (the smokes that have an
+  enemy treatment show it themselves, §2.23), and the glyph where WebGL is
+  missing: the plain circle then has its ring and seconds only.
+
 ## 3. Document v2 (`src/lib/playDoc.ts`)
 
 ```ts
