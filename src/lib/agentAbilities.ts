@@ -98,8 +98,8 @@ const TABLE: Record<string, Record<AbilitySlot, Entry>> = {
   neon: { Grenade: 'wall', Ability1: ['stun', 500], Ability2: 'other', Ultimate: 'ult' },
   // Dark Cover 4.1 m.
   omen: { Grenade: 'other', Ability1: 'flash', Ability2: ['smoke', 410], Ultimate: 'ult' },
-  // Hot Hands 4.5 m.
-  phoenix: { Grenade: 'wall', Ability1: ['molly', 450], Ability2: 'flash', Ultimate: 'ult' },
+  // Hot Hands burns out to 4.75 m (game files 13.10, §2.25).
+  phoenix: { Grenade: 'wall', Ability1: ['molly', 475], Ability2: 'flash', Ultimate: 'ult' },
   // Paint Shells 5.5 m outer, Showstopper 7 m outer.
   raze: { Grenade: 'drone', Ability1: 'other', Ability2: ['molly', 550], Ultimate: ['molly', 700] },
   reyna: { Grenade: 'flash', Ability1: 'other', Ability2: 'other', Ultimate: 'ult' },
