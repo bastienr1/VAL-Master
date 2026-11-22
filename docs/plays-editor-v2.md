@@ -956,6 +956,44 @@ above, in place of the plain burst of §2.14. Its flight is unchanged.
   its reach showing, its spark crackling, still under `prefers-reduced-motion`.
 - **Until the sprites are in** a placed one is the plain dashed burst.
 
+### 2.23 The other controllers' smokes, as in the game
+
+Astra's Nebula, Brimstone's Sky Smoke, Harbor's Cove, Miks's Waveform, Omen's
+Dark Cover and Viper's Poison Cloud are drawn as the game draws them, seen from
+straight above, the way Ruse is (§2.21). Each was first built as a prototype
+page in the vault (`VAL-Master-Plays/prototypes/<name>/`) from the game files
+(13.10), checked against in-game pictures, then ported here.
+
+- **One module set per smoke.** A pure, tested timeline (`src/lib/<name>.ts`:
+  the figures with their sources, `<name>State(ageMs)`, an idle state for a
+  smoke placed in a strat, and the board test `isX(agent, slot)`), a painter
+  (`src/lib/<name>Gl.ts`) and a component (`src/components/<Name>.tsx`) with
+  Ruse's contract: `r` the sight-blocking radius, `age`, `enemy`, `k`, `still`,
+  `fallback`. The painters share `src/lib/smokeGl.ts`: one WebGL context per
+  smoke kind, textures in `src/assets/<name>`, each smoke copied into its own
+  2D canvas; where WebGL is missing the board's plain circle stays.
+- **Sizes.** The board's radius for each is now the sphere that blocks sight
+  in the game files: Nebula 4.70 m (was 4.75), Sky Smoke 4.10 m (was 4.15),
+  Cove 4.60 m, Waveform 3.98 m (was 4.72, which matched nothing), Dark Cover
+  4.10 m, Poison Cloud 4.68 m (was 4.50). The shell that is seen is drawn at its
+  own size about it (4.10 to 4.78 m).
+- **Clocks, all matching the replays' actor lives:** Nebula 15.5 s and its
+  Dissipate fake 2.25 s; Sky Smoke 20.75 s; Cove 20.25 s; Waveform 18.25 s;
+  Dark Cover 16.0 s; Poison Cloud one actor per time Viper turns it on, from
+  4.25 s (the shortest toggle) to 14.25 s (a full tank). Its fall is placed
+  1.75 s before the actor's end, read from the element's `age` and `life`.
+- **Variants.** `GameObject_Rift_E_SmokeZone_Fake_C` carries the new variant
+  `dissipate`. Most Astra smokes are recorded with no owner, so both Rift
+  smoke classes name `astra` (`agentName`, as Ruse's after-death class does).
+  Cove's shield is not drawn: the replays record no separate shield actor.
+- **Whose it is.** Enemy treatments are the game's: Nebula's gold rim turns
+  red, Waveform's pattern red-orange, Sky Smoke's tint red, Poison Cloud's
+  veins orange-red; Cove and Dark Cover change little (the files change only
+  sand and outro).
+- **Agent ids.** Some bundles write a newer agent's id in capitals; the replay
+  lookup now also tries it lower-cased, so those agents (Miks among them) get
+  their name, portrait and abilities.
+
 ## 3. Document v2 (`src/lib/playDoc.ts`)
 
 ```ts

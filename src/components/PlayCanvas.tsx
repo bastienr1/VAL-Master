@@ -50,8 +50,20 @@ import { useGameContent } from '../hooks/useGameContent'
 import { type GameAgent, type GameMap } from '../lib/gameContent'
 import { abilityShape, agentInk } from '../lib/agentAbilities'
 import { isRuse } from '../lib/ruseSmoke'
+import { isNebula } from '../lib/nebulaSmoke'
+import { isSkySmoke } from '../lib/skySmoke'
+import { isCove } from '../lib/coveSmoke'
+import { isWaveform } from '../lib/waveformSmoke'
+import { isDarkCover } from '../lib/darkCover'
+import { isPoisonCloud } from '../lib/poisonCloud'
 import { isShockDart, shockSeed } from '../lib/shockDart'
 import { RuseSmoke } from './RuseSmoke'
+import { NebulaSmoke } from './NebulaSmoke'
+import { SkySmoke } from './SkySmoke'
+import { CoveSmoke } from './CoveSmoke'
+import { WaveformSmoke } from './WaveformSmoke'
+import { DarkCover } from './DarkCover'
+import { PoisonCloud } from './PoisonCloud'
 import { ShockDart } from './ShockDart'
 import {
   elementAt,
@@ -1407,6 +1419,28 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
     )
   }
 
+  /**
+   * A controller's smoke drawn as the game draws it (§2.21, §2.23), at its
+   * sight-blocking radius `item.r`; null for a cloud the board draws plain.
+   */
+  const gameSmoke = (item: PlacedAbility, fallback: ReactNode): ReactNode => {
+    const { agent, slot, r, age } = item
+    const shared = { r, age, k, still: reducedMotion, fallback }
+    if (isRuse(agent, slot)) return <RuseSmoke {...shared} cast={item.variant === 'afterDeath' ? 'afterDeath' : 'alive'} />
+    const enemy = thrownByEnemy(item)
+    if (isNebula(agent, slot)) return <NebulaSmoke {...shared} enemy={enemy} cast={item.variant === 'dissipate' ? 'dissipate' : 'nebula'} />
+    if (isSkySmoke(agent, slot)) return <SkySmoke {...shared} enemy={enemy} />
+    if (isCove(agent, slot)) return <CoveSmoke {...shared} enemy={enemy} />
+    if (isWaveform(agent, slot)) return <WaveformSmoke {...shared} enemy={enemy} />
+    if (isDarkCover(agent, slot)) return <DarkCover {...shared} enemy={enemy} />
+    if (isPoisonCloud(agent, slot)) {
+      // Each time Viper turns it on is one actor; how long it stayed up sets when it falls.
+      const lifeMs = age !== null && item.life !== null && item.life < 1 ? age / (1 - item.life) : null
+      return <PoisonCloud {...shared} enemy={enemy} lifeMs={lifeMs} />
+    }
+    return null
+  }
+
   /** The area of a landed ability about its centre: one drawing per family, so alike abilities look alike. */
   const areaOf = (item: PlacedAbility, ink: string): ReactNode => {
     const { r, life } = item
@@ -1414,12 +1448,11 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
     const wash = (fillOpacity: number) => ({ fill: ink, fillOpacity: huge ? HUGE_FILL : fillOpacity, stroke: ink, strokeOpacity: AREA_RING, strokeWidth: RING_WIDTH * k })
     const hollow = { fill: 'none', stroke: ink, strokeOpacity: AREA_RING, strokeWidth: RING_WIDTH * k, strokeDasharray: dashes(GHOST_DASH) }
     switch (item.family) {
-      case 'cloud':
-        // Clove's smoke is the game's own, animated (§2.21); any other is the plain circle.
-        if (isRuse(item.agent, item.slot)) {
-          return <RuseSmoke r={r} age={item.age} cast={item.variant === 'afterDeath' ? 'afterDeath' : 'alive'} k={k} still={reducedMotion} fallback={<circle r={r} {...wash(CLOUD_FILL)} />} />
-        }
-        return <circle r={r} {...wash(CLOUD_FILL)} />
+      case 'cloud': {
+        // The controllers' smokes are the game's own, animated (§2.21, §2.23); any other is the plain circle.
+        const plain = <circle r={r} {...wash(CLOUD_FILL)} />
+        return gameSmoke(item, plain) ?? plain
+      }
       case 'burst': {
         const plain =
           life === null ? (

@@ -71,9 +71,10 @@ const ignore = (shape: UtilityKind = 'other'): EffectClassInfo => ({ role: 'igno
 /** Every effect class seen in the bundles. Codenames: the agent in the comment. */
 const TABLE: Record<string, EffectClassInfo> = {
   // Astra (Rift)
-  GameObject_Rift_E_SmokeZone_C: placed('smoke', E),
+  // Most are recorded with no owner (37 of 45 in one match): Astra's when she is in the match.
+  GameObject_Rift_E_SmokeZone_C: { ...placed('smoke', E), agentName: 'astra' },
   // Nebula dissipated into a fake (~2 s).
-  GameObject_Rift_E_SmokeZone_Fake_C: placed('smoke', E),
+  GameObject_Rift_E_SmokeZone_Fake_C: { ...placed('smoke', E), variant: 'dissipate', agentName: 'astra' },
   // Cosmic Divide: a map-long wall, one point.
   GameObject_Rift_X_GlobalWall_C: placed('wall', X),
   // Gravity Well and Nova Pulse, where they went off (owner often not recorded).
