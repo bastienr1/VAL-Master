@@ -107,7 +107,8 @@ export function replayContext(bundle: ReplayBundle, registry: GameContentRegistr
   if (!transform) throw new Error('This replay’s map has no minimap data right now, so its positions cannot be placed.')
 
   const lookup: ReplayAgentLookup = uuid => {
-    const agent = uuid ? registry.agents.byId.get(uuid) : undefined
+    // The newer agents' ids come in capitals in some bundles; an id is the same either way.
+    const agent = uuid ? registry.agents.byId.get(uuid) ?? registry.agents.byId.get(uuid.toLowerCase()) : undefined
     return agent ? { name: agent.name, abilities: agent.abilities.map(({ slot, name }) => ({ slot, name })) } : null
   }
   return { lookup, transform }

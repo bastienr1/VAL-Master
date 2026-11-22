@@ -58,13 +58,13 @@ type Entry = Shape | [Shape, number]
  * buffs, 'ult' for ultimates that are not an area.
  */
 const TABLE: Record<string, Record<AbilitySlot, Entry>> = {
-  // Gravity Well 4.75 m, Nova Pulse 4.75 m, Nebula 4.75 m.
-  astra: { Grenade: ['slow', 475], Ability1: ['stun', 475], Ability2: ['smoke', 475], Ultimate: 'wall' },
+  // Gravity Well 4.75 m, Nova Pulse 4.75 m; Nebula blocks sight to 4.70 m (game files 13.10, §2.23).
+  astra: { Grenade: ['slow', 475], Ability1: ['stun', 475], Ability2: ['smoke', 470], Ultimate: 'wall' },
   // Aftershock 3 m cylinder radius; Fault Line 8 m wide and Rolling Thunder
   // 18 m wide (lines: half the width).
   breach: { Grenade: ['molly', 300], Ability1: 'flash', Ability2: ['stun', 400], Ultimate: ['stun', 900] },
-  // Incendiary 4.5 m, Sky Smoke 4.15 m, Orbital Strike 9 m.
-  brimstone: { Grenade: ['other', 250], Ability1: ['molly', 450], Ability2: ['smoke', 415], Ultimate: ['molly', 900] },
+  // Incendiary 4.5 m, Sky Smoke blocks sight to 4.10 m (game files 13.10, §2.23), Orbital Strike 9 m.
+  brimstone: { Grenade: ['other', 250], Ability1: ['molly', 450], Ability2: ['smoke', 410], Ultimate: ['molly', 900] },
   chamber: { Grenade: ['trap', 250], Ability1: 'other', Ability2: 'other', Ultimate: 'ult' },
   // Meddle 4 m. Ruse 3.98 m: the game's own sight-blocking sphere (ruseSmoke.ts).
   clove: { Grenade: 'other', Ability1: ['stun', 400], Ability2: ['smoke', 398], Ultimate: 'ult' },
@@ -91,9 +91,9 @@ const TABLE: Record<string, Record<AbilitySlot, Entry>> = {
   killjoy: { Grenade: ['molly', 450], Ability1: 'trap', Ability2: 'trap', Ultimate: ['stun', 3250] },
   // M-Pulse pulses concuss (or heal) around where it lands; Waveform casts
   // smokes; Harmonize is an ally buff; Bassquake is a deafen/knockback/slow zone.
-  // M-Pulse 5.5 m, Waveform 4.72 m; Bassquake is a 40 m, 60 degree cone with
+  // M-Pulse 5.5 m, Waveform 3.98 m; Bassquake is a 40 m, 60 degree cone with
   // no single radius.
-  miks: { Grenade: ['stun', 550], Ability1: 'other', Ability2: ['smoke', 472], Ultimate: ['stun', 600] }, // Bassquake: not found, estimate
+  miks: { Grenade: ['stun', 550], Ability1: 'other', Ability2: ['smoke', 398], Ultimate: ['stun', 600] }, // Waveform blocks sight to 3.98 m (game files 13.10, §2.23). Bassquake: not found, estimate
   // Relay Bolt 5 m.
   neon: { Grenade: 'wall', Ability1: ['stun', 500], Ability2: 'other', Ultimate: 'ult' },
   // Dark Cover 4.1 m.
@@ -114,8 +114,8 @@ const TABLE: Record<string, Record<AbilitySlot, Entry>> = {
   // Crosscut is a teleport anchor; Chokehold and Interceptor are placed devices
   // that act on enemies in range; Evolution is a self-buff.
   veto: { Grenade: 'other', Ability1: 'trap', Ability2: 'trap', Ultimate: 'ult' },
-  // Snake Bite 4.5 m, Poison Cloud 4.5 m, Viper's Pit 9 m maximum.
-  viper: { Grenade: ['molly', 450], Ability1: ['smoke', 450], Ability2: 'wall', Ultimate: ['smoke', 900] },
+  // Snake Bite 4.5 m, Poison Cloud blocks sight to 4.68 m (game files 13.10, §2.23), Viper's Pit 9 m maximum.
+  viper: { Grenade: ['molly', 450], Ability1: ['smoke', 468], Ability2: 'wall', Ultimate: ['smoke', 900] },
   // Razorvine 6.25 m, Steel Garden 28 m.
   vyse: { Grenade: ['slow', 625], Ability1: 'trap', Ability2: 'flash', Ultimate: ['stun', 2800] },
   // Saturate 6 m; Convergent Paths 36 x 13.5 m (half the width).
@@ -155,9 +155,9 @@ export function abilityShape(agentName: string, slot: AbilitySlot): AbilityShape
  */
 export type AbilityFamily = 'cloud' | 'zone' | 'burst' | 'wall' | 'wave' | 'device' | 'scout' | 'reveal' | 'self'
 
-/** A cast that looks and lasts differently from the ability's usual one: Ruse placed after Clove's death. */
-export type AbilityVariant = 'afterDeath'
-export const ABILITY_VARIANTS: readonly AbilityVariant[] = ['afterDeath']
+/** A cast that looks and lasts differently from the ability's usual one: Ruse placed after Clove's death, Astra's star dissipated into a short fake Nebula. */
+export type AbilityVariant = 'afterDeath' | 'dissipate'
+export const ABILITY_VARIANTS: readonly AbilityVariant[] = ['afterDeath', 'dissipate']
 
 export interface AbilityLook {
   family: AbilityFamily
