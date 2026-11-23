@@ -111,6 +111,13 @@ export interface AgentElement {
   blind?: number
 }
 
+/** One point of a thrown thing's track on a replay frame. */
+export interface CoursePoint {
+  at: PlayPos
+  /** Ms since it was there; negative when it has yet to get there. */
+  ago: number
+}
+
 export interface AbilityElement {
   kind: 'ability'
   id: string
@@ -145,6 +152,13 @@ export interface AbilityElement {
   trail?: PlayPos[]
   /** A replay frame's: where the thrown thing is now. Not kept in a strat. */
   flyer?: PlayPos
+  /**
+   * A replay frame's: the whole track of a throw that lands, and where it
+   * lands, each point with how long ago it was passed (ms; negative for what
+   * is still ahead). For what draws its own flight on the game's clock (the
+   * Shock Bolt, §2.26). Not kept in a strat.
+   */
+  course?: CoursePoint[]
   /** A replay frame's wave: where its front is now, `at` being where it started. Not kept in a strat. */
   reach?: PlayPos
 }
@@ -544,6 +558,12 @@ function parseElements(
         if (trail.length >= 1) el.trail = trail
         const flyer = parsePos(e.flyer)
         if (flyer) el.flyer = flyer
+        const course = list(e.course).flatMap((raw): CoursePoint[] => {
+          const at = isObject(raw) ? parsePos(raw.at) : null
+          const ago = isObject(raw) ? finite(raw.ago) : null
+          return at && ago !== null ? [{ at, ago }] : []
+        })
+        if (course.length >= 2) el.course = course
         const reach = parsePos(e.reach)
         if (reach) el.reach = reach
         elements.push(el)

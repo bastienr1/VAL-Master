@@ -9,11 +9,17 @@
  * In the game the three arms stand 4.5 m tall on the ball of the blast. From
  * above they are laid from the centre to its edge, so they read on a map.
  * Plain 2D canvas, drawn additively: no WebGL.
+ *
+ * The flight (§2.26) has two sheets more: `Lightning_3`, the loops of
+ * lightning round the bolt (3 × 3), and `LightningSimple_1x4_TEX`, the
+ * branches of a bounce's flash (1 × 4).
  */
 
 import armUrl from '../assets/shock/arm.png'
+import branchUrl from '../assets/shock/branch.png'
+import loopUrl from '../assets/shock/loop.png'
 import sparkUrl from '../assets/shock/spark.png'
-import { SHOCK, sampleCurve, shockRandom, type ShockState } from './shockDart.ts'
+import { SHOCK, SHOCK_FLIGHT, sampleCurve, shockHeadAgo, shockRandom, shockWayAt, type ShockState, type ShockWay } from './shockDart.ts'
 
 /** The picture's half-width in blast radii: room for the first flash. */
 export const SHOCK_EXTENT = 1.1
@@ -26,8 +32,9 @@ const ENEMY: Palette = ['#FFF5F2', '#FF9C8F', '#FF3D2E', '#C81414']
 /** The game's hot colour for a team, for the lines drawn round the picture. */
 export const shockHot = (enemy: boolean): string => (enemy ? ENEMY : ALLY)[1]
 
-const SHEETS = { spark: [4, 4], arm: [7, 3] } as const
+const SHEETS = { spark: [4, 4], arm: [7, 3], loop: [3, 3], branch: [1, 4] } as const
 type SheetName = keyof typeof SHEETS
+const SHEET_URLS: Record<SheetName, string> = { spark: sparkUrl, arm: armUrl, loop: loopUrl, branch: branchUrl }
 
 export type ShockStatus = 'loading' | 'ready' | 'failed'
 
@@ -77,14 +84,15 @@ function tint(image: HTMLImageElement, color: string): HTMLCanvasElement | null 
 function start() {
   if (started || typeof document === 'undefined') return
   started = true
-  Promise.all([loadImage(sparkUrl), loadImage(armUrl)])
-    .then(([spark, arm]) => {
+  const names = Object.keys(SHEETS) as SheetName[]
+  Promise.all(names.map(name => loadImage(SHEET_URLS[name])))
+    .then(images => {
       for (const color of [...ALLY, ...ENEMY]) {
-        const sparkSheet = tint(spark, color)
-        const armSheet = tint(arm, color)
-        if (!sparkSheet || !armSheet) throw new Error('No 2D canvas')
-        sheets.set(`spark:${color}`, sparkSheet)
-        sheets.set(`arm:${color}`, armSheet)
+        names.forEach((name, i) => {
+          const sheet = tint(images[i], color)
+          if (!sheet) throw new Error('No 2D canvas')
+          sheets.set(`${name}:${color}`, sheet)
+        })
       }
       setStatus('ready')
     })
@@ -237,6 +245,139 @@ export function paintShock(target: HTMLCanvasElement, state: ShockState, seed: n
   ctx.globalCompositeOperation = 'lighter'
   draw(ctx, state, seed, enemy ? ENEMY : ALLY)
   ctx.setTransform(1, 0, 0, 1, 0, 0)
+  ctx.globalCompositeOperation = 'source-over'
+  return true
+}
+
+/** The flight's picture is this far either side of the bolt, world cm: 0.4 s of ribbon at the bolt's top speed, and room for a bounce's flash. */
+export const SHOCK_FLIGHT_EXTENT_CM = 2000
+
+export interface ShockFlightView {
+  /** The same for the same bolt on every frame. */
+  seed: number
+  enemy: boolean
+  /**
+   * How many times its real size the bolt, its ribbon and its loops are
+   * drawn: a ribbon 20 cm wide is a hair on a map. 1 is the game's size.
+   */
+  big: number
+  /** No crackling: one shape of lightning, held. */
+  still: boolean
+}
+
+const lerp = (a: number, b: number, x: number) => a + (b - a) * x
+/** How many points the ribbon is drawn through. */
+const RIBBON_STEPS = 16
+
+/** The bolt's way about its head, one unit a centimetre: the flashes where it bounced, its ribbon, and the bolt while it flies. */
+function drawFlight(ctx: CanvasRenderingContext2D, way: ShockWay, { seed, big, still }: ShockFlightView, [core, hot, main, deep]: Palette) {
+  const first = way.points[0]
+  const last = way.points[way.points.length - 1]
+  const flying = last.ago < 0
+  const headAgo = shockHeadAgo(way)
+  // Since the throw, seconds: what the lightning changes its shape by.
+  const t = still ? 0 : Math.max(0, first.ago - headAgo) / 1000
+
+  // Hunter_4_Ricochet: a soft flash 5 m across and 5 to 7 branches into the room.
+  way.bounces.forEach((bounce, index) => {
+    if (bounce.ago < 0 || bounce.ago >= SHOCK_FLIGHT.ricochetMs) return
+    const since = bounce.ago / 1000
+    const own = seed + 97 * (index + 1)
+    ctx.save()
+    ctx.translate(bounce.x, bounce.y)
+    glow(ctx, SHOCK_FLIGHT.ricochetCm, hot, main, deep, 0.8 * (1 - since / 0.35))
+    const count = 5 + Math.floor(shockRandom(own, 40) * 3)
+    for (let i = 0; i < count; i++) {
+      const life = lerp(0.15, 0.45, shockRandom(own, 50 + i))
+      if (since >= life) continue
+      const dir = bounce.off + (shockRandom(own, 60 + i) - 0.5) * Math.PI
+      const length = lerp(60, 100, shockRandom(own, 70 + i)) * 1.6
+      const width = lerp(10, 25, shockRandom(own, 80 + i)) * 3
+      const out = 30 + 160 * (since / life)
+      ctx.save()
+      ctx.translate(Math.cos(dir) * out, Math.sin(dir) * out)
+      sprite(ctx, 'branch', i % 2 ? core : hot, Math.floor(shockRandom(own, 90 + i) * 4), length, width, dir, 1 - since / life)
+      ctx.restore()
+    }
+    ctx.restore()
+  })
+
+  // Hunter_4_TeslaTrail_VFX: a ribbon that lives 0.4 s, redrawn jagged 25 times a second.
+  const oldest = Math.min(SHOCK_FLIGHT.trailMs, first.ago)
+  if (oldest > headAgo) {
+    const jag = Math.floor(t * 25)
+    const ribbon: Array<readonly [x: number, y: number, fade: number]> = []
+    for (let i = 0; i <= RIBBON_STEPS; i++) {
+      const ago = lerp(headAgo, oldest, i / RIBBON_STEPS)
+      const at = shockWayAt(way, ago)
+      if (!at) return
+      const off = (shockRandom(seed + jag, i) - 0.5) * 1.3 * SHOCK_FLIGHT.trailCm * big * Math.min(1, i / 3)
+      ribbon.push([at.x - Math.sin(at.heading) * off, at.y + Math.cos(at.heading) * off, 1 - ago / SHOCK_FLIGHT.trailMs])
+    }
+    ctx.lineCap = 'round'
+    for (const [color, width, alpha] of [[main, 26, 0.5], [hot, 11, 0.8], [core, 4, 1]] as const) {
+      for (let i = 0; i < RIBBON_STEPS; i++) {
+        ctx.globalAlpha = clamp01(alpha * ribbon[i][2])
+        ctx.strokeStyle = color
+        ctx.lineWidth = width * big * (1 - (0.6 * i) / RIBBON_STEPS)
+        ctx.beginPath()
+        ctx.moveTo(ribbon[i][0], ribbon[i][1])
+        ctx.lineTo(ribbon[i + 1][0], ribbon[i + 1][1])
+        ctx.stroke()
+      }
+    }
+    ctx.globalAlpha = 1
+  }
+  if (!flying) return
+
+  // The loops of lightning round the bolt, and the bolt.
+  const head = shockWayAt(way, 0)
+  if (!head) return
+  ctx.save()
+  ctx.translate(head.x, head.y)
+  ctx.rotate(head.heading)
+  ctx.scale(big, big)
+  for (let i = 0; i < 2; i++) {
+    ctx.save()
+    ctx.translate(-(20 + i * 30), 0)
+    sprite(ctx, 'loop', i ? hot : main, Math.floor(t * 28 + i * 4), 110, 70, i ? 0.5 : -0.4, 0.9)
+    ctx.restore()
+  }
+  glow(ctx, 55, core, main, deep, 1)
+  ctx.globalCompositeOperation = 'source-over'
+  ctx.fillStyle = core
+  ctx.beginPath()
+  ctx.moveTo(26, 0)
+  ctx.lineTo(4, -9)
+  ctx.lineTo(8, 0)
+  ctx.lineTo(4, 9)
+  ctx.closePath()
+  ctx.fill()
+  ctx.fillRect(-40, -1.6, 48, 3.2)
+  ctx.restore()
+  ctx.globalCompositeOperation = 'lighter'
+}
+
+/**
+ * Paints the bolt's flight onto `target`, a square canvas that shows
+ * `SHOCK_FLIGHT_EXTENT_CM` either side of its centre. `way` is in world cm
+ * about that centre, which is the bolt (or where it landed). False when it
+ * could not (sprites not in yet, no 2D canvas).
+ */
+export function paintShockFlight(target: HTMLCanvasElement, way: ShockWay, view: ShockFlightView): boolean {
+  const ctx = target.getContext('2d')
+  if (!ctx || status !== 'ready') return false
+  const size = target.width
+  ctx.setTransform(1, 0, 0, 1, 0, 0)
+  ctx.globalCompositeOperation = 'source-over'
+  ctx.clearRect(0, 0, size, size)
+  if (size <= 0 || way.points.length < 2) return true
+  const scale = size / (2 * SHOCK_FLIGHT_EXTENT_CM)
+  ctx.setTransform(scale, 0, 0, scale, size / 2, size / 2)
+  ctx.globalCompositeOperation = 'lighter'
+  drawFlight(ctx, way, view, view.enemy ? ENEMY : ALLY)
+  ctx.setTransform(1, 0, 0, 1, 0, 0)
+  ctx.globalAlpha = 1
   ctx.globalCompositeOperation = 'source-over'
   return true
 }

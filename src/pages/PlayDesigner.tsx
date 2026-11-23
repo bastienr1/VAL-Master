@@ -1169,6 +1169,7 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
         delete landed.family
         delete landed.trail
         delete landed.flyer
+        delete landed.course
         delete landed.reach
         return landed
       }),

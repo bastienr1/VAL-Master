@@ -68,7 +68,7 @@ import { DarkCover } from './DarkCover'
 import { HotHands } from './HotHands'
 import { Incendiary } from './Incendiary'
 import { PoisonCloud } from './PoisonCloud'
-import { ShockDart } from './ShockDart'
+import { ShockDart, ShockFlight } from './ShockDart'
 import {
   elementAt,
   newId,
@@ -1598,6 +1598,22 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
     const name = abilityName(item, agent)
     const note = item.label && item.label !== name ? `: ${item.label}` : ''
     const way = item.trail ? (comet ? [...item.trail, comet] : item.trail) : null
+    const wayLine = way && way.length >= 2 && (
+      <polyline
+        points={pointsAttr(way)}
+        fill="none"
+        stroke={ink}
+        strokeWidth={TRAIL_WIDTH * k}
+        strokeDasharray={dashes(TRAIL_DASH)}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        opacity={flying || item.family === 'scout' ? TRAIL_OPACITY : TRAIL_LANDED_OPACITY}
+        pointerEvents="none"
+      />
+    )
+    const cometDot = comet && <circle cx={comet[0]} cy={comet[1]} r={COMET_R * k} fill={ink} stroke={TOKEN_FILL} strokeWidth={COMET_HALO * k} pointerEvents="none" />
+    // Sova's Shock Bolt flies as the game draws it (§2.26): lightning in place of the dashed way and the dot.
+    const lightning = isShockDart(item.agent, item.slot) && item.course && item.course.length >= 2 ? item.course : null
     return (
       <g
         key={item.id}
@@ -1612,18 +1628,10 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
             {area}
           </g>
         )}
-        {way && way.length >= 2 && (
-          <polyline
-            points={pointsAttr(way)}
-            fill="none"
-            stroke={ink}
-            strokeWidth={TRAIL_WIDTH * k}
-            strokeDasharray={dashes(TRAIL_DASH)}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            opacity={flying || item.family === 'scout' ? TRAIL_OPACITY : TRAIL_LANDED_OPACITY}
-            pointerEvents="none"
-          />
+        {lightning ? (
+          <ShockFlight course={lightning} r={r} enemy={thrownByEnemy(item)} seed={shockSeed(item.id)} k={k} still={reducedMotion} screen={!lightMap} fallback={<>{wayLine}{cometDot}</>} />
+        ) : (
+          wayLine
         )}
         {arc && (
           <path
@@ -1660,7 +1668,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
             />
           </>
         )}
-        {comet && <circle cx={comet[0]} cy={comet[1]} r={COMET_R * k} fill={ink} stroke={TOKEN_FILL} strokeWidth={COMET_HALO * k} pointerEvents="none" />}
+        {!lightning && cometDot}
         <g style={placement(badge[0], badge[1])}>
           {!area && <circle r={HIT_R * k} fill="transparent" />}
           {hasGameLook(item) ? gameClockOf(item, ink, flying) : tokenOf(item, ink, icon, flying)}
