@@ -83,6 +83,141 @@ export function sampleCurve(table: readonly number[], x: number): number {
   return table[i] + (table[i + 1] - table[i]) * (at - i)
 }
 
+/**
+ * The bolt in flight (§2.26): `Hunter_4_TeslaTrail_VFX`, the ribbon of
+ * lightning it leaves behind, and `Hunter_4_Ricochet`, the flash where it
+ * bounces.
+ */
+export const SHOCK_FLIGHT = {
+  /** The ribbon lives this long behind the bolt. */
+  trailMs: 400,
+  /** The ribbon's width, world cm. */
+  trailCm: 20,
+  /** The flash at a bounce: its longest branch lives this long. */
+  ricochetMs: 450,
+  /** The flash's soft glow, 5 m across. */
+  ricochetCm: 250,
+  /** A turn in the track sharper than this is a bounce, degrees. */
+  bounceDeg: 25,
+} as const
+
+/** One point of a bolt's way: where, and how long ago it was there (ms; negative for what is still ahead). */
+export interface ShockWayPoint {
+  x: number
+  y: number
+  ago: number
+}
+
+export interface ShockBounce {
+  x: number
+  y: number
+  ago: number
+  /** The way off the wall, radians. */
+  off: number
+}
+
+export interface ShockWay {
+  /** Oldest first, each passed later than the one before. */
+  points: ShockWayPoint[]
+  bounces: ShockBounce[]
+}
+
+/** How far a corner may be from the samples round it, as a share of the time between them. */
+const CORNER_SLACK = 1.5
+
+/**
+ * The way a bolt went from the samples of its track. A replay samples a bolt
+ * every 0.1 to 0.2 s, so a bounce falls between two samples and the line from
+ * one to the next cuts the corner: the track then turns twice, and the wall is
+ * where the line it came in on meets the line it left on. A single turn is a
+ * bounce at the sample itself.
+ */
+export function shockWay(course: readonly ShockWayPoint[]): ShockWay {
+  const pts: ShockWayPoint[] = []
+  for (const p of course) {
+    if (!Number.isFinite(p.x) || !Number.isFinite(p.y) || !Number.isFinite(p.ago)) continue
+    const last = pts[pts.length - 1]
+    if (last && (p.ago >= last.ago || Math.hypot(p.x - last.x, p.y - last.y) < 1e-6)) continue
+    pts.push({ x: p.x, y: p.y, ago: p.ago })
+  }
+  if (pts.length < 3) return { points: pts, bounces: [] }
+
+  /** From `a` to `b`: the unit vector and the distance. */
+  const leg = (a: ShockWayPoint, b: ShockWayPoint) => {
+    const d = Math.hypot(b.x - a.x, b.y - a.y)
+    return [(b.x - a.x) / d, (b.y - a.y) / d, d] as const
+  }
+  const sharp = Math.cos((SHOCK_FLIGHT.bounceDeg * Math.PI) / 180)
+  const turns = (i: number) => {
+    if (i < 1 || i > pts.length - 2) return false
+    const [ax, ay] = leg(pts[i - 1], pts[i])
+    const [bx, by] = leg(pts[i], pts[i + 1])
+    return ax * bx + ay * by < sharp
+  }
+
+  const points: ShockWayPoint[] = [pts[0]]
+  const bounces: ShockBounce[] = []
+  for (let i = 1; i < pts.length; i++) {
+    const here = pts[i]
+    if (!turns(i)) {
+      points.push(here)
+      continue
+    }
+    const [ix, iy, cameCm] = leg(pts[i - 1], here)
+    if (turns(i + 1)) {
+      const next = pts[i + 1]
+      const [ox, oy, leftCm] = leg(next, pts[i + 2])
+      const cross = ix * oy - iy * ox
+      if (Math.abs(cross) > 1e-6) {
+        // here + s·in = next − u·out
+        const [ex, ey] = [next.x - here.x, next.y - here.y]
+        const s = (ex * oy - ey * ox) / cross
+        const u = (ix * ey - iy * ex) / cross
+        const speedIn = cameCm / (pts[i - 1].ago - here.ago)
+        const speedOut = leftCm / (next.ago - pts[i + 2].ago)
+        const between = here.ago - next.ago
+        if (s >= 0 && u >= 0 && s / speedIn + u / speedOut <= between * CORNER_SLACK) {
+          const ago = Math.min(here.ago, Math.max(next.ago, here.ago - s / speedIn))
+          const corner = { x: here.x + ix * s, y: here.y + iy * s, ago }
+          points.push(here)
+          if (ago < here.ago && ago > next.ago) points.push(corner)
+          points.push(next)
+          bounces.push({ ...corner, off: Math.atan2(oy - iy, ox - ix) })
+          i++
+          continue
+        }
+      }
+    }
+    const [ox, oy] = leg(here, pts[i + 1])
+    points.push(here)
+    bounces.push({ x: here.x, y: here.y, ago: here.ago, off: Math.atan2(oy - iy, ox - ix) })
+  }
+  return { points, bounces }
+}
+
+/** Where the bolt was `ago` ms back along its way, and which way it was heading (radians). Null for a way with no length. */
+export function shockWayAt(way: ShockWay, ago: number): { x: number; y: number; heading: number } | null {
+  const { points } = way
+  if (points.length < 2) return null
+  let j = 0
+  while (j < points.length - 2 && points[j + 1].ago > ago) j++
+  const [a, b] = [points[j], points[j + 1]]
+  const f = Math.min(1, Math.max(0, (a.ago - ago) / (a.ago - b.ago)))
+  return { x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f, heading: Math.atan2(b.y - a.y, b.x - a.x) }
+}
+
+/** How long ago the head of the way was passed: 0 while the bolt flies, the time since it landed after. */
+export function shockHeadAgo(way: ShockWay): number {
+  const last = way.points[way.points.length - 1]
+  return last ? Math.max(0, last.ago) : 0
+}
+
+/** Whether there is lightning to draw: the bolt is flying, or its ribbon or a bounce's flash has not died yet. */
+export function shockFlightShown(way: ShockWay): boolean {
+  if (way.points.length < 2) return false
+  return shockHeadAgo(way) < SHOCK_FLIGHT.trailMs || way.bounces.some(b => b.ago >= 0 && b.ago < SHOCK_FLIGHT.ricochetMs)
+}
+
 /** True for Sova's Shock Bolt: the Q of the agent the game files call Hunter. */
 export function isShockDart(agent: string, slot: string | null): boolean {
   return slot === 'Ability1' && agent.trim().toLowerCase() === 'sova'

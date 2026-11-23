@@ -200,6 +200,8 @@ export interface PlacedAbility {
   trail: Point[] | null
   /** Where the thrown thing is now, on a replay frame. */
   flyer: Point | null
+  /** The whole track of a throw that lands, each point with how long ago it was passed (ms), on a replay frame. */
+  course: Array<{ x: number; y: number; ago: number }> | null
   /** A wave's front now, on a replay frame. */
   reach: Point | null
 }
@@ -411,6 +413,12 @@ export function sceneForStep(
           family: el.family ?? abilityLook(el.agent, el.slot, el.shape).family,
           trail: el.trail ? el.trail.map(place).filter((p): p is Point => p !== null) : null,
           flyer: place(el.flyer),
+          course: el.course
+            ? el.course.flatMap(({ at: where, ago }) => {
+                const point = place(where)
+                return point ? [{ x: point[0], y: point[1], ago }] : []
+              })
+            : null,
           reach: place(el.reach),
         })
         break

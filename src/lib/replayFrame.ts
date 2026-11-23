@@ -35,6 +35,7 @@ import {
   type AbilityElement,
   type AbilitySlot,
   type AgentElement,
+  type CoursePoint,
   type MarkerElement,
   type PlayElement,
   type PlayPos,
@@ -622,6 +623,13 @@ export function frameStep(
     trackPos(track, t),
   ]
 
+  /** A throw's whole track and where it lands, each point with how long ago it was passed at `t`. */
+  const courseOf = (track: ReadonlyArray<readonly [number, number, number]>, landing: ReplayEffect): CoursePoint[] => {
+    const course = track.map(([at, x, y]) => ({ at: imagePos(transform, x, y), ago: t - at }))
+    if (landing.start > track[track.length - 1][0]) course.push({ at: posOf(landing), ago: t - landing.start })
+    return course
+  }
+
   // Utility up at t.
   effects.forEach((effect, index) => {
     const { role } = plan.info[index]
@@ -661,6 +669,7 @@ export function frameStep(
       if (effect.track && effect.track.length >= 2) {
         el.flyer = trackPos(effect.track, t)
         el.trail = walked(effect.track)
+        el.course = courseOf(effect.track, landing)
       }
       elements.push(el)
       return
@@ -702,7 +711,10 @@ export function frameStep(
     // Just landed: the way it came stays a moment.
     if (projectile && t - effect.start < ARC_KEPT_MS) {
       el.from = posOf(projectile)
-      if (projectile.track && projectile.track.length >= 2) el.trail = projectile.track.map(([, x, y]) => imagePos(transform, x, y))
+      if (projectile.track && projectile.track.length >= 2) {
+        el.trail = projectile.track.map(([, x, y]) => imagePos(transform, x, y))
+        el.course = courseOf(projectile.track, effect)
+      }
     }
     if (look.family === 'wave' && look.reach !== undefined && ownerRows) {
       // Along the aim the agent had when it went off.

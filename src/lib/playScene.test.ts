@@ -556,6 +556,21 @@ test('abilities carry progress and a placed wall path', () => {
   assert.deepEqual(scene.unresolved, ['Gone'])
 })
 
+test('a throw’s course is placed point by point and keeps its times', () => {
+  const step = stepOf(
+    ability('molly', { callout: 'A Site' }, {
+      course: [{ at: { callout: 'A Main' }, ago: 300 }, { at: { callout: 'Nowhere' }, ago: 150 }, { at: { callout: 'A Site' }, ago: -40 }],
+    }),
+    ability('molly', { callout: 'A Site' }),
+  )
+  const scene = sceneForStep(step, MAP, 'attack')
+  const [thrown, plain] = scene.abilities
+  assert.deepEqual(thrown.course?.map(p => p.ago), [300, -40])
+  close(thrown.course![0].x, viewPointOf('A Main')[0])
+  close(thrown.course![1].y, viewPointOf('A Site')[1])
+  assert.equal(plain.course, null)
+})
+
 test('throwOrigin copies the agent position when it stands more than 3 m from the click', () => {
   const sova = agent('Sova', { callout: 'A Main' })
   const step = stepOf(agent('Jett', { callout: 'A Site' }), sova)

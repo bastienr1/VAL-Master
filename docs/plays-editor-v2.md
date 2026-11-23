@@ -920,7 +920,7 @@ is the first ability with a look of its own; every other smoke is unchanged.
 ### 2.22 Sova's Shock Bolt, as in the game
 
 Sova's Shock Bolt arms and goes off as the game draws it, seen from straight
-above, in place of the plain burst of §2.14. Its flight is unchanged.
+above, in place of the plain burst of §2.14. Its flight is §2.26.
 
 - **The figures** (`src/lib/shockDart.ts`, pure, tested) are read from the game
   files (13.10): the tuning table `AbilityTuning_Hunter_4_BoltExplosive` and
@@ -1051,6 +1051,47 @@ then ported here. Every other `zone` is still the plain disc of §2.14.
   flame; Incendiary's edge line thinner).
 - **In a strat** a placed molly is whole and burning, still under
   `prefers-reduced-motion`.
+
+### 2.26 The Shock Bolt's flight, as in the game
+
+On a replay Sova's Shock Bolt flies as lightning, in place of the dashed way
+and the dot every other thrown thing has (§2.14): the ribbon it leaves behind,
+the loops of lightning round it, the bolt, and a flash where it bounces. The
+prototype page (`VAL-Master-Plays/prototypes/shock-dart`) drew these along a
+made-up throw; here they follow the bolt's real track.
+
+- **The track with its times.** A flying ability, and one that has just
+  landed, carries `course`: the projectile's whole track and its landing, each
+  point with how long ago it was passed (ms, negative for what is still
+  ahead). `trail` and `flyer` are unchanged and are what every other ability
+  is drawn from. `course` is a replay frame's, dropped from a captured frame.
+- **Bounces** (`shockWay` in `src/lib/shockDart.ts`, pure, tested). A replay
+  samples a bolt every 0.1 to 0.2 s, so a bounce falls between two samples and
+  the line from one to the next cuts the corner. Where the track turns twice
+  in a row, by more than 25° each, the wall is where the line it came in on
+  meets the line it left on, and that corner is put back into the way with its
+  time. A single turn is a bounce at the sample. The whole track is used, the
+  part still ahead too, so the way does not jump as the replay plays. A bounce
+  off the floor does not turn the track seen from above and is not found.
+- **The picture** (`paintShockFlight` in `src/lib/shockDartPaint.ts`,
+  `ShockFlight` in `src/components/ShockDart.tsx`), on a 2D canvas 20 m either
+  side of the bolt. `Hunter_4_TeslaTrail_VFX`: a ribbon that lives 0.4 s,
+  redrawn jagged 25 times a second, in three strokes. Two loops of lightning
+  behind the bolt (`Lightning_3`) and its glow. `Hunter_4_Ricochet` at a
+  bounce: a soft flash 5 m across and 5 to 7 branches into the room
+  (`LightningSimple_1x4_TEX`), gone in 0.45 s. Blue for an ally's, red for an
+  enemy's (§2.22). Seeded from the element id and the time since the throw, so
+  a paused frame does not flicker; one held shape under
+  `prefers-reduced-motion`.
+- **Sized up to be seen.** The ribbon is 20 cm wide and the bolt 66 cm long: a
+  hair on a map. The bolt, its ribbon and its loops are drawn so the bolt is
+  at least 16 px long on screen, up to 4 times their size; zoomed in they are
+  the game's size. The flash at a bounce is always the game's size.
+- **After it lands** the ribbon and the last flash die away on their own
+  clocks (0.4 s, 0.45 s) while the bolt arms (§2.22); the dashed way a landing
+  keeps for a second is not drawn for it.
+- **Unchanged:** the dashed circle where it will land and its token. Until the
+  sprites are in, the dashed way and the dot.
 
 ## 3. Document v2 (`src/lib/playDoc.ts`)
 

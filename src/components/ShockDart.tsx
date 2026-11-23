@@ -5,9 +5,9 @@
  * `<g>`; the board's plain burst shows until the sprites are in.
  */
 
-import { useEffect, useRef, useSyncExternalStore, type ReactNode } from 'react'
-import { SHOCK, shockIdle, shockState } from '../lib/shockDart'
-import { SHOCK_EXTENT, paintShock, shockHot, shockStatus, subscribeShock } from '../lib/shockDartPaint'
+import { useEffect, useMemo, useRef, useSyncExternalStore, type ReactNode } from 'react'
+import { SHOCK, shockFlightShown, shockIdle, shockState, shockWay, shockWayAt, type ShockWayPoint } from '../lib/shockDart'
+import { SHOCK_EXTENT, SHOCK_FLIGHT_EXTENT_CM, paintShock, paintShockFlight, shockHot, shockStatus, subscribeShock } from '../lib/shockDartPaint'
 
 interface ShockDartProps {
   /** The blast radius, viewBox units (the ability's own `r`). */
@@ -34,10 +34,10 @@ const SIZE_STEP = 32
 const STILL_AT = 0.45
 
 /** The canvas's backing size for how big it is on screen now. */
-function fit(canvas: HTMLCanvasElement) {
+function fit(canvas: HTMLCanvasElement, max = MAX_SIZE) {
   const dpr = Math.min(2, window.devicePixelRatio || 1)
   const shown = canvas.getBoundingClientRect().width * dpr
-  const size = Math.min(MAX_SIZE, Math.max(MIN_SIZE, Math.ceil(shown / SIZE_STEP) * SIZE_STEP))
+  const size = Math.min(max, Math.max(MIN_SIZE, Math.ceil(shown / SIZE_STEP) * SIZE_STEP))
   if (canvas.width !== size || canvas.height !== size) {
     canvas.width = size
     canvas.height = size
@@ -91,5 +91,65 @@ export function ShockDart({ r, age, enemy, seed, k, still, fallback }: ShockDart
         <circle r={(r * SHOCK.innerCm) / SHOCK.outerCm} fill="none" stroke={shockHot(enemy)} strokeOpacity={0.7} strokeWidth={1.2 * k} strokeDasharray={`${3 * k} ${4 * k}`} />
       )}
     </g>
+  )
+}
+
+interface ShockFlightProps {
+  /** The bolt's whole track and where it lands, viewBox units, each point with how long ago it was passed (ms). */
+  course: readonly ShockWayPoint[]
+  /** The blast radius, viewBox units: what 4 m is on the board. */
+  r: number
+  enemy: boolean
+  seed: number
+  /** ViewBox units per screen pixel. */
+  k: number
+  /** No crackling when the user asked for less motion. */
+  still: boolean
+  /** Over a dark map the lightning adds its light; over a light one it is drawn as it is. */
+  screen: boolean
+  /** What the board draws for a thrown thing otherwise. */
+  fallback: ReactNode
+}
+
+/** The flight's picture covers far more of the board than a blast. */
+const FLIGHT_MAX_SIZE = 768
+/** The bolt is 66 cm long in the game; on the board it is at least this long, screen pixels, and never more than this many times its size. */
+const BOLT_CM = 66
+const BOLT_MIN_PX = 16
+const BIG_MAX = 4
+
+/**
+ * Sova's Shock Bolt in flight (§2.26): the ribbon of lightning behind it, the
+ * loops round it and the flash where it bounces, in place of the dashed way
+ * and the dot. Drawn in the board's own coordinates, about the bolt. Once it
+ * has landed the ribbon and the last flash die away, then there is nothing.
+ */
+export function ShockFlight({ course, r, enemy, seed, k, still, screen, fallback }: ShockFlightProps) {
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const status = useSyncExternalStore(subscribeShock, shockStatus, () => 'loading' as const)
+  const ready = status === 'ready'
+  const way = useMemo(() => shockWay(course), [course])
+  const head = shockWayAt(way, 0)
+  const perCm = r / SHOCK.outerCm
+  const big = Math.min(BIG_MAX, Math.max(1, (BOLT_MIN_PX * k) / (BOLT_CM * perCm)))
+  const shown = head !== null && shockFlightShown(way)
+
+  // A replay frame is a new picture every time: paint after every render.
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas || !ready || !head) return
+    fit(canvas, FLIGHT_MAX_SIZE)
+    const about = <T extends { x: number; y: number }>(p: T): T => ({ ...p, x: (p.x - head.x) / perCm, y: (p.y - head.y) / perCm })
+    paintShockFlight(canvas, { points: way.points.map(about), bounces: way.bounces.map(about) }, { seed, enemy, big, still })
+  })
+
+  if (!ready) return <>{fallback}</>
+  if (!head || !shown) return null
+
+  const half = SHOCK_FLIGHT_EXTENT_CM * perCm
+  return (
+    <foreignObject x={head.x - half} y={head.y - half} width={half * 2} height={half * 2} style={{ pointerEvents: 'none', mixBlendMode: screen ? 'screen' : 'normal' }}>
+      <canvas ref={canvasRef} style={{ display: 'block', width: '100%', height: '100%' }} />
+    </foreignObject>
   )
 }

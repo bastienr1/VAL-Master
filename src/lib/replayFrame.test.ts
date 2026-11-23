@@ -367,6 +367,32 @@ test('a throw never pairs with the landing of another key, and Sova\'s Shock Bol
   nearPos(bolt[0].from, 0.6, 0.6, 'from')
 })
 
+test('a thrown thing that lands carries its whole track, each point with how long ago it was passed', () => {
+  const bundle = utilityFixture()
+  bundle.casts = []
+  bundle.effects = [
+    {
+      start: 50000, end: 50800, kind: 'other', agent: 'Hunter', cls: 'Projectile_Hunter_4_ExplosiveBolt_C', x: 1000, y: 1000, owner: SOVA,
+      track: [[50000, 1000, 1000], [50400, 2000, 1000], [50780, 2950, 1000]],
+    },
+    { start: 50800, end: 54800, kind: 'other', agent: 'Hunter', cls: 'GameObject_Hunter_4_ExplosiveBolt_Explosion_C', x: 3000, y: 1000, owner: SOVA },
+  ]
+  const ids = createFrameIds()
+  const bolt = (t: number) => abilities(frameStep(bundle, t, lookup, T, ids)).find(a => a.agent === 'Sova')
+  // In flight: what is behind it, and what is still ahead, the landing last.
+  const flying = bolt(50400)!
+  assert.equal(flying.progress, 0.5)
+  assert.deepEqual(flying.course?.map(p => p.ago), [400, 0, -380, -400])
+  assert.deepEqual(flying.course?.[3].at, flying.at)
+  assert.deepEqual(flying.course?.[0].at, flying.from)
+  // Landed 200 ms ago: the way it came is kept, with its times.
+  const landed = bolt(51000)!
+  assert.equal(landed.progress, undefined)
+  assert.deepEqual(landed.course?.map(p => p.ago), [1000, 600, 220, 200])
+  // Once the way it came is no longer kept, neither is this.
+  assert.equal(bolt(51850), undefined)
+})
+
 test('trackAt interpolates between samples and holds the ends', () => {
   const track: [number, number, number][] = [[100, 0, 0], [200, 1000, 0], [400, 1000, 2000]]
   assert.deepEqual(trackAt(track, 50), [0, 0])
