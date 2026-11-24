@@ -18,6 +18,7 @@ import {
   parseLineupVia,
   pictureCount,
   recipeLine,
+  sharedLineColor,
   standPinId,
   toggled,
   validateLineupImage,
@@ -206,4 +207,12 @@ test('the list is by ability: agents by name, abilities by key, line-ups by name
     ],
   )
   assert.deepEqual(groupByAbility([]), [])
+})
+
+test('a group has a colour when its line-ups agree on one', () => {
+  assert.equal(sharedLineColor([{ line_color: '#FFCA3A' }, { line_color: '#FFCA3A' }]), '#FFCA3A')
+  assert.equal(sharedLineColor([{ line_color: null }, { line_color: null }]), null)
+  assert.equal(sharedLineColor([{ line_color: '#FFCA3A' }, { line_color: null }]), undefined)
+  assert.equal(sharedLineColor([{ line_color: '#FFCA3A' }, { line_color: '#FF4655' }]), undefined)
+  assert.equal(sharedLineColor([]), undefined)
 })

@@ -328,3 +328,14 @@ export function groupByAbility<T extends Pick<Lineup, 'agent' | 'slot' | 'title'
   for (const group of groups.values()) group.rows.sort((a, b) => a.title.localeCompare(b.title))
   return [...groups.values()].sort((a, b) => a.agent.localeCompare(b.agent) || SLOT_ORDER.indexOf(a.slot) - SLOT_ORDER.indexOf(b.slot))
 }
+
+/**
+ * The line colour a group of line-ups shares: that colour, null when they all
+ * take their ability's own, undefined when they do not agree (or there are
+ * none).
+ */
+export function sharedLineColor(rows: ReadonlyArray<Pick<Lineup, 'line_color'>>): string | null | undefined {
+  if (rows.length === 0) return undefined
+  const first = rows[0].line_color
+  return rows.every(row => row.line_color === first) ? first : undefined
+}

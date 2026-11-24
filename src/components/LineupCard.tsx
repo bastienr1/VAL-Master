@@ -3,7 +3,6 @@ import { ImagePlus, Trash2, X } from 'lucide-react'
 import {
   CLICK_LABELS,
   IMAGE_SLOT_LABELS,
-  LINE_COLORS,
   LINEUP_CLICKS,
   LINEUP_IMAGE_SLOTS,
   LINEUP_MOVEMENTS,
@@ -16,12 +15,12 @@ import {
   formatClock,
   imageColumn,
   parseClock,
-  parseLineColor,
   type Lineup,
   type LineupImageSlot,
   type LineupInput,
 } from '../lib/lineupModel'
 import { lineupImageUrl } from '../lib/lineups'
+import LineColorSwatches from './LineColorSwatches'
 
 const today = () => {
   const now = new Date()
@@ -185,8 +184,6 @@ export default function LineupCard({ lineup, ability, agentIcon, onPatch, onImag
   }
 
   const clip = clipEmbedUrl(lineup.video_url, lineup.video_start, lineup.video_end)
-  /** A line colour that is none of the swatches: the system picker's. */
-  const custom = lineup.line_color !== null && !LINE_COLORS.some(color => color.value === lineup.line_color)
   const viewingPath = viewing ? lineup[imageColumn(viewing)] : null
 
   const section = (title: string, children: ReactNode) => (
@@ -300,51 +297,7 @@ export default function LineupCard({ lineup, ability, agentIcon, onPatch, onImag
           </div>
           <div className="space-y-1">
             <div className={LABEL}>Line colour</div>
-            <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Line colour">
-              <button
-                type="button"
-                aria-pressed={lineup.line_color === null}
-                onClick={() => onPatch({ line_color: null })}
-                title="The colour of the ability"
-                className={`px-2 py-1 rounded-md text-xs border transition-colors ${
-                  lineup.line_color === null ? 'bg-val-cyan/15 text-val-cyan border-val-cyan/40' : 'bg-bg-primary text-text-secondary border-bg-elevated hover:border-val-cyan/30'
-                }`}
-              >
-                Ability
-              </button>
-              {LINE_COLORS.map(color => {
-                const on = lineup.line_color === color.value
-                return (
-                  <button
-                    key={color.value}
-                    type="button"
-                    aria-label={color.name}
-                    aria-pressed={on}
-                    title={color.name}
-                    onClick={() => onPatch({ line_color: color.value })}
-                    style={{ backgroundColor: color.value }}
-                    className={`w-6 h-6 rounded-full border-2 transition-transform ${on ? 'border-text-primary scale-110' : 'border-bg-elevated hover:scale-110'}`}
-                  />
-                )
-              })}
-              {/* Any other colour: the system's own picker. */}
-              <label
-                title="Another colour"
-                className={`relative w-6 h-6 rounded-full border-2 overflow-hidden cursor-pointer ${custom ? 'border-text-primary scale-110' : 'border-bg-elevated hover:scale-110'} transition-transform`}
-                style={{ background: custom ? (lineup.line_color ?? undefined) : 'conic-gradient(#FF4655, #FFCA3A, #7CFF6B, #2EE6C5, #3DA5FF, #B28DFF, #FF6BD6, #FF4655)' }}
-              >
-                <input
-                  type="color"
-                  aria-label="Another colour"
-                  value={lineup.line_color ?? '#FFFFFF'}
-                  onChange={e => {
-                    const picked = parseLineColor(e.target.value)
-                    if (picked) onPatch({ line_color: picked })
-                  }}
-                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                />
-              </label>
-            </div>
+            <LineColorSwatches label="Line colour" value={lineup.line_color} onPick={line_color => onPatch({ line_color })} />
           </div>
           <div className="flex flex-wrap gap-x-6 gap-y-3">
             <Chips label="Bounces" options={COUNTS} value={lineup.bounces} onPick={bounces => onPatch({ bounces })} />

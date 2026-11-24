@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { Clapperboard, Eye, EyeOff, Image as ImageIcon, Plus, X } from 'lucide-react'
 import EmptyLine from '../components/EmptyLine'
+import LineColorSwatches from '../components/LineColorSwatches'
 import LineupCard from '../components/LineupCard'
 import PlayCanvas from '../components/PlayCanvas'
 import SkinPicker from '../components/play/SkinPicker'
@@ -19,6 +20,7 @@ import {
   parseLineupPoint,
   pictureCount,
   recipeLine,
+  sharedLineColor,
   standPin,
   toggled,
   type Lineup,
@@ -133,6 +135,8 @@ export default function Lineups() {
   const [picking, setPicking] = useState(false)
   const [pickAgent, setPickAgent] = useState<string | null>(() => read(AGENT_KEY))
   const [placing, setPlacing] = useState<Placing | null>(null)
+  /** The ability whose colour row is open in the list, as `agent:slot`. */
+  const [colouring, setColouring] = useState<string | null>(null)
   // The canvas skin is the one picked in the Plays editor, and a pick here is kept for it too.
   const [skinId, setSkinIdState] = useState<CanvasSkinId>(() => canvasSkin(read(SKIN_KEY)).id)
   const setSkinId = (next: CanvasSkinId) => {
@@ -227,7 +231,8 @@ export default function Lineups() {
       land,
       via: [],
       curved: false,
-      line_color: null,
+      // A new line-up joins its ability's group: it takes the colour the group has.
+      line_color: sharedLineColor(here.filter(row => row.agent === agent && row.slot === slot)) ?? null,
       stand_callout: standName,
       land_callout: landName,
       purpose: null,
@@ -478,6 +483,8 @@ export default function Lineups() {
                 const agent = agentOf(group.agent)
                 const ids = group.rows.map(row => row.id)
                 const allOff = ids.every(id => hidden.has(id))
+                const key = `${group.agent}:${group.slot}`
+                const colour = sharedLineColor(group.rows)
                 return (
                   <section key={`${group.agent}:${group.slot}`} aria-label={`${group.agent}: ${ability.name}`} className="space-y-1.5">
                     <div className="flex items-center gap-2">
@@ -491,6 +498,25 @@ export default function Lineups() {
                           {group.agent} · {group.rows.length} {group.rows.length === 1 ? 'line-up' : 'line-ups'}
                         </span>
                       </h2>
+                      <button
+                        type="button"
+                        aria-expanded={colouring === key}
+                        aria-label={`Line colour of every ${ability.name} line-up`}
+                        title={colour === undefined ? 'Line colour: its line-ups differ' : colour === null ? 'Line colour: the colour of the ability' : `Line colour: ${colour}`}
+                        onClick={() => setColouring(colouring === key ? null : key)}
+                        className={`shrink-0 w-8 h-8 flex items-center justify-center rounded-lg transition-colors ${colouring === key ? 'bg-bg-elevated' : 'hover:bg-bg-elevated/60'}`}
+                      >
+                        <span
+                          className={`w-4 h-4 rounded-full border-2 ${colour === null ? 'border-dashed border-text-muted' : 'border-bg-primary ring-1 ring-text-muted/50'}`}
+                          style={
+                            colour === undefined
+                              ? { background: `conic-gradient(${[...new Set(group.rows.map(row => row.line_color ?? '#64748B'))].map((c, i, all) => `${c} ${(i / all.length) * 360}deg ${((i + 1) / all.length) * 360}deg`).join(', ')})` }
+                              : colour
+                                ? { backgroundColor: colour }
+                                : undefined
+                          }
+                        />
+                      </button>
                       {group.rows.length > 1 && (
                         <button
                           type="button"
@@ -504,6 +530,20 @@ export default function Lineups() {
                         </button>
                       )}
                     </div>
+                    {colouring === key && (
+                      <div className="rounded-lg border border-bg-elevated bg-bg-card p-2 space-y-1.5">
+                        <LineColorSwatches
+                          label={`Line colour of every ${ability.name} line-up`}
+                          value={colour}
+                          onPick={picked => {
+                            for (const row of group.rows) if (row.line_color !== picked) patch(row.id, { line_color: picked })
+                          }}
+                        />
+                        <p className="text-[11px] text-text-muted">
+                          Sets the line of {group.rows.length === 1 ? 'this line-up' : `all ${group.rows.length} line-ups`}; a new {ability.name} line-up takes it too.
+                        </p>
+                      </div>
+                    )}
             <ul className="space-y-1.5">
               {group.rows.map(row => {
                 const recipe = recipeLine(row)
