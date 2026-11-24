@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { Clapperboard, Image as ImageIcon, Plus, X } from 'lucide-react'
+import { Clapperboard, Eye, EyeOff, Image as ImageIcon, Plus, X } from 'lucide-react'
 import EmptyLine from '../components/EmptyLine'
 import LineupCard from '../components/LineupCard'
 import PlayCanvas from '../components/PlayCanvas'
@@ -14,10 +14,12 @@ import {
   lineupsStep,
   movedLineup,
   nearestCallout,
+  parseHiddenIds,
   parseLineupPoint,
   pictureCount,
   recipeLine,
   standPin,
+  toggled,
   type Lineup,
   type LineupImageSlot,
   type LineupInput,
@@ -31,6 +33,8 @@ const MAP_KEY = 'lineups.map'
 const SIDE_KEY = 'lineups.side'
 const AGENT_KEY = 'lineups.agent'
 const SKIN_KEY = 'plays.canvasSkin'
+/** The line-ups hidden from the map on this device, as a list of their ids. */
+const HIDDEN_KEY = 'lineups.hidden'
 const STAND_PIN = 'lineup-stand'
 
 const read = (key: string): string | null => {
@@ -134,6 +138,12 @@ export default function Lineups() {
     write(SKIN_KEY, next)
     setSkinIdState(next)
   }
+  // Which line-ups are hidden from the map: a way of looking, kept on this device, not part of a line-up.
+  const [hidden, setHidden] = useState<ReadonlySet<string>>(() => parseHiddenIds(read(HIDDEN_KEY)))
+  const setHiddenIds = (next: ReadonlySet<string>) => {
+    write(HIDDEN_KEY, JSON.stringify([...next]))
+    setHidden(next)
+  }
 
   const load = useCallback(() => {
     listLineups()
@@ -177,9 +187,13 @@ export default function Lineups() {
   const shown = useMemo(() => here.filter(row => !onlyAgent || row.agent === onlyAgent), [here, onlyAgent])
   const agentsHere = useMemo(() => [...new Set(here.map(row => row.agent))].sort(), [here])
 
+  const hiddenHere = shown.filter(row => hidden.has(row.id)).length
+
   const step = useMemo(() => {
-    return lineupsStep(shown, placing?.stand ? [standPin(STAND_PIN, placing.agent, placing.stand)] : [])
-  }, [shown, placing])
+    // A hidden line-up is not drawn, unless it is the one open: its card would describe nothing.
+    const drawn = shown.filter(row => !hidden.has(row.id) || row.id === openId)
+    return lineupsStep(drawn, placing?.stand ? [standPin(STAND_PIN, placing.agent, placing.stand)] : [])
+  }, [shown, hidden, openId, placing])
 
   const patchLocal = (id: string, patch: Partial<Lineup>) =>
     setState(current => (current ? { ...current, rows: current.rows.map(row => (row.id === id ? { ...row, ...patch } : row)) } : current))
@@ -323,6 +337,7 @@ export default function Lineups() {
   }
   const remove = (lineup: Lineup) => {
     select(null)
+    setHiddenIds(toggled(hidden, [lineup.id], false))
     setState(current => (current ? { ...current, rows: current.rows.filter(row => row.id !== lineup.id) } : current))
     deleteLineup(lineup).catch(err => {
       setError(said(err, 'The line-up could not be deleted.'))
@@ -439,13 +454,30 @@ export default function Lineups() {
               ))}
             </div>
           ) : shown.length > 0 ? (
+            <>
+            {shown.length > 1 && (
+              <div className="flex items-center justify-between text-[11px] text-text-muted">
+                <span>
+                  {shown.length - hiddenHere} of {shown.length} on the map
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setHiddenIds(toggled(hidden, shown.map(row => row.id), hiddenHere < shown.length))}
+                  className="inline-flex items-center gap-1 hover:text-val-cyan transition-colors"
+                >
+                  {hiddenHere < shown.length ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                  {hiddenHere < shown.length ? 'Hide all' : 'Show all'}
+                </button>
+              </div>
+            )}
             <ul className="space-y-1.5">
               {shown.map(row => {
                 const ability = abilityOf(row.agent, row.slot)
                 const recipe = recipeLine(row)
                 const pictures = pictureCount(row)
+                const off = hidden.has(row.id)
                 return (
-                  <li key={row.id}>
+                  <li key={row.id} className="flex items-stretch gap-1">
                     <button
                       type="button"
                       aria-current={row.id === openId}
@@ -453,9 +485,9 @@ export default function Lineups() {
                         setPlacing(null)
                         select(row.id)
                       }}
-                      className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg border text-left transition-colors ${
+                      className={`min-w-0 flex-1 flex items-center gap-2.5 px-2.5 py-2 rounded-lg border text-left transition-colors ${
                         row.id === openId ? 'bg-val-cyan/10 border-val-cyan/40' : 'bg-bg-card border-bg-elevated hover:border-val-cyan/30'
-                      }`}
+                      } ${off && row.id !== openId ? 'opacity-55' : ''}`}
                     >
                       <span className="shrink-0 w-8 h-8 rounded-md bg-bg-elevated flex items-center justify-center">
                         {ability.icon ? <img src={ability.icon} alt="" className="w-5 h-5 object-contain" /> : null}
@@ -472,10 +504,23 @@ export default function Lineups() {
                         {pictures}/3
                       </span>
                     </button>
+                    <button
+                      type="button"
+                      aria-pressed={off}
+                      aria-label={off ? `Show ${row.title} on the map` : `Hide ${row.title} from the map`}
+                      title={off ? 'Show on the map' : 'Hide from the map'}
+                      onClick={() => setHiddenIds(toggled(hidden, [row.id], !off))}
+                      className={`shrink-0 w-8 flex items-center justify-center rounded-lg border transition-colors ${
+                        off ? 'bg-bg-primary border-bg-elevated text-text-muted hover:text-text-primary' : 'bg-bg-card border-bg-elevated text-text-secondary hover:text-val-cyan hover:border-val-cyan/30'
+                      }`}
+                    >
+                      {off ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
                   </li>
                 )
               })}
             </ul>
+            </>
           ) : (
             state &&
             !state.tableMissing && (

@@ -280,3 +280,25 @@ export function lineupImagePath(userId: string, lineupId: string, slot: LineupIm
 export function pictureCount(lineup: Pick<Lineup, 'stand_image' | 'aim_image' | 'result_image'>): number {
   return LINEUP_IMAGE_SLOTS.filter(slot => lineup[imageColumn(slot)]).length
 }
+
+/** The ids of the line-ups hidden from the map, as kept on the device: a JSON list of strings, anything else none. */
+export function parseHiddenIds(raw: string | null): ReadonlySet<string> {
+  if (!raw) return new Set()
+  try {
+    const list: unknown = JSON.parse(raw)
+    return new Set(Array.isArray(list) ? list.filter((id): id is string => typeof id === 'string') : [])
+  } catch {
+    return new Set()
+  }
+}
+
+/** `set` with `ids` put in (`on`) or taken out: the same set when nothing changes. */
+export function toggled(set: ReadonlySet<string>, ids: readonly string[], on: boolean): ReadonlySet<string> {
+  if (ids.every(id => set.has(id) === on)) return set
+  const next = new Set(set)
+  for (const id of ids) {
+    if (on) next.add(id)
+    else next.delete(id)
+  }
+  return next
+}

@@ -11,12 +11,14 @@ import {
   movedLineup,
   nearestCallout,
   parseClock,
+  parseHiddenIds,
   parseLineColor,
   parseLineupPoint,
   parseLineupVia,
   pictureCount,
   recipeLine,
   standPinId,
+  toggled,
   validateLineupImage,
   type DrawnLineup,
 } from './lineupModel.ts'
@@ -166,4 +168,20 @@ test('a line takes the colour picked for it, else the colour of its ability', ()
   assert.equal(parseLineColor('yellow'), null)
   assert.equal(parseLineColor('#FFF'), null)
   assert.equal(parseLineColor(null), null)
+})
+
+test('hidden line-ups are a set of ids kept as a list', () => {
+  assert.deepEqual([...parseHiddenIds('["a","b",3,null]')], ['a', 'b'])
+  assert.equal(parseHiddenIds(null).size, 0)
+  assert.equal(parseHiddenIds('not json').size, 0)
+  assert.equal(parseHiddenIds('{"a":1}').size, 0)
+  const none: ReadonlySet<string> = new Set()
+  const one = toggled(none, ['a'], true)
+  assert.deepEqual([...one], ['a'])
+  // Hide all, then show all.
+  assert.deepEqual([...toggled(one, ['a', 'b', 'c'], true)], ['a', 'b', 'c'])
+  assert.deepEqual([...toggled(toggled(one, ['a', 'b', 'c'], true), ['a', 'b', 'c'], false)], [])
+  // Nothing to change: the same set, so nothing is drawn again.
+  assert.equal(toggled(one, ['a'], true), one)
+  assert.equal(toggled(one, ['b'], false), one)
 })
