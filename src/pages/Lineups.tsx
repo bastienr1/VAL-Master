@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { Clapperboard, Eye, EyeOff, Image as ImageIcon, Plus, X } from 'lucide-react'
+import { Clapperboard, Eye, EyeOff, Image as ImageIcon, Maximize2, Minimize2, Plus, X } from 'lucide-react'
 import EmptyLine from '../components/EmptyLine'
 import LineColorSwatches from '../components/LineColorSwatches'
 import LineupCard from '../components/LineupCard'
 import PlayCanvas from '../components/PlayCanvas'
+import SaveBadge, { type SaveState } from '../components/SaveBadge'
 import SkinPicker from '../components/play/SkinPicker'
 import { useGameContent } from '../hooks/useGameContent'
 import { canvasSkin, type CanvasSkinId } from '../lib/canvasSkins'
@@ -38,7 +39,16 @@ const AGENT_KEY = 'lineups.agent'
 const SKIN_KEY = 'plays.canvasSkin'
 /** The line-ups hidden from the map on this device, as a list of their ids. */
 const HIDDEN_KEY = 'lineups.hidden'
+/** Whether the page was last left filling the window. */
+const FULL_KEY = 'lineups.full'
 const STAND_PIN = 'lineup-stand'
+
+/** A key pressed while typing belongs to the field. */
+const typingIn = (target: EventTarget | null) =>
+  target instanceof HTMLInputElement ||
+  target instanceof HTMLTextAreaElement ||
+  target instanceof HTMLSelectElement ||
+  (target instanceof HTMLElement && target.isContentEditable)
 
 const read = (key: string): string | null => {
   try {
@@ -137,6 +147,36 @@ export default function Lineups() {
   const [placing, setPlacing] = useState<Placing | null>(null)
   /** The ability whose colour row is open in the list, as `agent:slot`. */
   const [colouring, setColouring] = useState<string | null>(null)
+
+  // There is no Save button: every change is written as it is made, and this says how the last write went.
+  const [writing, setWriting] = useState(0)
+  const [refused, setRefused] = useState(false)
+  const [written, setWritten] = useState(false)
+  const track = <T,>(work: Promise<T>): Promise<T> => {
+    setWriting(n => n + 1)
+    return work.then(
+      value => {
+        setWriting(n => n - 1)
+        setRefused(false)
+        setWritten(true)
+        return value
+      },
+      err => {
+        setWriting(n => n - 1)
+        setRefused(true)
+        throw err
+      },
+    )
+  }
+  const saveState: SaveState = writing > 0 ? 'saving' : refused ? 'failed' : written ? 'saved' : 'idle'
+
+  /**
+   * Full screen: the page leaves its centred frame and fills the window under
+   * the app's own bar and rail, the map taking all the room between the list
+   * and the card. Tab then hides and shows those two panels.
+   */
+  const [full, setFull] = useState(() => read(FULL_KEY) === 'true')
+  const [panelsOff, setPanelsOff] = useState(false)
   // The canvas skin is the one picked in the Plays editor, and a pick here is kept for it too.
   const [skinId, setSkinIdState] = useState<CanvasSkinId>(() => canvasSkin(read(SKIN_KEY)).id)
   const setSkinId = (next: CanvasSkinId) => {
@@ -208,7 +248,7 @@ export default function Lineups() {
   const patch = (id: string, change: Partial<LineupInput>) => {
     patchLocal(id, change)
     setError(null)
-    updateLineup(id, change).catch(err => {
+    track(updateLineup(id, change)).catch(err => {
       setError(said(err, 'That change could not be saved.'))
       load()
     })
@@ -253,7 +293,7 @@ export default function Lineups() {
       source: null,
     }
     try {
-      const row = await createLineup(input)
+      const row = await track(createLineup(input))
       setState(current => (current ? { ...current, rows: [row, ...current.rows] } : current))
       if (onlyAgent && onlyAgent !== agent) setOnlyAgent(null)
       select(row.id)
@@ -308,16 +348,41 @@ export default function Lineups() {
     select(null)
   }
 
-  // Escape backs out of placing, then closes the card.
+  // Escape backs out of placing, then of picking, then (with no line-up open) of full screen.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return
       if (placing) setPlacing(null)
       else if (picking) setPicking(false)
+      else if (full && !openId && !typingIn(e.target)) {
+        write(FULL_KEY, 'false')
+        setFull(false)
+        setPanelsOff(false)
+      }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [placing, picking])
+  }, [placing, picking, full, openId])
+
+  // F fills the window and gives it back. In full screen Tab hides and shows the panels: the app's own
+  // Tab (its match search) is heard after this one, so it is stopped here and stays as it is elsewhere.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.ctrlKey || e.metaKey || e.altKey || typingIn(e.target)) return
+      if (e.key === 'Tab' && !e.shiftKey && full) {
+        e.preventDefault()
+        e.stopImmediatePropagation()
+        setPanelsOff(off => !off)
+      } else if (e.key === 'f' || e.key === 'F') {
+        e.preventDefault()
+        write(FULL_KEY, String(!full))
+        setFull(!full)
+        setPanelsOff(false)
+      }
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [full])
 
   const changeMap = (name: string) => {
     write(MAP_KEY, name)
@@ -335,18 +400,18 @@ export default function Lineups() {
   }
 
   const onImage = async (lineup: Lineup, slot: LineupImageSlot, file: Blob) => {
-    const saved = await setLineupImage(lineup, slot, file)
+    const saved = await track(setLineupImage(lineup, slot, file))
     patchLocal(lineup.id, { [imageColumn(slot)]: saved[imageColumn(slot)], updated_at: saved.updated_at })
   }
   const onClearImage = async (lineup: Lineup, slot: LineupImageSlot) => {
-    await clearLineupImage(lineup, slot)
+    await track(clearLineupImage(lineup, slot))
     patchLocal(lineup.id, { [imageColumn(slot)]: null })
   }
   const remove = (lineup: Lineup) => {
     select(null)
     setHiddenIds(toggled(hidden, [lineup.id], false))
     setState(current => (current ? { ...current, rows: current.rows.filter(row => row.id !== lineup.id) } : current))
-    deleteLineup(lineup).catch(err => {
+    track(deleteLineup(lineup)).catch(err => {
       setError(said(err, 'The line-up could not be deleted.'))
       load()
     })
@@ -358,14 +423,17 @@ export default function Lineups() {
   const openAgent = open ? agentOf(open.agent) : null
 
   return (
-    <div className="max-w-[1500px] mx-auto space-y-4">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
+    <div className={full ? '-mx-4 -my-6 h-[calc(100vh-57px)] flex flex-col bg-bg-primary' : 'max-w-[1500px] mx-auto space-y-4'} data-lineups-full={full}>
+      <div className={full ? 'shrink-0 flex flex-wrap items-center justify-between gap-3 px-3 py-2 border-b border-bg-elevated' : 'flex flex-wrap items-end justify-between gap-3'}>
+        <div className={full ? 'flex items-baseline gap-3' : ''}>
           <Link to="/plays" className="text-sm text-text-secondary hover:text-val-cyan transition-colors">
             ← Plays
           </Link>
-          <h1 className="font-heading text-3xl font-bold">Line-ups</h1>
-          <p className="text-text-secondary text-sm">Where to stand, where to aim, where it lands</p>
+          <h1 className={`font-heading font-bold ${full ? 'text-xl' : 'text-3xl'}`}>Line-ups</h1>
+          <div className="flex items-baseline gap-3">
+            {!full && <p className="text-text-secondary text-sm">Where to stand, where to aim, where it lands</p>}
+            <SaveBadge state={saveState} />
+          </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <select
@@ -396,19 +464,35 @@ export default function Lineups() {
               </button>
             ))}
           </div>
+          <button
+            type="button"
+            aria-pressed={full}
+            title={full ? 'Leave full screen (F)' : 'Full screen (F)'}
+            onClick={() => {
+              write(FULL_KEY, String(!full))
+              setFull(!full)
+              setPanelsOff(false)
+            }}
+            className={`inline-flex items-center gap-1.5 border rounded-lg px-3 py-1.5 text-sm transition-colors ${
+              full ? 'bg-val-cyan/15 text-val-cyan border-val-cyan/40' : 'bg-bg-card border-bg-elevated text-text-secondary hover:text-text-primary'
+            }`}
+          >
+            {full ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+            <span>{full ? 'Exit full screen' : 'Full screen'}</span>
+          </button>
         </div>
       </div>
 
       {state?.tableMissing && (
-        <div className="border border-val-yellow/30 bg-val-yellow/10 text-sm rounded-md px-3 py-2">
+        <div className={`border border-val-yellow/30 bg-val-yellow/10 text-sm rounded-md px-3 py-2 ${full ? 'mx-3 mt-2' : ''}`}>
           The line-ups table is not in the database yet. Run <code className="font-stats">supabase/migrations/20261124_lineups.sql</code> in the Supabase SQL editor, then reload.
         </div>
       )}
-      {error && <div className="border border-val-red/25 bg-val-red/10 text-val-red text-sm rounded-md px-3 py-2">{error}</div>}
+      {error && <div className={`border border-val-red/25 bg-val-red/10 text-val-red text-sm rounded-md px-3 py-2 ${full ? 'mx-3 mt-2' : ''}`}>{error}</div>}
 
-      <div className="grid grid-cols-1 lg:grid-cols-[260px_minmax(0,1fr)_400px] gap-4 items-start">
+      <div className={full ? 'flex-1 min-h-0 flex' : 'grid grid-cols-1 lg:grid-cols-[260px_minmax(0,1fr)_400px] gap-4 items-start'}>
         {/* The list */}
-        <div className="space-y-3 order-2 lg:order-1">
+        <div className={full ? `w-[280px] shrink-0 overflow-y-auto p-3 space-y-3 border-r border-bg-elevated ${panelsOff ? 'hidden' : ''}` : 'space-y-3 order-2 lg:order-1'}>
           {picking ? (
             <AbilityPicker
               agents={agents}
@@ -621,8 +705,11 @@ export default function Lineups() {
         </div>
 
         {/* The map */}
-        <div className="order-1 lg:order-2 space-y-2">
-          <div style={{ backgroundColor: skin.back }} className="relative w-full aspect-square max-h-[calc(100vh-11rem)] mx-auto rounded-xl overflow-hidden border border-bg-elevated">
+        <div className={full ? 'relative flex-1 min-w-0 min-h-0' : 'order-1 lg:order-2 space-y-2'}>
+          <div
+            style={{ backgroundColor: skin.back }}
+            className={full ? 'absolute inset-0 overflow-hidden' : 'relative w-full aspect-square max-h-[calc(100vh-11rem)] mx-auto rounded-xl overflow-hidden border border-bg-elevated'}
+          >
             {!registry && status === 'loading' ? (
               <div className="absolute inset-3 rounded-xl bg-bg-card animate-pulse" aria-hidden="true" />
             ) : gameMap ? (
@@ -663,17 +750,23 @@ export default function Lineups() {
               <div className="absolute inset-0 flex items-center justify-center text-sm text-text-muted">No map can be drawn right now.</div>
             )}
           </div>
-          <p className="text-[11px] text-text-muted text-center">
+          {full && (
+            <p className="absolute bottom-2 left-3 px-2 py-1 rounded-md bg-bg-primary/70 text-[11px] text-text-muted pointer-events-none">
+              Tab {panelsOff ? 'shows' : 'hides'} the panels · F or Esc leaves full screen
+            </p>
+          )}
+          <p className={`text-[11px] text-text-muted text-center ${full ? 'hidden' : ''}`}>
             Scroll to zoom. Drag the ability to move where it lands and the pin to move where you stand. On an open line-up, press a + on the line to add a bend and drag it; press a bend twice to remove it.
           </p>
         </div>
 
-        {/* The card */}
-        <div className="order-3">
+        {/* The card: in full screen it takes room only while a line-up is open. */}
+        <div className={full ? `w-[400px] shrink-0 overflow-y-auto p-3 border-l border-bg-elevated ${panelsOff || !open ? 'hidden' : ''}` : 'order-3'}>
           {open && openAbility ? (
             <LineupCard
               key={open.id}
               lineup={open}
+              status={<SaveBadge state={saveState} />}
               ability={openAbility}
               agentIcon={openAgent ? agentIconUrl(openAgent.uuid) : null}
               onPatch={change => patch(open.id, change)}

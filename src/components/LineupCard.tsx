@@ -113,13 +113,15 @@ export interface LineupCardProps {
   onClearImage(slot: LineupImageSlot): Promise<void>
   onDelete(): void
   onClose(): void
+  /** How the last save went, shown beside the line-up's facts: there is no Save button. */
+  status?: ReactNode
 }
 
 /**
  * One line-up, open: its three pictures (paste, drop or pick), its clip, how
  * it is thrown and what it is for. Every field saves as it is left.
  */
-export default function LineupCard({ lineup, ability, agentIcon, onPatch, onImage, onClearImage, onDelete, onClose }: LineupCardProps) {
+export default function LineupCard({ lineup, ability, agentIcon, onPatch, onImage, onClearImage, onDelete, onClose, status }: LineupCardProps) {
   const paths = LINEUP_IMAGE_SLOTS.map(slot => lineup[imageColumn(slot)])
   const firstEmpty = LINEUP_IMAGE_SLOTS.find((_, i) => !paths[i]) ?? null
   /** The slot a pasted picture goes to: the one last pressed, else the first empty one. */
@@ -202,8 +204,11 @@ export default function LineupCard({ lineup, ability, agentIcon, onPatch, onImag
         </div>
         <div className="min-w-0 flex-1 space-y-1">
           <DraftField key={lineup.id} label="Name" value={lineup.title} onCommit={title => title.trim() && onPatch({ title: title.trim() })} />
-          <div className="text-xs text-text-muted">
-            {lineup.agent} · {ability.name} · {lineup.map} · {lineup.side === 'attack' ? 'Attack' : 'Defense'}
+          <div className="flex items-center justify-between gap-2 text-xs text-text-muted">
+            <span className="min-w-0 truncate">
+              {lineup.agent} · {ability.name} · {lineup.map} · {lineup.side === 'attack' ? 'Attack' : 'Defense'}
+            </span>
+            {status}
           </div>
         </div>
         <button type="button" onClick={onClose} aria-label="Close" className="shrink-0 p-1.5 rounded-md text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors">

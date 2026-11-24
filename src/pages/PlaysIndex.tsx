@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
-import { Plus } from 'lucide-react'
+import { Crosshair, Plus } from 'lucide-react'
 import EmptyLine from '../components/EmptyLine'
 import { useGameContent } from '../hooks/useGameContent'
 import { useResource } from '../hooks/useResource'
@@ -111,15 +111,21 @@ export default function PlaysIndex() {
           <h1 className="font-heading text-3xl font-bold">Plays</h1>
           <div className="flex items-baseline gap-3">
             <p className="text-text-secondary text-sm">Your set plays, drawn on the map</p>
-            <Link to="/plays/lineups" className="text-sm text-text-secondary hover:text-val-cyan transition-colors">
-              Line-ups →
-            </Link>
             <Link to="/playbook" className="text-sm text-text-secondary hover:text-val-cyan transition-colors">
               Guides →
             </Link>
           </div>
         </div>
-        <NewPlayButton />
+        <div className="flex items-center gap-2">
+          <Link
+            to="/plays/lineups"
+            className="inline-flex items-center gap-2 px-3 py-1.5 bg-bg-card text-text-primary border border-bg-elevated rounded-lg hover:border-val-cyan/50 hover:text-val-cyan transition-colors whitespace-nowrap"
+          >
+            <Crosshair className="w-4 h-4" />
+            <span className="text-sm font-medium">Line-ups</span>
+          </Link>
+          <NewPlayButton />
+        </div>
       </div>
 
       {error && (
