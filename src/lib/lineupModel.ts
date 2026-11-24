@@ -71,6 +71,8 @@ export interface Lineup {
   via: LineupPoint[]
   /** The line through them: one smooth curve, or straight from point to point. */
   curved: boolean
+  /** The colour of the line on the map, `#RRGGBB`; null for the ability's own. */
+  line_color: string | null
   stand_callout: string | null
   land_callout: string | null
   purpose: LineupPurpose | null
@@ -133,7 +135,27 @@ export function lineupTitle(land: string | null, stand: string | null, ability: 
 }
 
 /** What of a line-up the board draws. */
-export type DrawnLineup = Pick<Lineup, 'id' | 'agent' | 'slot' | 'stand' | 'land' | 'via' | 'curved' | 'title'>
+export type DrawnLineup = Pick<Lineup, 'id' | 'agent' | 'slot' | 'stand' | 'land' | 'via' | 'curved' | 'line_color' | 'title'>
+
+/** The colours offered for a line: told apart on every skin, and from each other. */
+export const LINE_COLORS = [
+  { value: '#FFFFFF', name: 'White' },
+  { value: '#FFCA3A', name: 'Yellow' },
+  { value: '#FF7A3D', name: 'Orange' },
+  { value: '#FF4655', name: 'Red' },
+  { value: '#FF6BD6', name: 'Pink' },
+  { value: '#B28DFF', name: 'Purple' },
+  { value: '#3DA5FF', name: 'Blue' },
+  { value: '#2EE6C5', name: 'Teal' },
+  { value: '#7CFF6B', name: 'Green' },
+] as const
+
+const HEX_COLOR = /^#[0-9a-f]{6}$/i
+
+/** A colour as the table keeps it, `#RRGGBB` in capitals, or null when it is not one. */
+export function parseLineColor(raw: unknown): string | null {
+  return typeof raw === 'string' && HEX_COLOR.test(raw.trim()) ? raw.trim().toUpperCase() : null
+}
 
 /** A stored list of bends: the points among them, no more than a throw may have. */
 export function parseLineupVia(raw: unknown): LineupPoint[] {
@@ -163,6 +185,7 @@ export function lineupElement(lineup: DrawnLineup): AbilityElement {
     from: { u: lineup.stand.u, v: lineup.stand.v },
     ...(lineup.via.length > 0 ? { via: lineup.via.map(({ u, v }) => ({ u, v })) } : {}),
     curved: lineup.curved,
+    ...(lineup.line_color ? { lineColor: lineup.line_color } : {}),
     label: lineup.title,
     team: 'ally',
   }

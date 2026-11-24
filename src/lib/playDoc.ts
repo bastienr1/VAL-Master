@@ -136,6 +136,8 @@ export interface AbilityElement {
    * bowed arc every throw had before lines could bend, when it has no `via`.
    */
   curved?: boolean
+  /** The colour of the throw's line, `#RRGGBB`; not given, the ability's own colour. */
+  lineColor?: string
   /** World cm radius for area utility; the renderer has defaults per shape. */
   radius?: number
   /** "Heaven smoke", "Flash over A Main". */
@@ -550,6 +552,8 @@ function parseElements(
         const via = list(e.via).map(parsePos).filter((pos): pos is PlayPos => pos !== null).slice(0, MAX_THROW_VIA)
         if (from && via.length > 0) el.via = via
         if (typeof e.curved === 'boolean') el.curved = e.curved
+        const lineColor = text(e.lineColor)
+        if (from && COLOR.test(lineColor)) el.lineColor = lineColor
         const radius = finite(e.radius)
         if (radius !== null && radius > 0) el.radius = radius
         const label = text(e.label)

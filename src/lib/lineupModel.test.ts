@@ -11,6 +11,7 @@ import {
   movedLineup,
   nearestCallout,
   parseClock,
+  parseLineColor,
   parseLineupPoint,
   parseLineupVia,
   pictureCount,
@@ -34,6 +35,7 @@ const SHOCK: DrawnLineup = {
   land: { u: 0.8, v: 0.5 },
   via: [],
   curved: false,
+  line_color: null,
   title: 'A Site from A Main',
 }
 
@@ -154,4 +156,14 @@ test('stored bends are the points among them, a few at most', () => {
   assert.deepEqual(parseLineupVia([{ u: 0.1, v: 0.2 }, 'x', { u: 0.3 }, { u: 0.4, v: 0.5 }]), [{ u: 0.1, v: 0.2 }, { u: 0.4, v: 0.5 }])
   assert.deepEqual(parseLineupVia(null), [])
   assert.equal(parseLineupVia(Array.from({ length: 12 }, (_, i) => ({ u: i / 12, v: 0.5 }))).length, 6)
+})
+
+test('a line takes the colour picked for it, else the colour of its ability', () => {
+  assert.equal(lineupElement(SHOCK).lineColor, undefined)
+  assert.equal(lineupElement({ ...SHOCK, line_color: '#FFCA3A' }).lineColor, '#FFCA3A')
+  assert.equal(parseLineColor('#ffca3a'), '#FFCA3A')
+  assert.equal(parseLineColor(' #FFCA3A '), '#FFCA3A')
+  assert.equal(parseLineColor('yellow'), null)
+  assert.equal(parseLineColor('#FFF'), null)
+  assert.equal(parseLineColor(null), null)
 })

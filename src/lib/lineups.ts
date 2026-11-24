@@ -12,6 +12,7 @@ import {
   LINEUP_IMAGE_SLOTS,
   imageColumn,
   lineupImagePath,
+  parseLineColor,
   parseLineupPoint,
   parseLineupVia,
   validateLineupImage,
@@ -37,7 +38,7 @@ function fromRow(raw: Record<string, unknown>): Lineup | null {
   const stand = parseLineupPoint(raw.stand)
   const land = parseLineupPoint(raw.land)
   if (!stand || !land) return null
-  return { ...(raw as unknown as Lineup), stand, land, via: parseLineupVia(raw.via), curved: raw.curved === true, note: typeof raw.note === 'string' ? raw.note : '' }
+  return { ...(raw as unknown as Lineup), stand, land, via: parseLineupVia(raw.via), curved: raw.curved === true, line_color: parseLineColor(raw.line_color), note: typeof raw.note === 'string' ? raw.note : '' }
 }
 
 /** Every line-up, newest edit first. */

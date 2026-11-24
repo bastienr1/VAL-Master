@@ -184,6 +184,8 @@ export interface PlacedAbility {
   via: Point[] | null
   /** How the throw's line is drawn: straight from point to point, one curve through them, or (null) the bowed arc. */
   curved: boolean | null
+  /** The colour picked for the throw's line; null for the ability's own. */
+  lineColor: string | null
   /** 0…1 while in flight (with `from`): the badge rides the arc and no area is drawn yet. */
   progress: number | null
   /** A wall's line, at least two placed points; the badge sits at its middle by length. */
@@ -414,6 +416,7 @@ export function sceneForStep(
           from,
           via,
           curved: typeof el.curved === 'boolean' ? el.curved : null,
+          lineColor: el.lineColor ?? null,
           progress,
           path: path.length >= 2 ? path : null,
           life: typeof el.life === 'number' && Number.isFinite(el.life) ? clamp01(el.life) : null,

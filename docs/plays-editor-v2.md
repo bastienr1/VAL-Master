@@ -1104,6 +1104,10 @@ thrown ability can use the same.
   the line goes straight from point to point, so a bounce is a corner; true,
   it is one smooth curve through them (a Catmull-Rom spline, `throwLine` in
   `src/lib/playScene.ts`). With neither, the throw is the bowed arc of §2.10.
+- **Its colour.** `lineColor` (`#RRGGBB`) colours the throw's line and its
+  arrowhead; not given, they are the ability's own colour, as before. A stored
+  white is the skin's ink, like a drawing's (§2.11). The line-up card offers
+  nine swatches, the ability's colour and the system's picker.
 - **Editing them.** On a selected ability the select tool shows a `+` halfway
   along every stretch of the line: pressing it puts a bend there and the same
   press drags it on. A bend is dragged like the hand; two presses on it within

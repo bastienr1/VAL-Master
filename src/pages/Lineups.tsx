@@ -211,6 +211,7 @@ export default function Lineups() {
       land,
       via: [],
       curved: false,
+      line_color: null,
       stand_callout: standName,
       land_callout: landName,
       purpose: null,

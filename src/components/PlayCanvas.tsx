@@ -1441,6 +1441,9 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
     return lightMap ? darken(ink) : ink
   }
 
+  /** The colour of an ability's throw line: the one picked for it, else the ability's own. */
+  const lineInkOf = (item: PlacedAbility) => (item.lineColor ? skinDrawColor(skin, item.lineColor) : inkOf(item))
+
   /**
    * An ability as drawn now, the drag in progress included: its landing, its
    * hand, its line, its throw arc and where the token stands. The token is at
@@ -1705,12 +1708,12 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
           <path
             d={(line ?? arc)?.d}
             fill="none"
-            stroke={ink}
+            stroke={lineInkOf(item)}
             strokeWidth={ARC_WIDTH * k}
             strokeDasharray={dashes(ARC_DASH)}
             strokeLinejoin="round"
             opacity={ARC_OPACITY}
-            markerEnd={`url(#${throwHead(ink)})`}
+            markerEnd={`url(#${throwHead(lineInkOf(item))})`}
             pointerEvents="none"
           />
         )}
@@ -2538,7 +2541,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
 
   const view = scene.view
   const imageSize = VIEW_SIZE / view.size
-  const throwColors = [...new Set(scene.abilities.filter(a => a.from).map(inkOf))]
+  const throwColors = [...new Set(scene.abilities.filter(a => a.from).map(lineInkOf))]
   const popColors = [...new Set(scene.abilities.filter(a => a.family === 'burst' && a.life !== null).map(inkOf))]
   const counts = `${scene.agents.length} agent${scene.agents.length === 1 ? '' : 's'}, ${scene.abilities.length} abilit${
     scene.abilities.length === 1 ? 'y' : 'ies'
