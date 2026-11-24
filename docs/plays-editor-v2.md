@@ -1093,6 +1093,37 @@ made-up throw; here they follow the bolt's real track.
 - **Unchanged:** the dashed circle where it will land and its token. Until the
   sprites are in, the dashed way and the dot.
 
+### 2.27 A throw that bends, and the pin that stands for an agent
+
+Made for line-ups (`/plays/lineups`, `src/pages/Lineups.tsx`), which draw each
+line-up on this board as an ability thrown from where you stand; a play's
+thrown ability can use the same.
+
+- **Bends.** An ability with `from` may carry `via`, the points where its
+  throw bounces or bends on the way to `at` (at most 6), and `curved`: false,
+  the line goes straight from point to point, so a bounce is a corner; true,
+  it is one smooth curve through them (a Catmull-Rom spline, `throwLine` in
+  `src/lib/playScene.ts`). With neither, the throw is the bowed arc of §2.10.
+- **Its colour.** `lineColor` (`#RRGGBB`) colours the throw's line and its
+  arrowhead; not given, they are the ability's own colour, as before. A stored
+  white is the skin's ink, like a drawing's (§2.11). The line-up card offers
+  nine swatches, the ability's colour and the system's picker.
+- **Editing them.** On a selected ability the select tool shows a `+` halfway
+  along every stretch of the line: pressing it puts a bend there and the same
+  press drags it on. A bend is dragged like the hand; two presses on it within
+  0.4 s take it out. Dragging the ability moves its landing alone.
+- **The flight along the line**, on the line-ups page only (the board's
+  `flyThrows`, off by default, so a play's throw stays a line). A placed Shock
+  Bolt with a throw flies its line as the game draws it (§2.26), over and
+  over: at 30 m/s, the median of the replays, keeping 55 % of its speed through
+  each corner sharper than 25°, then 1.4 s of rest (`shockThrow`,
+  `ShockThrow`). Every corner of a straight line flashes as a bounce; a curved
+  line has none. Not under `prefers-reduced-motion`.
+- **A pin that stands for an agent.** A `pin` marker with `agent` is drawn as a
+  pin with that agent's icon in its head and a dot at its tip: the tip is the
+  exact place, which a tile centred on the point does not show. Line-ups use
+  it for where to stand; it drags like any marker.
+
 ## 3. Document v2 (`src/lib/playDoc.ts`)
 
 ```ts

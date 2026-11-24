@@ -68,9 +68,10 @@ import { DarkCover } from './DarkCover'
 import { HotHands } from './HotHands'
 import { Incendiary } from './Incendiary'
 import { PoisonCloud } from './PoisonCloud'
-import { ShockDart, ShockFlight } from './ShockDart'
+import { ShockDart, ShockFlight, ShockThrow } from './ShockDart'
 import {
   elementAt,
+  MAX_THROW_VIA,
   newId,
   withElement,
   withoutElement,
@@ -95,6 +96,7 @@ import {
   polylineMidpoint,
   sceneForStep,
   throwArc,
+  throwLine,
   throwOrigin,
   viewBoxFor,
   viewToImage,
@@ -159,6 +161,12 @@ export interface PlayCanvasProps {
    * grid stepped in place must bump `version`.
    */
   control?: ControlGrid | null
+  /**
+   * True where a placed ability shows how it gets there, not only where it
+   * lands (the line-ups page): a Shock Bolt then flies its throw line as the
+   * game draws it, over and over (§2.27). In a play the line stays a line.
+   */
+  flyThrows?: boolean
 }
 
 /** What the page can ask of the canvas: its `+` / `-` / `0` keys zoom about the centre. */
@@ -347,6 +355,10 @@ const WALL_LINE_OPACITY = 0.9
 const WIRE_LINE = 2
 /** The handle at a selected ability's `from`. */
 const FROM_HANDLE_R = 10
+/** A bend of a selected throw, the place a new one can be put, and the shortest stretch that offers one. */
+const BEND_R = 9
+const BEND_ADD_R = 10
+const BEND_ADD_MIN = 44
 const WALL_WIDTH = 14
 const WALL_BAR_MIN = 48
 /** Hit radius around anything small. */
@@ -362,6 +374,9 @@ const ENEMY_R = 18
 /** The pin's head: a circle `PIN_R` wide, `PIN_HEAD` above the point it marks. */
 const PIN_R = 14
 const PIN_HEAD = 26
+/** A pin that stands for an agent: a head wide enough for their icon. */
+const AGENT_PIN_R = 19
+const AGENT_PIN_HEAD = 38
 
 const PEN_WIDTH = 5
 const ARROW_WIDTH = 6
@@ -397,8 +412,19 @@ const WHEEL_LINE_PX = 16
 
 const DRAW_TOOLS: ReadonlySet<Tool> = new Set<Tool>(['pen', 'arrow', 'text', 'spike', 'enemy', 'pin'])
 
-/** Which part of an element a press grabbed: arrows have two ends besides the body. */
-type Part = 'body' | 'from' | 'to'
+/**
+ * Which part of an element a press grabbed: arrows have two ends besides the
+ * body; a throw has its hand (`from`), each of its bends (`via:2`) and, between
+ * two points of its line, the place a new bend goes (`add:2`, the index it
+ * would take).
+ */
+type Part = 'body' | 'from' | 'to' | `via:${number}` | `add:${number}`
+
+const PART = /^(?:from|to|(?:via|add):\d+)$/
+/** The index in a bend's part, or -1 for any other part. */
+const bendOf = (part: Part, kind: 'via' | 'add'): number => (part.startsWith(`${kind}:`) ? Number(part.slice(4)) : -1)
+/** Two presses on the same bend within this long take it out. */
+const DOUBLE_PRESS_MS = 400
 
 type ClickPress = { mode: 'click'; pointerId: number; at: Point; id: string | null }
 
@@ -493,6 +519,9 @@ const spikeTriangle = (r: number) => `M0,${-r}L${r * 0.85},${r * 0.6}L${-r * 0.8
 const PIN_PATH =
   `M0,0C-3,-7 -${PIN_R},-15 -${PIN_R},-${PIN_HEAD}` +
   `A${PIN_R},${PIN_R} 0 1 1 ${PIN_R},-${PIN_HEAD}C${PIN_R},-15 3,-7 0,0Z`
+const AGENT_PIN_PATH =
+  `M0,0C-4,-9 -${AGENT_PIN_R},-${AGENT_PIN_HEAD - AGENT_PIN_R * 0.8} -${AGENT_PIN_R},-${AGENT_PIN_HEAD}` +
+  `A${AGENT_PIN_R},${AGENT_PIN_R} 0 1 1 ${AGENT_PIN_R},-${AGENT_PIN_HEAD}C${AGENT_PIN_R},-${AGENT_PIN_HEAD - AGENT_PIN_R * 0.8} 4,-9 0,0Z`
 
 /** A marker id for an arrowhead in this colour, unique to the canvas instance. */
 const colorKey = (color: string) => color.replace(/[^a-zA-Z0-9]/g, '').toLowerCase() || 'none'
@@ -602,6 +631,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
     onPendingDone,
     onUnresolved,
     control,
+    flyThrows = false,
   },
   ref,
 ) {
@@ -629,6 +659,8 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
   const backdropRef = useRef<SVGRectElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const pressRef = useRef<Press | null>(null)
+  /** The last press on a bend that did not drag it: a second one soon after takes the bend out. */
+  const lastPressRef = useRef<{ id: string; part: Part; time: number } | null>(null)
   /** Set by Escape so the blur that follows does not commit. */
   const skipBlurRef = useRef(false)
 
@@ -712,6 +744,13 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
   const throwFrom = useMemo(() => {
     const byId = new Map<string, Point>()
     for (const a of scene.abilities) if (a.from) byId.set(a.id, a.from)
+    return byId
+  }, [scene])
+
+  /** Ability id → where its throw bends, in order: what its bend handles drag. */
+  const throwVia = useMemo(() => {
+    const byId = new Map<string, Point[]>()
+    for (const a of scene.abilities) if (a.from && a.via) byId.set(a.id, a.via)
     return byId
   }, [scene])
 
@@ -902,6 +941,8 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
 
   const anchorsOf = (id: string, part: Part): Point[] => {
     // An ability's `from` handle moves the hand alone; its body moves `at` (and a wall's path).
+    const bend = bendOf(part, 'via')
+    if (bend >= 0) return (throwVia.get(id) ?? []).slice(bend, bend + 1)
     const hand = throwFrom.get(id)
     if (hand) return part === 'from' ? [hand] : (anchors.get(id) ?? [])
     const points = anchors.get(id) ?? []
@@ -931,6 +972,11 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
         if (part === 'from') {
           const hand = throwFrom.get(id)
           return hand ? { ...el, from: toPos(shift(hand)) } : null
+        }
+        const bend = bendOf(part, 'via')
+        if (bend >= 0) {
+          const at = throwVia.get(id)?.[bend]
+          return at && el.via ? { ...el, via: el.via.map((pos, i) => (i === bend ? toPos(shift(at)) : pos)) } : null
         }
         // `from` stays put; a wall's path goes along with its badge.
         const wall = points.slice(1)
@@ -1058,7 +1104,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
     const hit = target.closest('[data-id]')
     const id = hit?.getAttribute('data-id') ?? null
     const said = hit?.getAttribute('data-part')
-    const part: Part = said === 'from' || said === 'to' ? said : 'body'
+    let part: Part = said && PART.test(said) ? (said as Part) : 'body'
     const client: Point = [e.clientX, e.clientY]
     const { pointerId } = e
 
@@ -1076,6 +1122,16 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
       press = { mode: 'click', pointerId, at, id }
     } else if (tool === 'select') {
       const empty: ClickPress = { mode: 'click', pointerId, at, id: null }
+      const adding = bendOf(part, 'add')
+      if (id && adding >= 0) {
+        // A new bend where the line was pressed; the same press drags it on.
+        const el = elementAt(step, id)
+        if (el?.kind !== 'ability' || (el.via?.length ?? 0) >= MAX_THROW_VIA) return
+        const via = [...(el.via ?? [])]
+        via.splice(adding, 0, toPos(at))
+        onChange?.(withElement(step, { ...el, via }))
+        part = `via:${adding}`
+      }
       press = id
         ? { mode: 'move', pointerId, id, part, client, start: at, dragging: false, wasSelected: id === selectedId }
         : cameraRef.current.zoom > MIN_ZOOM
@@ -1158,6 +1214,18 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
           const el = moved(press.id, press.part, dx, dy)
           if (el) onChange?.(withElement(step, el))
           if (press.id !== selectedId) onSelect(press.id)
+          lastPressRef.current = null
+        } else if (bendOf(press.part, 'via') >= 0) {
+          const bend = bendOf(press.part, 'via')
+          const before = lastPressRef.current
+          const el = elementAt(step, press.id)
+          if (before && before.id === press.id && before.part === press.part && e.timeStamp - before.time < DOUBLE_PRESS_MS && el?.kind === 'ability' && el.via) {
+            const via = el.via.filter((_, i) => i !== bend)
+            onChange?.(withElement(step, { ...el, via: via.length > 0 ? via : undefined }))
+            lastPressRef.current = null
+          } else {
+            lastPressRef.current = { id: press.id, part: press.part, time: e.timeStamp }
+          }
         } else if (press.wasSelected && elementAt(step, press.id)?.kind === 'text') {
           // A second click on a selected text opens it for typing.
           startEditing(press.id)
@@ -1364,6 +1432,8 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
   /** The team colour of whoever threw an ability. */
   const throwerRing = (item: PlacedAbility) => (thrownByEnemy(item) ? skin.enemy : skin.ally)
 
+  /** The drag offset of one bend of an ability's throw: only while that bend is dragged. */
+  const viaOffsetOf = (id: string, i: number): Point => (live && live.id === id && live.part === `via:${i}` ? [live.dx, live.dy] : [0, 0])
   /** The drag offset of an ability's hand: only while its `from` handle is dragged. */
   const handOffsetOf = (id: string): Point => (live && live.id === id && live.part === 'from' ? [live.dx, live.dy] : [0, 0])
 
@@ -1377,6 +1447,9 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
     const ink = agentInk(item.agent) ?? skin.utility[item.shape]
     return lightMap ? darken(ink) : ink
   }
+
+  /** The colour of an ability's throw line: the one picked for it, else the ability's own. */
+  const lineInkOf = (item: PlacedAbility) => (item.lineColor ? skinDrawColor(skin, item.lineColor) : inkOf(item))
 
   /**
    * An ability as drawn now, the drag in progress included: its landing, its
@@ -1393,6 +1466,9 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
     const path = item.path ? item.path.map(([x, y]): Point => [x + dx, y + dy]) : null
     const flying = inFlight(item)
     const arc = from ? throwArc(from, at, flying ? 0 : ARC_END_GAP * k) : null
+    // A throw that bends, or that was told how to be drawn, is a line through its points; else the bowed arc.
+    const via = from && item.via ? item.via.map((p, i): Point => { const [vx, vy] = viaOffsetOf(item.id, i); return [p[0] + vx, p[1] + vy] }) : []
+    const line = from && !flying && (via.length > 0 || item.curved !== null) ? throwLine([from, ...via, at], item.curved === true, ARC_END_GAP * k) : null
     const self = item.family === 'self'
     const wire = item.family === 'device' && path
     const badge: Point = self
@@ -1404,7 +1480,9 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
           : at
     // The real way it went wins over a drawn arc; a throw shorter than the token has nothing to show.
     const showArc = from !== null && !item.trail && Math.hypot(at[0] - from[0], at[1] - from[1]) > BADGE_R * 2 * k
-    return { at, from, path, flying, arc: showArc ? arc : null, badge }
+    // The way the thrown thing goes on the board: its line, else its arc as a few points.
+    const course: Point[] | null = !showArc ? null : line ? line.points : arc ? Array.from({ length: 13 }, (_, i) => arc.pointAt(i / 12)) : null
+    return { at, from, path, flying, arc: showArc && !line ? arc : null, line: showArc ? line : null, via, course, badge }
   }
 
   /** The token (§2.14) about the origin: every ability, one object. Square for a device; the clock, when it has one, always in the same place. */
@@ -1569,7 +1647,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
     const agent = agentOf(item.agent)
     const ink = inkOf(item)
     const icon = item.slot ? (agent?.abilities.find(a => a.slot === item.slot)?.icon ?? null) : null
-    const { at, path, flying, arc, badge } = abilityLayout(item)
+    const { at, path, flying, arc, line, course, badge } = abilityLayout(item)
     const { r } = item
     const isWire = item.family === 'device' && path !== null
     const comet: Point | null = flying ? (item.flyer ?? (arc ? arc.pointAt(item.progress ?? 0) : null)) : null
@@ -1633,17 +1711,22 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
         ) : (
           wayLine
         )}
-        {arc && (
+        {(arc || line) && (
           <path
-            d={arc.d}
+            d={(line ?? arc)?.d}
             fill="none"
-            stroke={ink}
+            stroke={lineInkOf(item)}
             strokeWidth={ARC_WIDTH * k}
             strokeDasharray={dashes(ARC_DASH)}
+            strokeLinejoin="round"
             opacity={ARC_OPACITY}
-            markerEnd={`url(#${throwHead(ink)})`}
+            markerEnd={`url(#${throwHead(lineInkOf(item))})`}
             pointerEvents="none"
           />
+        )}
+        {/* Where throws are flown (line-ups), a placed Shock Bolt flies its line as the game draws it (§2.26), over and over. */}
+        {flyThrows && course && !flying && item.life === null && isShockDart(item.agent, item.slot) && !reducedMotion && (
+          <ShockThrow points={course} r={r} enemy={thrownByEnemy(item)} seed={shockSeed(item.id)} k={k} screen={!lightMap} />
         )}
         {path && (
           <>
@@ -1774,6 +1857,39 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
           >
             ?
           </text>
+        </>
+      )
+    } else if (marker.agent) {
+      // A pin that stands for an agent (where to stand for a line-up): their icon in its head, its tip the exact place.
+      const icon = agentOf(marker.agent)?.displayIcon ?? null
+      const clip = `${uid}-pin-${marker.id.replace(/[^a-zA-Z0-9_-]/g, "-")}`
+      name = marker.agent
+      labelY = 8 + utilityLabel
+      shape = (
+        <>
+          <circle cy={-AGENT_PIN_HEAD} r={AGENT_PIN_R + 4} fill="transparent" />
+          <path d={AGENT_PIN_PATH} fill={skin.back} stroke={skin.ally} strokeWidth={2.5} strokeLinejoin="round" />
+          <clipPath id={clip}>
+            <circle cy={-AGENT_PIN_HEAD} r={AGENT_PIN_R - 3} />
+          </clipPath>
+          <circle cy={-AGENT_PIN_HEAD} r={AGENT_PIN_R - 3} fill={TOKEN_FILL} pointerEvents="none" />
+          {icon ? (
+            <image
+              href={icon}
+              x={-(AGENT_PIN_R - 3)}
+              y={-AGENT_PIN_HEAD - (AGENT_PIN_R - 3)}
+              width={(AGENT_PIN_R - 3) * 2}
+              height={(AGENT_PIN_R - 3) * 2}
+              preserveAspectRatio="xMidYMid slice"
+              clipPath={`url(#${clip})`}
+              pointerEvents="none"
+            />
+          ) : (
+            <text y={-AGENT_PIN_HEAD} textAnchor="middle" dominantBaseline="central" fontFamily={FONT} fontWeight="bold" fontSize={14} fill={skin.ink} pointerEvents="none">
+              {marker.agent.slice(0, 2)}
+            </text>
+          )}
+          <circle r={2.5} fill={skin.ally} stroke={skin.back} strokeWidth={1} pointerEvents="none" />
         </>
       )
     } else {
@@ -2152,7 +2268,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
     }
     const ability = scene.abilities.find(a => a.id === selectedId)
     if (ability) {
-      const { at, from, path, flying, badge } = abilityLayout(ability)
+      const { at, from, path, flying, via, badge } = abilityLayout(ability)
       // Round the area at the landing; round the badge alone in flight or on a wall's path.
       const [cx, cy] = flying || path ? badge : at
       // A game-look area on a clock has its time ring round it: the selection goes outside that.
@@ -2178,14 +2294,46 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
               style={{ cursor: elementCursor }}
             />
           )}
+          {from && selecting && !flying && ability.life === null && (
+            <>
+              {/* Between two points of the line: press to put a bend there (and drag it on). */}
+              {via.length < MAX_THROW_VIA &&
+                [from, ...via, at].slice(0, -1).map((p, i, all) => {
+                  const next = [...via, at][i]
+                  if (Math.hypot(next[0] - p[0], next[1] - p[1]) < BEND_ADD_MIN * k) return null
+                  const [mx, my] = [(p[0] + next[0]) / 2, (p[1] + next[1]) / 2]
+                  return (
+                    <g key={`add:${i}:${all.length}`} data-id={ability.id} data-part={`add:${i}`} style={{ cursor: 'copy' }}>
+                      <circle cx={mx} cy={my} r={BEND_ADD_R * k} fill={skin.back} fillOpacity={0.85} stroke={skin.ink} strokeOpacity={0.7} strokeWidth={1.5 * k} strokeDasharray={dashes('3 2')} />
+                      <path d={`M${mx - 3.5 * k},${my}H${mx + 3.5 * k}M${mx},${my - 3.5 * k}V${my + 3.5 * k}`} stroke={skin.ink} strokeWidth={1.5 * k} pointerEvents="none" />
+                    </g>
+                  )
+                })}
+              {/* Each bend: drag it; press it twice to take it out. */}
+              {via.map(([vx, vy], i) => (
+                <circle
+                  key={`via:${i}`}
+                  data-id={ability.id}
+                  data-part={`via:${i}`}
+                  cx={vx}
+                  cy={vy}
+                  r={BEND_R * k}
+                  fill={skin.ink}
+                  stroke={skin.back}
+                  strokeWidth={2 * k}
+                  style={{ cursor: elementCursor }}
+                />
+              ))}
+            </>
+          )}
         </g>
       )
     }
     const marker = scene.markers.find(m => m.id === selectedId)
     if (marker) {
       const [dx, dy] = offsetOf(marker.id)
-      const cy = marker.type === 'pin' ? -PIN_HEAD + 6 : 0
-      const r = marker.type === 'pin' ? PIN_R + 18 : marker.type === 'spike' ? SPIKE_R + 8 : ENEMY_R + 8
+      const cy = marker.agent ? -AGENT_PIN_HEAD + 10 : marker.type === 'pin' ? -PIN_HEAD + 6 : 0
+      const r = marker.agent ? AGENT_PIN_R + 24 : marker.type === 'pin' ? PIN_R + 18 : marker.type === 'spike' ? SPIKE_R + 8 : ENEMY_R + 8
       return (
         <g key={`sel:${marker.id}`} pointerEvents="none" style={placement(marker.x + dx, marker.y + dy)}>
           <circle cy={cy} r={r} {...dashed} transform={sized} />
@@ -2400,7 +2548,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
 
   const view = scene.view
   const imageSize = VIEW_SIZE / view.size
-  const throwColors = [...new Set(scene.abilities.filter(a => a.from).map(inkOf))]
+  const throwColors = [...new Set(scene.abilities.filter(a => a.from).map(lineInkOf))]
   const popColors = [...new Set(scene.abilities.filter(a => a.family === 'burst' && a.life !== null).map(inkOf))]
   const counts = `${scene.agents.length} agent${scene.agents.length === 1 ? '' : 's'}, ${scene.abilities.length} abilit${
     scene.abilities.length === 1 ? 'y' : 'ies'

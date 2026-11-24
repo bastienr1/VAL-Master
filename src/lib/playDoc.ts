@@ -128,6 +128,16 @@ export interface AbilityElement {
   at: PlayPos
   /** Where it is thrown from, when it matters (recon darts, mollies). Drawn as a thin line. */
   from?: PlayPos
+  /** Where the throw bounces or bends on its way from `from` to `at`, in order (at most `MAX_THROW_VIA`). */
+  via?: PlayPos[]
+  /**
+   * How the throw's line is drawn: false, straight from point to point (a
+   * bounce is a corner); true, one smooth curve through them. Not given, the
+   * bowed arc every throw had before lines could bend, when it has no `via`.
+   */
+  curved?: boolean
+  /** The colour of the throw's line, `#RRGGBB`; not given, the ability's own colour. */
+  lineColor?: string
   /** World cm radius for area utility; the renderer has defaults per shape. */
   radius?: number
   /** "Heaven smoke", "Flash over A Main". */
@@ -196,7 +206,12 @@ export interface MarkerElement {
   type: MarkerType
   at: PlayPos
   label?: string
+  /** A pin that stands for an agent (where to stand for a line-up): the agent's icon fills its head, its tip is the exact place. */
+  agent?: string
 }
+
+/** A throw bends at no more points than this: a bolt bounces twice at most, and a line needs a few more to follow a wall. */
+export const MAX_THROW_VIA = 6
 
 export type PlayElement = AgentElement | AbilityElement | PenElement | ArrowElement | TextElement | MarkerElement
 
@@ -534,6 +549,11 @@ function parseElements(
         }
         const from = parsePos(e.from)
         if (from) el.from = from
+        const via = list(e.via).map(parsePos).filter((pos): pos is PlayPos => pos !== null).slice(0, MAX_THROW_VIA)
+        if (from && via.length > 0) el.via = via
+        if (typeof e.curved === 'boolean') el.curved = e.curved
+        const lineColor = text(e.lineColor)
+        if (from && COLOR.test(lineColor)) el.lineColor = lineColor
         const radius = finite(e.radius)
         if (radius !== null && radius > 0) el.radius = radius
         const label = text(e.label)
@@ -594,6 +614,8 @@ function parseElements(
         const el: MarkerElement = { kind: 'marker', id: idFor(e), type: oneOf(e.type, MARKER_TYPES) ?? 'pin', at }
         const label = text(e.label)
         if (label) el.label = label
+        const agent = text(e.agent)
+        if (agent && el.type === 'pin') el.agent = agent
         elements.push(el)
         break
       }

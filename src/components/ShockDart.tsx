@@ -5,8 +5,8 @@
  * `<g>`; the board's plain burst shows until the sprites are in.
  */
 
-import { useEffect, useMemo, useRef, useSyncExternalStore, type ReactNode } from 'react'
-import { SHOCK, shockFlightShown, shockIdle, shockState, shockWay, shockWayAt, type ShockWayPoint } from '../lib/shockDart'
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
+import { SHOCK, shockFlightShown, shockIdle, shockState, shockThrow, shockWay, shockWayAt, type ShockWayPoint } from '../lib/shockDart'
 import { SHOCK_EXTENT, SHOCK_FLIGHT_EXTENT_CM, paintShock, paintShockFlight, shockHot, shockStatus, subscribeShock } from '../lib/shockDartPaint'
 
 interface ShockDartProps {
@@ -109,6 +109,8 @@ interface ShockFlightProps {
   screen: boolean
   /** What the board draws for a thrown thing otherwise. */
   fallback: ReactNode
+  /** The course is the way itself, drawn on the board: no bounce is put back at a wall. */
+  exact?: boolean
 }
 
 /** The flight's picture covers far more of the board than a blast. */
@@ -124,11 +126,11 @@ const BIG_MAX = 4
  * and the dot. Drawn in the board's own coordinates, about the bolt. Once it
  * has landed the ribbon and the last flash die away, then there is nothing.
  */
-export function ShockFlight({ course, r, enemy, seed, k, still, screen, fallback }: ShockFlightProps) {
+export function ShockFlight({ course, r, enemy, seed, k, still, screen, fallback, exact = false }: ShockFlightProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const status = useSyncExternalStore(subscribeShock, shockStatus, () => 'loading' as const)
   const ready = status === 'ready'
-  const way = useMemo(() => shockWay(course), [course])
+  const way = useMemo(() => shockWay(course, exact), [course, exact])
   const head = shockWayAt(way, 0)
   const perCm = r / SHOCK.outerCm
   const big = Math.min(BIG_MAX, Math.max(1, (BOLT_MIN_PX * k) / (BOLT_CM * perCm)))
@@ -152,4 +154,39 @@ export function ShockFlight({ course, r, enemy, seed, k, still, screen, fallback
       <canvas ref={canvasRef} style={{ display: 'block', width: '100%', height: '100%' }} />
     </foreignObject>
   )
+}
+
+/** After the bolt of a drawn throw has landed, the board waits this long before it is thrown again. */
+const THROW_REST_MS = 1400
+
+/**
+ * A Shock Bolt placed on the board with the line it is thrown along (a strat,
+ * a line-up): the bolt flies that line as the game draws it, over and over,
+ * at the speed bolts fly in the replays. `points` is the line in the board's
+ * own coordinates, from the hand to the landing.
+ */
+export function ShockThrow({ points, r, enemy, seed, k, screen }: {
+  points: ReadonlyArray<readonly [number, number]>
+  r: number
+  enemy: boolean
+  seed: number
+  k: number
+  screen: boolean
+}) {
+  const [clock, setClock] = useState(0)
+  useEffect(() => {
+    let frame = 0
+    const began = performance.now()
+    const tick = (now: number) => {
+      setClock(now - began)
+      frame = requestAnimationFrame(tick)
+    }
+    frame = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(frame)
+  }, [])
+  const flight = shockThrow(points, SHOCK.outerCm / r)
+  if (!(flight.ms > 0)) return null
+  const t = clock % (flight.ms + THROW_REST_MS)
+  const course = flight.points.map(p => ({ x: p.x, y: p.y, ago: t - p.at }))
+  return <ShockFlight course={course} r={r} enemy={enemy} seed={seed} k={k} still={false} screen={screen} fallback={null} exact />
 }

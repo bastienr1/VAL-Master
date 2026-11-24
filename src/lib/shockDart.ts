@@ -99,6 +99,10 @@ export const SHOCK_FLIGHT = {
   ricochetCm: 250,
   /** A turn in the track sharper than this is a bounce, degrees. */
   bounceDeg: 25,
+  /** How fast a bolt flies along the map, cm/s: the median of the replays' flights. */
+  speedCmS: 3000,
+  /** What a bounce leaves of its speed: the replays show 45 to 65 %. */
+  bounceKeeps: 0.55,
 } as const
 
 /** One point of a bolt's way: where, and how long ago it was there (ms; negative for what is still ahead). */
@@ -131,8 +135,12 @@ const CORNER_SLACK = 1.5
  * one to the next cuts the corner: the track then turns twice, and the wall is
  * where the line it came in on meets the line it left on. A single turn is a
  * bounce at the sample itself.
+ *
+ * `exact` says the points are the way itself (a line drawn on the board, not
+ * samples of a flight): every turn is then a bounce where it is, and no
+ * corner is moved.
  */
-export function shockWay(course: readonly ShockWayPoint[]): ShockWay {
+export function shockWay(course: readonly ShockWayPoint[], exact = false): ShockWay {
   const pts: ShockWayPoint[] = []
   for (const p of course) {
     if (!Number.isFinite(p.x) || !Number.isFinite(p.y) || !Number.isFinite(p.ago)) continue
@@ -164,7 +172,7 @@ export function shockWay(course: readonly ShockWayPoint[]): ShockWay {
       continue
     }
     const [ix, iy, cameCm] = leg(pts[i - 1], here)
-    if (turns(i + 1)) {
+    if (!exact && turns(i + 1)) {
       const next = pts[i + 1]
       const [ox, oy, leftCm] = leg(next, pts[i + 2])
       const cross = ix * oy - iy * ox
@@ -216,6 +224,41 @@ export function shockHeadAgo(way: ShockWay): number {
 export function shockFlightShown(way: ShockWay): boolean {
   if (way.points.length < 2) return false
   return shockHeadAgo(way) < SHOCK_FLIGHT.trailMs || way.bounces.some(b => b.ago >= 0 && b.ago < SHOCK_FLIGHT.ricochetMs)
+}
+
+/** One point of a throw drawn on the board, with when the bolt gets there, ms after it is thrown. */
+export interface ShockThrowPoint {
+  x: number
+  y: number
+  at: number
+}
+
+/**
+ * A line drawn on the board as a flight: when a bolt thrown along `points`
+ * reaches each of them, at the speed bolts fly in the replays, slower after
+ * every bounce (a turn sharper than a track's bounce). `cmPerUnit` is how many
+ * world centimetres one unit of the points is.
+ */
+export function shockThrow(points: ReadonlyArray<readonly [number, number]>, cmPerUnit: number): { points: ShockThrowPoint[]; ms: number } {
+  const sharp = Math.cos((SHOCK_FLIGHT.bounceDeg * Math.PI) / 180)
+  let speed = SHOCK_FLIGHT.speedCmS / 1000
+  let at = 0
+  const timed: ShockThrowPoint[] = []
+  points.forEach(([x, y], i) => {
+    if (i > 0) {
+      const [px, py] = points[i - 1]
+      const cm = Math.hypot(x - px, y - py) * cmPerUnit
+      if (i > 1 && cm > 0) {
+        const [qx, qy] = points[i - 2]
+        const before = Math.hypot(px - qx, py - qy)
+        const now = Math.hypot(x - px, y - py)
+        if (before > 0 && ((px - qx) * (x - px) + (py - qy) * (y - py)) / (before * now) < sharp) speed *= SHOCK_FLIGHT.bounceKeeps
+      }
+      at += cm / speed
+    }
+    timed.push({ x, y, at })
+  })
+  return { points: timed, ms: at }
 }
 
 /** True for Sova's Shock Bolt: the Q of the agent the game files call Hunter. */

@@ -180,6 +180,12 @@ export interface PlacedAbility {
   r: number
   /** Where it was thrown from (§2.10): the throw arc starts here. */
   from: Point | null
+  /** Where the throw bounces or bends between `from` and the landing, in order; null when it goes straight there. */
+  via: Point[] | null
+  /** How the throw's line is drawn: straight from point to point, one curve through them, or (null) the bowed arc. */
+  curved: boolean | null
+  /** The colour picked for the throw's line; null for the ability's own. */
+  lineColor: string | null
   /** 0…1 while in flight (with `from`): the badge rides the arc and no area is drawn yet. */
   progress: number | null
   /** A wall's line, at least two placed points; the badge sits at its middle by length. */
@@ -235,6 +241,8 @@ export interface PlacedMarker {
   y: number
   /** For a spike marker on a site callout: "A", "B" or "C". */
   site: string | null
+  /** The agent a pin stands for, when it does. */
+  agent: string | null
 }
 
 export interface StepScene {
@@ -393,6 +401,9 @@ export function sceneForStep(
         const cm = el.radius ?? UTILITY_RADIUS_CM[el.shape]
         const path = (el.path ?? []).map(place).filter((p): p is Point => p !== null)
         const progress = typeof el.progress === 'number' && Number.isFinite(el.progress) ? clamp01(el.progress) : null
+        // A bend that cannot be placed would move every handle after it: then the throw has none.
+        const bends = from && el.via ? el.via.map(place) : []
+        const via = bends.length > 0 && bends.every((p): p is Point => p !== null) ? bends : null
         scene.abilities.push({
           id: el.id,
           agent: el.agent,
@@ -403,6 +414,9 @@ export function sceneForStep(
           y: at[1],
           r: Math.max(MIN_UTILITY_RADIUS * markerScale, cmToView(cm, map.transform, view)),
           from,
+          via,
+          curved: typeof el.curved === 'boolean' ? el.curved : null,
+          lineColor: el.lineColor ?? null,
           progress,
           path: path.length >= 2 ? path : null,
           life: typeof el.life === 'number' && Number.isFinite(el.life) ? clamp01(el.life) : null,
@@ -445,7 +459,7 @@ export function sceneForStep(
           const superRegion = findCallout(el.at.callout, map.callouts)?.superRegion.trim() ?? ''
           if (SITE.test(superRegion)) site = superRegion.toUpperCase()
         }
-        scene.markers.push({ id: el.id, type: el.type, label: el.label ?? '', x: at[0], y: at[1], site })
+        scene.markers.push({ id: el.id, type: el.type, label: el.label ?? '', x: at[0], y: at[1], site, agent: el.type === 'pin' ? (el.agent ?? null) : null })
         break
       }
     }
@@ -501,6 +515,58 @@ export function throwArc(from: Point, at: Point, endGap = 0): ThrowArc {
   const end = pointAt(tEnd)
   const d = `M${fmt(x0)},${fmt(y0)}Q${fmt(c1[0])},${fmt(c1[1])} ${fmt(end[0])},${fmt(end[1])}`
   return { control, d, pointAt }
+}
+
+export interface ThrowLine {
+  /** The SVG path of the line. */
+  d: string
+  /** The line as points close enough together to follow it: what flies along it is moved through these. */
+  points: Point[]
+}
+
+/** How many points stand for one stretch of a curved line. */
+const CURVE_STEPS = 10
+
+/**
+ * A throw's line through `points` (where it is thrown from, where it bounces
+ * or bends, where it lands): straight from one to the next, or one smooth
+ * curve through them all (a Catmull-Rom spline, drawn as cubic Béziers).
+ * `endGap` stops it that far short of the landing, along its last stretch, so
+ * an arrowhead shows outside a badge.
+ */
+export function throwLine(points: Point[], curved: boolean, endGap = 0): ThrowLine {
+  const pts = points.map(([x, y]): Point => [x, y])
+  if (pts.length < 2) return { d: '', points: pts }
+  const last = pts[pts.length - 1]
+  const before = pts[pts.length - 2]
+  const reach = Math.hypot(last[0] - before[0], last[1] - before[1])
+  if (endGap > 0 && reach > 0) {
+    const cut = Math.min(endGap, reach * 0.9) / reach
+    pts[pts.length - 1] = [last[0] + (before[0] - last[0]) * cut, last[1] + (before[1] - last[1]) * cut]
+  }
+  const at = ([x, y]: Point) => `${fmt(x)},${fmt(y)}`
+  if (!curved || pts.length === 2) return { d: `M${pts.map(at).join('L')}`, points: pts }
+
+  let d = `M${at(pts[0])}`
+  const sampled: Point[] = [pts[0]]
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p0 = pts[i - 1] ?? pts[i]
+    const p1 = pts[i]
+    const p2 = pts[i + 1]
+    const p3 = pts[i + 2] ?? p2
+    const c1: Point = [p1[0] + (p2[0] - p0[0]) / 6, p1[1] + (p2[1] - p0[1]) / 6]
+    const c2: Point = [p2[0] - (p3[0] - p1[0]) / 6, p2[1] - (p3[1] - p1[1]) / 6]
+    d += `C${at(c1)} ${at(c2)} ${at(p2)}`
+    for (let step = 1; step <= CURVE_STEPS; step++) {
+      const t = step / CURVE_STEPS
+      const a = (1 - t) ** 3
+      const b = 3 * (1 - t) ** 2 * t
+      const c = 3 * (1 - t) * t * t
+      const e = t ** 3
+      sampled.push([a * p1[0] + b * c1[0] + c * c2[0] + e * p2[0], a * p1[1] + b * c1[1] + c * c2[1] + e * p2[1]])
+    }
+  }
+  return { d, points: sampled }
 }
 
 /** The point half way along a polyline by length: where a wall's badge sits. Its only point, or null, when it has fewer than two. */
