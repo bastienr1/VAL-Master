@@ -3,6 +3,7 @@ import { test } from 'node:test'
 import {
   clipEmbedUrl,
   formatClock,
+  groupByAbility,
   imageColumn,
   lineupElement,
   lineupImagePath,
@@ -184,4 +185,25 @@ test('hidden line-ups are a set of ids kept as a list', () => {
   // Nothing to change: the same set, so nothing is drawn again.
   assert.equal(toggled(one, ['a'], true), one)
   assert.equal(toggled(one, ['b'], false), one)
+})
+
+test('the list is by ability: agents by name, abilities by key, line-ups by name', () => {
+  const row = (agent: string, slot: 'Grenade' | 'Ability1' | 'Ability2' | 'Ultimate', title: string) => ({ agent, slot, title })
+  const groups = groupByAbility([
+    row('Sova', 'Ability2', 'Recon B'),
+    row('Sova', 'Ability1', 'Shock default'),
+    row('Brimstone', 'Ability2', 'Smoke heaven'),
+    row('Sova', 'Ability1', 'Shock A site'),
+    row('Brimstone', 'Grenade', 'Beacon'),
+  ])
+  assert.deepEqual(
+    groups.map(g => [g.agent, g.slot, g.rows.map(r => r.title)]),
+    [
+      ['Brimstone', 'Grenade', ['Beacon']],
+      ['Brimstone', 'Ability2', ['Smoke heaven']],
+      ['Sova', 'Ability1', ['Shock A site', 'Shock default']],
+      ['Sova', 'Ability2', ['Recon B']],
+    ],
+  )
+  assert.deepEqual(groupByAbility([]), [])
 })

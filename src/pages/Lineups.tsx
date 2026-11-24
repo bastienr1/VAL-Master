@@ -9,6 +9,7 @@ import { useGameContent } from '../hooks/useGameContent'
 import { canvasSkin, type CanvasSkinId } from '../lib/canvasSkins'
 import { agentIconUrl, type GameAgent } from '../lib/gameContent'
 import {
+  groupByAbility,
   imageColumn,
   lineupTitle,
   lineupsStep,
@@ -188,6 +189,7 @@ export default function Lineups() {
   const agentsHere = useMemo(() => [...new Set(here.map(row => row.agent))].sort(), [here])
 
   const hiddenHere = shown.filter(row => hidden.has(row.id)).length
+  const groups = useMemo(() => groupByAbility(shown), [shown])
 
   const step = useMemo(() => {
     // A hidden line-up is not drawn, unless it is the one open: its card would describe nothing.
@@ -470,9 +472,40 @@ export default function Lineups() {
                 </button>
               </div>
             )}
+            <div className="space-y-4">
+              {groups.map(group => {
+                const ability = abilityOf(group.agent, group.slot)
+                const agent = agentOf(group.agent)
+                const ids = group.rows.map(row => row.id)
+                const allOff = ids.every(id => hidden.has(id))
+                return (
+                  <section key={`${group.agent}:${group.slot}`} aria-label={`${group.agent}: ${ability.name}`} className="space-y-1.5">
+                    <div className="flex items-center gap-2">
+                      <span className="relative shrink-0 w-8 h-8 rounded-md bg-bg-elevated flex items-center justify-center">
+                        {ability.icon ? <img src={ability.icon} alt="" className="w-5 h-5 object-contain" /> : null}
+                        {agent && <img src={agentIconUrl(agent.uuid)} alt="" className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-bg-primary border border-bg-elevated object-cover" />}
+                      </span>
+                      <h2 className="min-w-0 flex-1 leading-tight">
+                        <span className="block text-sm font-semibold line-clamp-1">{ability.name}</span>
+                        <span className="block text-[11px] text-text-muted">
+                          {group.agent} · {group.rows.length} {group.rows.length === 1 ? 'line-up' : 'line-ups'}
+                        </span>
+                      </h2>
+                      {group.rows.length > 1 && (
+                        <button
+                          type="button"
+                          aria-pressed={allOff}
+                          aria-label={allOff ? `Show every ${ability.name} line-up on the map` : `Hide every ${ability.name} line-up from the map`}
+                          title={allOff ? `Show every ${ability.name}` : `Hide every ${ability.name}`}
+                          onClick={() => setHiddenIds(toggled(hidden, ids, !allOff))}
+                          className="shrink-0 w-8 h-8 flex items-center justify-center rounded-lg text-text-muted hover:text-val-cyan transition-colors"
+                        >
+                          {allOff ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                      )}
+                    </div>
             <ul className="space-y-1.5">
-              {shown.map(row => {
-                const ability = abilityOf(row.agent, row.slot)
+              {group.rows.map(row => {
                 const recipe = recipeLine(row)
                 const pictures = pictureCount(row)
                 const off = hidden.has(row.id)
@@ -489,14 +522,11 @@ export default function Lineups() {
                         row.id === openId ? 'bg-val-cyan/10 border-val-cyan/40' : 'bg-bg-card border-bg-elevated hover:border-val-cyan/30'
                       } ${off && row.id !== openId ? 'opacity-55' : ''}`}
                     >
-                      <span className="shrink-0 w-8 h-8 rounded-md bg-bg-elevated flex items-center justify-center">
-                        {ability.icon ? <img src={ability.icon} alt="" className="w-5 h-5 object-contain" /> : null}
-                      </span>
                       <span className="min-w-0 flex-1">
                         <span className="block text-sm leading-tight line-clamp-1" title={row.title}>
                           {row.title}
                         </span>
-                        <span className="block text-[11px] text-text-muted line-clamp-1">{recipe || `${row.agent} · ${ability.name}`}</span>
+                        {recipe && <span className="block text-[11px] text-text-muted line-clamp-1">{recipe}</span>}
                       </span>
                       <span className="shrink-0 flex items-center gap-1.5 text-[11px] text-text-muted font-stats">
                         {row.video_url && <Clapperboard className="w-3.5 h-3.5" aria-label="Has a clip" />}
@@ -520,6 +550,10 @@ export default function Lineups() {
                 )
               })}
             </ul>
+                  </section>
+                )
+              })}
+            </div>
             </>
           ) : (
             state &&

@@ -302,3 +302,29 @@ export function toggled(set: ReadonlySet<string>, ids: readonly string[], on: bo
   }
   return next
 }
+
+/** The abilities in the order of their keys: C, Q, E, X. */
+const SLOT_ORDER: readonly AbilitySlot[] = ['Grenade', 'Ability1', 'Ability2', 'Ultimate']
+
+/** The line-ups of one ability. */
+export interface AbilityGroup<T> {
+  agent: string
+  slot: AbilitySlot
+  rows: T[]
+}
+
+/**
+ * Line-ups by ability, for the list: agents by name, each agent's abilities
+ * in the order of their keys, and an ability's line-ups by name.
+ */
+export function groupByAbility<T extends Pick<Lineup, 'agent' | 'slot' | 'title'>>(rows: readonly T[]): AbilityGroup<T>[] {
+  const groups = new Map<string, AbilityGroup<T>>()
+  for (const row of rows) {
+    const key = `${row.agent}\n${row.slot}`
+    const group = groups.get(key) ?? { agent: row.agent, slot: row.slot, rows: [] }
+    group.rows.push(row)
+    groups.set(key, group)
+  }
+  for (const group of groups.values()) group.rows.sort((a, b) => a.title.localeCompare(b.title))
+  return [...groups.values()].sort((a, b) => a.agent.localeCompare(b.agent) || SLOT_ORDER.indexOf(a.slot) - SLOT_ORDER.indexOf(b.slot))
+}
