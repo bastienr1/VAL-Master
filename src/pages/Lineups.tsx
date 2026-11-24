@@ -727,6 +727,7 @@ export default function Lineups() {
                   showNames={false}
                   skin={skinId}
                   animate={false}
+                  flyThrows
                   onSelect={id => {
                     if (placing) return
                     // The pin where you stand opens its line-up, as the ability does.

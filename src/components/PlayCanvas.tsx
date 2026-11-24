@@ -161,6 +161,12 @@ export interface PlayCanvasProps {
    * grid stepped in place must bump `version`.
    */
   control?: ControlGrid | null
+  /**
+   * True where a placed ability shows how it gets there, not only where it
+   * lands (the line-ups page): a Shock Bolt then flies its throw line as the
+   * game draws it, over and over (§2.27). In a play the line stays a line.
+   */
+  flyThrows?: boolean
 }
 
 /** What the page can ask of the canvas: its `+` / `-` / `0` keys zoom about the centre. */
@@ -625,6 +631,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
     onPendingDone,
     onUnresolved,
     control,
+    flyThrows = false,
   },
   ref,
 ) {
@@ -1717,8 +1724,8 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
             pointerEvents="none"
           />
         )}
-        {/* A placed Shock Bolt flies its line as the game draws it (§2.26), over and over. */}
-        {course && !flying && item.life === null && isShockDart(item.agent, item.slot) && !reducedMotion && (
+        {/* Where throws are flown (line-ups), a placed Shock Bolt flies its line as the game draws it (§2.26), over and over. */}
+        {flyThrows && course && !flying && item.life === null && isShockDart(item.agent, item.slot) && !reducedMotion && (
           <ShockThrow points={course} r={r} enemy={thrownByEnemy(item)} seed={shockSeed(item.id)} k={k} screen={!lightMap} />
         )}
         {path && (
