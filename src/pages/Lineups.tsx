@@ -4,8 +4,9 @@ import { Clapperboard, Image as ImageIcon, Plus, X } from 'lucide-react'
 import EmptyLine from '../components/EmptyLine'
 import LineupCard from '../components/LineupCard'
 import PlayCanvas from '../components/PlayCanvas'
+import SkinPicker from '../components/play/SkinPicker'
 import { useGameContent } from '../hooks/useGameContent'
-import { CANVAS_SKIN_IDS, DEFAULT_CANVAS_SKIN, canvasSkin, type CanvasSkinId } from '../lib/canvasSkins'
+import { canvasSkin, type CanvasSkinId } from '../lib/canvasSkins'
 import { agentIconUrl, type GameAgent } from '../lib/gameContent'
 import {
   imageColumn,
@@ -16,6 +17,7 @@ import {
   parseLineupPoint,
   pictureCount,
   recipeLine,
+  standPin,
   type Lineup,
   type LineupImageSlot,
   type LineupInput,
@@ -23,7 +25,7 @@ import {
   type LineupSide,
 } from '../lib/lineupModel'
 import { clearLineupImage, createLineup, deleteLineup, listLineups, setLineupImage, updateLineup, type LineupsState } from '../lib/lineups'
-import type { AbilitySlot, MarkerElement, PlayStep } from '../lib/playDoc'
+import type { AbilitySlot, PlayStep } from '../lib/playDoc'
 
 const MAP_KEY = 'lineups.map'
 const SIDE_KEY = 'lineups.side'
@@ -126,10 +128,12 @@ export default function Lineups() {
   const [picking, setPicking] = useState(false)
   const [pickAgent, setPickAgent] = useState<string | null>(() => read(AGENT_KEY))
   const [placing, setPlacing] = useState<Placing | null>(null)
-  const [skinId] = useState<CanvasSkinId>(() => {
-    const stored = read(SKIN_KEY)
-    return (CANVAS_SKIN_IDS as readonly string[]).includes(stored ?? '') ? (stored as CanvasSkinId) : DEFAULT_CANVAS_SKIN
-  })
+  // The canvas skin is the one picked in the Plays editor, and a pick here is kept for it too.
+  const [skinId, setSkinIdState] = useState<CanvasSkinId>(() => canvasSkin(read(SKIN_KEY)).id)
+  const setSkinId = (next: CanvasSkinId) => {
+    write(SKIN_KEY, next)
+    setSkinIdState(next)
+  }
 
   const load = useCallback(() => {
     listLineups()
@@ -174,8 +178,7 @@ export default function Lineups() {
   const agentsHere = useMemo(() => [...new Set(here.map(row => row.agent))].sort(), [here])
 
   const step = useMemo(() => {
-    const pin: MarkerElement[] = placing?.stand ? [{ kind: 'marker', id: STAND_PIN, type: 'pin', at: { ...placing.stand }, label: 'Stand' }] : []
-    return lineupsStep(shown, pin)
+    return lineupsStep(shown, placing?.stand ? [standPin(STAND_PIN, placing.agent, placing.stand)] : [])
   }, [shown, placing])
 
   const patchLocal = (id: string, patch: Partial<Lineup>) =>
@@ -206,6 +209,8 @@ export default function Lineups() {
       slot,
       stand,
       land,
+      via: [],
+      curved: false,
       stand_callout: standName,
       land_callout: landName,
       purpose: null,
@@ -266,6 +271,10 @@ export default function Lineups() {
         stand_callout: standName,
         land_callout: landName,
         ...(named ? { title: lineupTitle(landName, standName, ability) } : {}),
+        // A corner of a straight line is a bounce: the recipe follows the line until it is set by hand.
+        ...(!row.curved && moved.via.length !== row.via.length && (row.bounces === null || row.bounces === Math.min(3, row.via.length))
+          ? { bounces: Math.min(3, moved.via.length) }
+          : {}),
       })
     }
   }
@@ -348,6 +357,7 @@ export default function Lineups() {
               </option>
             ))}
           </select>
+          <SkinPicker skin={skinId} onPick={setSkinId} cycleKey={false} buttonClass="inline-flex items-center gap-1.5 bg-bg-card border border-bg-elevated rounded-lg px-3 py-1.5 text-sm text-text-secondary hover:text-text-primary transition-colors" />
           <div className="inline-flex rounded-lg border border-bg-elevated overflow-hidden" role="group" aria-label="Side">
             {(['attack', 'defense'] as const).map(value => (
               <button
@@ -499,7 +509,9 @@ export default function Lineups() {
                   animate={false}
                   onSelect={id => {
                     if (placing) return
-                    select(id && rows.some(row => row.id === id) ? id : null)
+                    // The pin where you stand opens its line-up, as the ability does.
+                    const lineupId = id?.startsWith('stand:') ? id.slice('stand:'.length) : id
+                    select(lineupId && rows.some(row => row.id === lineupId) ? lineupId : null)
                   }}
                   onChange={onCanvasChange}
                   onPendingDone={() => {}}
@@ -518,7 +530,9 @@ export default function Lineups() {
               <div className="absolute inset-0 flex items-center justify-center text-sm text-text-muted">No map can be drawn right now.</div>
             )}
           </div>
-          <p className="text-[11px] text-text-muted text-center">Scroll to zoom. Drag a line-up to move where it lands; drag the start of its arc to move where you stand.</p>
+          <p className="text-[11px] text-text-muted text-center">
+            Scroll to zoom. Drag the ability to move where it lands and the pin to move where you stand. On an open line-up, press a + on the line to add a bend and drag it; press a bend twice to remove it.
+          </p>
         </div>
 
         {/* The card */}

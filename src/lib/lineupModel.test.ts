@@ -12,10 +12,12 @@ import {
   nearestCallout,
   parseClock,
   parseLineupPoint,
+  parseLineupVia,
   pictureCount,
   recipeLine,
+  standPinId,
   validateLineupImage,
-  type Lineup,
+  type DrawnLineup,
 } from './lineupModel.ts'
 import type { MapCallout } from './playDoc.ts'
 
@@ -24,12 +26,14 @@ const T = { xMultiplier: 1e-4, yMultiplier: 1e-4, xScalarToAdd: 0.5, yScalarToAd
 const callout = (superRegion: string, region: string, x: number, y: number): MapCallout => ({ superRegion, region, name: `${superRegion} ${region}`, x, y })
 const CALLOUTS = [callout('A', 'Main', 0, -3000), callout('A', 'Site', 0, 3000), callout('Mid', 'Courtyard', 2000, 0)]
 
-const SHOCK: Pick<Lineup, 'id' | 'agent' | 'slot' | 'stand' | 'land' | 'title'> = {
+const SHOCK: DrawnLineup = {
   id: 'l1',
   agent: 'Sova',
   slot: 'Ability1',
   stand: { u: 0.2, v: 0.5 },
   land: { u: 0.8, v: 0.5 },
+  via: [],
+  curved: false,
   title: 'A Site from A Main',
 }
 
@@ -64,8 +68,19 @@ test('on the board it is the ability at its landing, thrown from where you stand
   )
   // The catalogue's shape and reach: Shock Bolt ends 4 m out.
   assert.equal(el.radius, 400)
+  // A straight line and no bend: the board draws the throw straight there, not as its bowed arc.
+  assert.equal(el.curved, false)
+  assert.equal(el.via, undefined)
+  const bent = lineupElement({ ...SHOCK, via: [{ u: 0.5, v: 0.3 }], curved: true })
+  assert.deepEqual(bent.via, [{ u: 0.5, v: 0.3 }])
+  assert.equal(bent.curved, true)
+})
+
+test('each line-up is its ability and the pin where you stand, the agent in the pin', () => {
   const step = lineupsStep([SHOCK], [{ kind: 'marker', id: 'pin', type: 'pin', at: { u: 0.1, v: 0.1 } }])
-  assert.deepEqual(step.elements.map(e => e.id), ['l1', 'pin'])
+  assert.deepEqual(step.elements.map(e => e.id), ['l1', 'stand:l1', 'pin'])
+  assert.equal(standPinId('l1'), 'stand:l1')
+  assert.deepEqual(step.elements[1], { kind: 'marker', id: 'stand:l1', type: 'pin', agent: 'Sova', at: { u: 0.2, v: 0.5 } })
 })
 
 test('a drag on the board is read back as new points, and a press that moved nothing is not', () => {
@@ -74,9 +89,23 @@ test('a drag on the board is read back as new points, and a press that moved not
   const [el] = step.elements
   assert.ok(el.kind === 'ability')
   // The landing dragged.
-  assert.deepEqual(movedLineup({ ...step, elements: [{ ...el, at: { u: 0.7, v: 0.4 } }] }, SHOCK), { stand: SHOCK.stand, land: { u: 0.7, v: 0.4 } })
+  assert.deepEqual(movedLineup({ ...step, elements: [{ ...el, at: { u: 0.7, v: 0.4 } }] }, SHOCK), { stand: SHOCK.stand, land: { u: 0.7, v: 0.4 }, via: [] })
   // The hand dragged.
-  assert.deepEqual(movedLineup({ ...step, elements: [{ ...el, from: { u: 0.3, v: 0.6 } }] }, SHOCK), { stand: { u: 0.3, v: 0.6 }, land: SHOCK.land })
+  assert.deepEqual(movedLineup({ ...step, elements: [{ ...el, from: { u: 0.3, v: 0.6 } }] }, SHOCK), { stand: { u: 0.3, v: 0.6 }, land: SHOCK.land, via: [] })
+  // The pin dragged: the same place as the hand, so it is where you stand.
+  const pin = step.elements[1]
+  assert.ok(pin.kind === 'marker')
+  assert.deepEqual(movedLineup({ ...step, elements: [el, { ...pin, at: { u: 0.25, v: 0.45 } }] }, SHOCK), { stand: { u: 0.25, v: 0.45 }, land: SHOCK.land, via: [] })
+  // A bend put in, moved, taken out.
+  const bend = { u: 0.5, v: 0.3 }
+  assert.deepEqual(movedLineup({ ...step, elements: [{ ...el, via: [bend] }, pin] }, SHOCK), { stand: SHOCK.stand, land: SHOCK.land, via: [bend] })
+  const bentLineup = { ...SHOCK, via: [bend] }
+  const bentStep = lineupsStep([bentLineup])
+  assert.equal(movedLineup(bentStep, bentLineup), null)
+  const [bentEl, bentPin] = bentStep.elements
+  assert.ok(bentEl.kind === 'ability')
+  assert.deepEqual(movedLineup({ ...bentStep, elements: [{ ...bentEl, via: [{ u: 0.55, v: 0.3 }] }, bentPin] }, bentLineup)?.via, [{ u: 0.55, v: 0.3 }])
+  assert.deepEqual(movedLineup({ ...bentStep, elements: [{ ...bentEl, via: undefined }, bentPin] }, bentLineup)?.via, [])
   // Not drawn (another map is showing): nothing to read.
   assert.equal(movedLineup({ ...step, elements: [] }, SHOCK), null)
 })
@@ -119,4 +148,10 @@ test('pictures: three fixed slots, kept under their owner', () => {
   assert.match(validateLineupImage({ type: 'image/gif', size: 1000 }) ?? '', /WebP, PNG or JPEG/)
   assert.match(validateLineupImage({ type: 'image/png', size: 6 * 1024 * 1024 }) ?? '', /6\.0 MB/)
   assert.equal(pictureCount({ stand_image: 'a', aim_image: null, result_image: 'c' }), 2)
+})
+
+test('stored bends are the points among them, a few at most', () => {
+  assert.deepEqual(parseLineupVia([{ u: 0.1, v: 0.2 }, 'x', { u: 0.3 }, { u: 0.4, v: 0.5 }]), [{ u: 0.1, v: 0.2 }, { u: 0.4, v: 0.5 }])
+  assert.deepEqual(parseLineupVia(null), [])
+  assert.equal(parseLineupVia(Array.from({ length: 12 }, (_, i) => ({ u: i / 12, v: 0.5 }))).length, 6)
 })

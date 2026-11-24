@@ -8,7 +8,7 @@
  */
 
 import { abilityShape } from './agentAbilities.ts'
-import type { AbilityElement, AbilitySlot, MapCallout, PlayElement, PlayStep } from './playDoc.ts'
+import { MAX_THROW_VIA, type AbilityElement, type AbilitySlot, type MapCallout, type MarkerElement, type PlayElement, type PlayStep } from './playDoc.ts'
 import { worldToImage, type MapTransform } from './replayScene.ts'
 import { extractYouTubeId } from './youtubeId.ts'
 
@@ -67,6 +67,10 @@ export interface Lineup {
   slot: AbilitySlot
   stand: LineupPoint
   land: LineupPoint
+  /** Where the throw bounces or bends on its way, in order. */
+  via: LineupPoint[]
+  /** The line through them: one smooth curve, or straight from point to point. */
+  curved: boolean
   stand_callout: string | null
   land_callout: string | null
   purpose: LineupPurpose | null
@@ -128,8 +132,25 @@ export function lineupTitle(land: string | null, stand: string | null, ability: 
   return ability
 }
 
-/** The line-up as the plays board draws a thrown ability: at its landing, thrown from where you stand. */
-export function lineupElement(lineup: Pick<Lineup, 'id' | 'agent' | 'slot' | 'stand' | 'land' | 'title'>): AbilityElement {
+/** What of a line-up the board draws. */
+export type DrawnLineup = Pick<Lineup, 'id' | 'agent' | 'slot' | 'stand' | 'land' | 'via' | 'curved' | 'title'>
+
+/** A stored list of bends: the points among them, no more than a throw may have. */
+export function parseLineupVia(raw: unknown): LineupPoint[] {
+  if (!Array.isArray(raw)) return []
+  return raw.map(parseLineupPoint).filter((point): point is LineupPoint => point !== null).slice(0, MAX_THROW_VIA)
+}
+
+/** The id of the pin that marks where to stand for a line-up. */
+export const standPinId = (lineupId: string) => `stand:${lineupId}`
+
+/** Where to stand, as the board draws it: a pin with the agent's icon in its head, its tip the exact place. */
+export function standPin(id: string, agent: string, stand: LineupPoint): MarkerElement {
+  return { kind: 'marker', id, type: 'pin', agent, at: { u: stand.u, v: stand.v } }
+}
+
+/** The line-up as the plays board draws a thrown ability: at its landing, thrown from where you stand, through its bends. */
+export function lineupElement(lineup: DrawnLineup): AbilityElement {
   const { shape, radius } = abilityShape(lineup.agent, lineup.slot)
   return {
     kind: 'ability',
@@ -140,30 +161,42 @@ export function lineupElement(lineup: Pick<Lineup, 'id' | 'agent' | 'slot' | 'st
     radius,
     at: { u: lineup.land.u, v: lineup.land.v },
     from: { u: lineup.stand.u, v: lineup.stand.v },
+    ...(lineup.via.length > 0 ? { via: lineup.via.map(({ u, v }) => ({ u, v })) } : {}),
+    curved: lineup.curved,
     label: lineup.title,
     team: 'ally',
   }
 }
 
-/** Every line-up shown, as one step for the board; `extra` goes on top (the stand pin while one is being placed). */
-export function lineupsStep(lineups: ReadonlyArray<Parameters<typeof lineupElement>[0]>, extra: PlayElement[] = []): PlayStep {
-  return { id: 'lineups', name: 'Line-ups', caption: '', elements: [...lineups.map(lineupElement), ...extra] }
+/**
+ * Every line-up shown, as one step for the board: each its ability and the
+ * pin where you stand; `extra` goes on top (the pin of one being placed).
+ */
+export function lineupsStep(lineups: readonly DrawnLineup[], extra: PlayElement[] = []): PlayStep {
+  const elements = lineups.flatMap((lineup): PlayElement[] => [lineupElement(lineup), standPin(standPinId(lineup.id), lineup.agent, lineup.stand)])
+  return { id: 'lineups', name: 'Line-ups', caption: '', elements: [...elements, ...extra] }
 }
 
 /** Two points that are the same place for a line-up: a drag that did not move it writes nothing. */
 const samePoint = (a: LineupPoint, b: LineupPoint) => Math.abs(a.u - b.u) < 1e-6 && Math.abs(a.v - b.v) < 1e-6
 
 /**
- * What the board changed of `lineup` in `step` (its landing dragged, or the
- * hand it is thrown from): the new points, or null when it is as it was or no
- * longer drawn.
+ * What the board changed of `lineup` in `step`: its landing dragged, its pin
+ * or the hand it is thrown from, a bend moved, put in or taken out. The new
+ * points, or null when it is as it was or no longer drawn.
  */
-export function movedLineup(step: PlayStep, lineup: Pick<Lineup, 'id' | 'stand' | 'land'>): { stand: LineupPoint; land: LineupPoint } | null {
+export function movedLineup(step: PlayStep, lineup: Pick<Lineup, 'id' | 'stand' | 'land' | 'via'>): { stand: LineupPoint; land: LineupPoint; via: LineupPoint[] } | null {
   const el = step.elements.find(e => e.id === lineup.id)
   if (!el || el.kind !== 'ability') return null
   const land = parseLineupPoint(el.at) ?? lineup.land
-  const stand = parseLineupPoint(el.from) ?? lineup.stand
-  return samePoint(land, lineup.land) && samePoint(stand, lineup.stand) ? null : { stand, land }
+  const hand = parseLineupPoint(el.from) ?? lineup.stand
+  const pin = step.elements.find(e => e.id === standPinId(lineup.id))
+  const pinned = pin?.kind === 'marker' ? parseLineupPoint(pin.at) : null
+  // The pin and the hand are one place: whichever was dragged is where you stand now.
+  const stand = pinned && !samePoint(pinned, lineup.stand) ? pinned : hand
+  const via = parseLineupVia(el.via ?? [])
+  const sameVia = via.length === lineup.via.length && via.every((point, i) => samePoint(point, lineup.via[i]))
+  return samePoint(land, lineup.land) && samePoint(stand, lineup.stand) && sameVia ? null : { stand, land, via }
 }
 
 /** "1:23" or "83" as seconds; null for anything else. */

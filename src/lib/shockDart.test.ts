@@ -12,6 +12,7 @@ import {
   shockRandom,
   shockSeed,
   shockState,
+  shockThrow,
   shockWay,
   shockWayAt,
   type ShockWayPoint,
@@ -175,4 +176,26 @@ test('after it lands the ribbon dies in 0.4 s and a late bounce’s flash in 0.4
   assert.equal(late(410).bounces.length, 1)
   assert.ok(shockFlightShown(late(410)))
   assert.ok(!shockFlightShown(late(430)))
+})
+
+test('a line drawn on the board is flown at the speed of a bolt, slower after each bounce', () => {
+  // One unit a centimetre: 30 m to a wall, a square turn, 16.5 m on.
+  const flight = shockThrow([[0, 0], [3000, 0], [3000, 1650]], 1)
+  assert.deepEqual(flight.points.map(p => Math.round(p.at)), [0, 1000, 2000])
+  assert.equal(Math.round(flight.ms), 2000)
+  // A gentle bend is no bounce: the same speed all the way.
+  const curve = shockThrow([[0, 0], [3000, 0], [6000, 300]], 1)
+  assert.ok(Math.abs(curve.ms - (1000 + Math.hypot(3000, 300) / 3)) < 1e-6)
+  // Ten centimetres a unit: the same line is ten times as far.
+  assert.equal(Math.round(shockThrow([[0, 0], [300, 0]], 10).ms), 1000)
+  assert.equal(shockThrow([[5, 5]], 1).ms, 0)
+})
+
+test('a drawn line keeps its corners where they were drawn', () => {
+  // Two turns in a row: a sampled flight would have its corner put back at a wall.
+  const drawn = bounced(600)
+  assert.equal(shockWay(drawn).points.length, 7)
+  const exact = shockWay(drawn, true)
+  assert.equal(exact.points.length, 6)
+  assert.deepEqual(exact.bounces.map(b => [b.x, b.y]), [[600, 200], [720, 360]])
 })

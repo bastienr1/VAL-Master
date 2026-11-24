@@ -97,6 +97,10 @@ function Chips<T extends string | number>({ label, options, value, onPick }: {
 }
 
 const COUNTS = [0, 1, 2, 3].map(n => ({ value: n, label: String(n) }))
+const LINE_STYLES = [
+  { value: 'straight', label: 'Straight' },
+  { value: 'curved', label: 'Curved' },
+] as const
 
 export interface LineupCardProps {
   lineup: Lineup
@@ -277,6 +281,19 @@ export default function LineupCard({ lineup, ability, agentIcon, onPatch, onImag
           <Chips label="Stance" options={LINEUP_STANCES.map(value => ({ value, label: STANCE_LABELS[value] }))} value={lineup.stance} onPick={stance => onPatch({ stance })} />
           <Chips label="Movement" options={LINEUP_MOVEMENTS.map(value => ({ value, label: MOVEMENT_LABELS[value] }))} value={lineup.movement} onPick={movement => onPatch({ movement })} />
           <Chips label="Click" options={LINEUP_CLICKS.map(value => ({ value, label: CLICK_LABELS[value] }))} value={lineup.click} onPick={click => onPatch({ click })} />
+          <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
+            <Chips
+              label="Line on the map"
+              options={LINE_STYLES}
+              value={lineup.curved ? 'curved' : 'straight'}
+              onPick={style => style && onPatch({ curved: style === 'curved' })}
+            />
+            {lineup.via.length > 0 && (
+              <button type="button" onClick={() => onPatch({ via: [] })} className="pb-1 text-xs text-text-muted hover:text-val-red transition-colors">
+                Remove {lineup.via.length === 1 ? 'its bend' : `its ${lineup.via.length} bends`}
+              </button>
+            )}
+          </div>
           <div className="flex flex-wrap gap-x-6 gap-y-3">
             <Chips label="Bounces" options={COUNTS} value={lineup.bounces} onPick={bounces => onPatch({ bounces })} />
             <Chips label="Charge bars" options={COUNTS} value={lineup.charge} onPick={charge => onPatch({ charge })} />

@@ -23,10 +23,12 @@ import {
   THROW_MIN_CM,
   polylineMidpoint,
   throwArc,
+  throwLine,
   throwOrigin,
   viewBoxFor,
   viewToImage,
   zoomAbout,
+  type Point,
   type SceneMap,
   type ViewRect,
 } from './playScene.ts'
@@ -35,6 +37,7 @@ import {
   type AbilityElement,
   type AgentElement,
   type MapCallout,
+  type MarkerElement,
   type PlayElement,
   type PlayPos,
   type PlayStep,
@@ -569,6 +572,50 @@ test('a throw’s course is placed point by point and keeps its times', () => {
   close(thrown.course![0].x, viewPointOf('A Main')[0])
   close(thrown.course![1].y, viewPointOf('A Site')[1])
   assert.equal(plain.course, null)
+})
+
+test('a throw carries its bends and how its line is drawn; a pin can stand for an agent', () => {
+  const marker = (over: Partial<MarkerElement>): MarkerElement => ({ kind: 'marker', id: 'm', type: 'pin', at: { callout: 'A Main' }, ...over })
+  const step = stepOf(
+    ability('molly', { callout: 'A Site' }, { from: { callout: 'A Main' }, via: [{ u: 0.5, v: 0.5 }], curved: false }),
+    // A bend that cannot be placed: the throw goes straight there.
+    ability('molly', { callout: 'A Site' }, { from: { callout: 'A Main' }, via: [{ callout: 'Nowhere' }, { u: 0.5, v: 0.5 }] }),
+    // Bends need a hand to start from.
+    ability('molly', { callout: 'A Site' }, { via: [{ u: 0.5, v: 0.5 }], curved: true }),
+    marker({ id: 'm1', agent: 'Sova' }),
+    marker({ id: 'm2' }),
+    marker({ id: 'm3', type: 'enemy', agent: 'Sova' }),
+  )
+  const scene = sceneForStep(step, MAP, 'attack')
+  const [bent, lost, handless] = scene.abilities
+  assert.equal(bent.via?.length, 1)
+  assert.equal(bent.curved, false)
+  assert.equal(lost.via, null)
+  assert.equal(lost.curved, null)
+  assert.equal(handless.via, null)
+  assert.equal(handless.curved, true)
+  assert.deepEqual(scene.markers.map(m => m.agent), ['Sova', null, null])
+})
+
+test('the line of a throw goes through its points, straight or as one curve, and stops short of the landing', () => {
+  const points: Point[] = [[0, 0], [100, 0], [100, 100]]
+  const straight = throwLine(points, false)
+  assert.equal(straight.d, 'M0,0L100,0L100,100')
+  assert.deepEqual(straight.points, points)
+  // Ten short of the landing, along the last stretch.
+  assert.equal(throwLine(points, false, 10).d, 'M0,0L100,0L100,90')
+  // Never past the bend before it.
+  assert.equal(throwLine(points, false, 500).d, 'M0,0L100,0L100,10')
+  const curve = throwLine(points, true)
+  assert.match(curve.d, /^M0,0C.+ 100,0C.+ 100,100$/)
+  // The curve goes through every point, and what flies along it has points to follow.
+  assert.deepEqual(curve.points[0], [0, 0])
+  assert.deepEqual(curve.points[10], [100, 0])
+  assert.deepEqual(curve.points[20], [100, 100])
+  assert.equal(curve.points.length, 21)
+  // Two points make no curve.
+  assert.equal(throwLine([[0, 0], [50, 50]], true).d, 'M0,0L50,50')
+  assert.equal(throwLine([[0, 0]], false).d, '')
 })
 
 test('throwOrigin copies the agent position when it stands more than 3 m from the click', () => {
