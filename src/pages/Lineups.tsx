@@ -487,14 +487,21 @@ export default function Lineups() {
                 const colour = sharedLineColor(group.rows)
                 return (
                   <section key={`${group.agent}:${group.slot}`} aria-label={`${group.agent}: ${ability.name}`} className="space-y-1.5">
-                    <div className="flex items-center gap-2">
-                      <span className="relative shrink-0 w-8 h-8 rounded-md bg-bg-elevated flex items-center justify-center">
+                    <div className="flex items-stretch gap-1">
+                      {/* The group's band wears its colour, as a layer group wears its label. */}
+                      <div
+                        className={`min-w-0 flex-1 flex items-center gap-2 pl-1.5 pr-1 py-1 rounded-lg ${colour ? '' : 'bg-bg-elevated/40'}`}
+                        style={colour ? { backgroundColor: `color-mix(in srgb, ${colour} 34%, transparent)` } : undefined}
+                      >
+                      <span className={`relative shrink-0 w-8 h-8 rounded-md flex items-center justify-center ${colour ? 'bg-white/10' : 'bg-bg-elevated'}`}>
                         {ability.icon ? <img src={ability.icon} alt="" className="w-5 h-5 object-contain" /> : null}
                         {agent && <img src={agentIconUrl(agent.uuid)} alt="" className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-bg-primary border border-bg-elevated object-cover" />}
                       </span>
                       <h2 className="min-w-0 flex-1 leading-tight">
-                        <span className="block text-sm font-semibold line-clamp-1">{ability.name}</span>
-                        <span className="block text-[11px] text-text-muted">
+                        <span className="block text-sm font-semibold line-clamp-1" style={colour ? { color: `color-mix(in srgb, ${colour} 28%, white)` } : undefined}>
+                          {ability.name}
+                        </span>
+                        <span className="block text-[11px] text-text-muted" style={colour ? { color: `color-mix(in srgb, ${colour} 45%, #AEB7C4)` } : undefined}>
                           {group.agent} · {group.rows.length} {group.rows.length === 1 ? 'line-up' : 'line-ups'}
                         </span>
                       </h2>
@@ -504,7 +511,7 @@ export default function Lineups() {
                         aria-label={`Line colour of every ${ability.name} line-up`}
                         title={colour === undefined ? 'Line colour: its line-ups differ' : colour === null ? 'Line colour: the colour of the ability' : `Line colour: ${colour}`}
                         onClick={() => setColouring(colouring === key ? null : key)}
-                        className={`shrink-0 w-8 h-8 flex items-center justify-center rounded-lg transition-colors ${colouring === key ? 'bg-bg-elevated' : 'hover:bg-bg-elevated/60'}`}
+                        className={`shrink-0 w-8 h-8 flex items-center justify-center rounded-lg transition-colors ${colouring === key ? 'bg-black/30' : 'hover:bg-black/20'}`}
                       >
                         <span
                           className={`w-4 h-4 rounded-full border-2 ${colour === null ? 'border-dashed border-text-muted' : 'border-bg-primary ring-1 ring-text-muted/50'}`}
@@ -517,17 +524,23 @@ export default function Lineups() {
                           }
                         />
                       </button>
-                      {group.rows.length > 1 && (
+                      </div>
+                      {/* The eye column lines up with the line-ups' own eyes; a group of one has theirs. */}
+                      {group.rows.length > 1 ? (
                         <button
                           type="button"
                           aria-pressed={allOff}
                           aria-label={allOff ? `Show every ${ability.name} line-up on the map` : `Hide every ${ability.name} line-up from the map`}
                           title={allOff ? `Show every ${ability.name}` : `Hide every ${ability.name}`}
                           onClick={() => setHiddenIds(toggled(hidden, ids, !allOff))}
-                          className="shrink-0 w-8 h-8 flex items-center justify-center rounded-lg text-text-muted hover:text-val-cyan transition-colors"
+                          className={`shrink-0 w-8 flex items-center justify-center rounded-lg border transition-colors ${
+                            allOff ? 'bg-bg-primary border-bg-elevated text-text-muted hover:text-text-primary' : 'bg-bg-card border-bg-elevated text-text-secondary hover:text-val-cyan hover:border-val-cyan/30'
+                          }`}
                         >
                           {allOff ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                         </button>
+                      ) : (
+                        <span className="shrink-0 w-8" aria-hidden="true" />
                       )}
                     </div>
                     {colouring === key && (
