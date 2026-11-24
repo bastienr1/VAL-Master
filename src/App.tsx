@@ -14,6 +14,7 @@ import PlaybookIndex from './pages/PlaybookIndex'
 import PlaybookReader from './pages/PlaybookReader'
 import PlaysIndex from './pages/PlaysIndex'
 import PlayDesigner from './pages/PlayDesigner'
+import Lineups from './pages/Lineups'
 import ProStudyLibrary from './pages/ProStudyLibrary'
 import SavedDrills from './pages/SavedDrills'
 import ProStudyReview from './pages/ProStudyReview'
@@ -72,6 +73,7 @@ function App() {
           <Route path="/playbook/:slug" element={<PlaybookReader />} />
           <Route path="/plays" element={<PlaysIndex />} />
           {/* Static before the param route: /plays/new is the blank designer, not a play id. */}
+          <Route path="/plays/lineups/:id?" element={<Lineups />} />
           <Route path="/plays/new" element={<PlayDesigner />} />
           <Route path="/plays/:id" element={<PlayDesigner />} />
           <Route path="/study" element={<ProStudyLibrary />} />

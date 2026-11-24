@@ -111,6 +111,9 @@ export default function PlaysIndex() {
           <h1 className="font-heading text-3xl font-bold">Plays</h1>
           <div className="flex items-baseline gap-3">
             <p className="text-text-secondary text-sm">Your set plays, drawn on the map</p>
+            <Link to="/plays/lineups" className="text-sm text-text-secondary hover:text-val-cyan transition-colors">
+              Line-ups →
+            </Link>
             <Link to="/playbook" className="text-sm text-text-secondary hover:text-val-cyan transition-colors">
               Guides →
             </Link>

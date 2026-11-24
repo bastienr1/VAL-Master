@@ -1,0 +1,226 @@
+/**
+ * A line-up: one throw of one ability, with where to stand, where it lands,
+ * how it is thrown, its three pictures and its clip (`/plays/lineups`,
+ * migration `20261124_lineups.sql`).
+ *
+ * This file is the rules and stays free of Supabase and the DOM so
+ * `node --test` can run it; reading and writing are in `lineups.ts`.
+ */
+
+import { abilityShape } from './agentAbilities.ts'
+import type { AbilityElement, AbilitySlot, MapCallout, PlayElement, PlayStep } from './playDoc.ts'
+import { worldToImage, type MapTransform } from './replayScene.ts'
+import { extractYouTubeId } from './youtubeId.ts'
+
+export const LINEUP_PURPOSES = ['execute', 'post-plant', 'retake', 'deny', 'info', 'other'] as const
+export const LINEUP_STANCES = ['standing', 'crouched'] as const
+export const LINEUP_MOVEMENTS = ['still', 'walking', 'running', 'jump', 'run-jump'] as const
+export const LINEUP_CLICKS = ['left', 'right', 'both'] as const
+/** The three pictures, in the order they are looked at. */
+export const LINEUP_IMAGE_SLOTS = ['stand', 'aim', 'result'] as const
+
+export type LineupPurpose = (typeof LINEUP_PURPOSES)[number]
+export type LineupStance = (typeof LINEUP_STANCES)[number]
+export type LineupMovement = (typeof LINEUP_MOVEMENTS)[number]
+export type LineupClick = (typeof LINEUP_CLICKS)[number]
+export type LineupImageSlot = (typeof LINEUP_IMAGE_SLOTS)[number]
+export type LineupSide = 'attack' | 'defense'
+
+export const PURPOSE_LABELS: Record<LineupPurpose, string> = {
+  execute: 'Execute',
+  'post-plant': 'Post-plant',
+  retake: 'Retake',
+  deny: 'Deny',
+  info: 'Info',
+  other: 'Other',
+}
+export const STANCE_LABELS: Record<LineupStance, string> = { standing: 'Standing', crouched: 'Crouched' }
+export const MOVEMENT_LABELS: Record<LineupMovement, string> = {
+  still: 'Still',
+  walking: 'Walking',
+  running: 'Running',
+  jump: 'Jump',
+  'run-jump': 'Run and jump',
+}
+export const CLICK_LABELS: Record<LineupClick, string> = { left: 'Left click', right: 'Right click', both: 'Both' }
+export const IMAGE_SLOT_LABELS: Record<LineupImageSlot, { title: string; hint: string }> = {
+  stand: { title: 'Stand', hint: 'Where your feet go' },
+  aim: { title: 'Aim', hint: 'Where the crosshair goes' },
+  result: { title: 'Result', hint: 'Where it lands' },
+}
+
+/** A place on the minimap, in image units (0…1 on each axis). */
+export interface LineupPoint {
+  u: number
+  v: number
+}
+
+/** A row of `lineups`. */
+export interface Lineup {
+  id: string
+  user_id: string
+  title: string
+  map: string
+  map_uuid: string | null
+  side: LineupSide
+  agent: string
+  slot: AbilitySlot
+  stand: LineupPoint
+  land: LineupPoint
+  stand_callout: string | null
+  land_callout: string | null
+  purpose: LineupPurpose | null
+  stance: LineupStance | null
+  movement: LineupMovement | null
+  click: LineupClick | null
+  bounces: number | null
+  charge: number | null
+  note: string
+  /** Paths in the `lineup-media` bucket. */
+  stand_image: string | null
+  aim_image: string | null
+  result_image: string | null
+  video_url: string | null
+  video_start: number | null
+  video_end: number | null
+  patch: string | null
+  verified_on: string | null
+  source: unknown
+  created_at: string
+  updated_at: string
+}
+
+/** The columns a page writes. */
+export type LineupInput = Omit<Lineup, 'id' | 'user_id' | 'created_at' | 'updated_at'>
+
+/** The column that holds a picture slot's path. */
+export const imageColumn = (slot: LineupImageSlot) => `${slot}_image` as const
+
+const finite = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value)
+
+/** A stored point, or null when it is not one (a hand-edited row). */
+export function parseLineupPoint(raw: unknown): LineupPoint | null {
+  if (typeof raw !== 'object' || raw === null) return null
+  const { u, v } = raw as { u?: unknown; v?: unknown }
+  return finite(u) && finite(v) ? { u, v } : null
+}
+
+/** The callout nearest an image point; null when the map has none. */
+export function nearestCallout(point: LineupPoint, callouts: readonly MapCallout[], transform: MapTransform): MapCallout | null {
+  let best: MapCallout | null = null
+  let near = Infinity
+  for (const callout of callouts) {
+    const [u, v] = worldToImage(transform, callout.x, callout.y)
+    const d = Math.hypot(u - point.u, v - point.v)
+    if (d < near) {
+      near = d
+      best = callout
+    }
+  }
+  return best
+}
+
+/** The name a line-up gets from its two places: "B Site from B Main". */
+export function lineupTitle(land: string | null, stand: string | null, ability: string): string {
+  if (land && stand) return land === stand ? `${ability}, ${land}` : `${land} from ${stand}`
+  if (land) return `${ability} to ${land}`
+  if (stand) return `${ability} from ${stand}`
+  return ability
+}
+
+/** The line-up as the plays board draws a thrown ability: at its landing, thrown from where you stand. */
+export function lineupElement(lineup: Pick<Lineup, 'id' | 'agent' | 'slot' | 'stand' | 'land' | 'title'>): AbilityElement {
+  const { shape, radius } = abilityShape(lineup.agent, lineup.slot)
+  return {
+    kind: 'ability',
+    id: lineup.id,
+    agent: lineup.agent,
+    slot: lineup.slot,
+    shape,
+    radius,
+    at: { u: lineup.land.u, v: lineup.land.v },
+    from: { u: lineup.stand.u, v: lineup.stand.v },
+    label: lineup.title,
+    team: 'ally',
+  }
+}
+
+/** Every line-up shown, as one step for the board; `extra` goes on top (the stand pin while one is being placed). */
+export function lineupsStep(lineups: ReadonlyArray<Parameters<typeof lineupElement>[0]>, extra: PlayElement[] = []): PlayStep {
+  return { id: 'lineups', name: 'Line-ups', caption: '', elements: [...lineups.map(lineupElement), ...extra] }
+}
+
+/** Two points that are the same place for a line-up: a drag that did not move it writes nothing. */
+const samePoint = (a: LineupPoint, b: LineupPoint) => Math.abs(a.u - b.u) < 1e-6 && Math.abs(a.v - b.v) < 1e-6
+
+/**
+ * What the board changed of `lineup` in `step` (its landing dragged, or the
+ * hand it is thrown from): the new points, or null when it is as it was or no
+ * longer drawn.
+ */
+export function movedLineup(step: PlayStep, lineup: Pick<Lineup, 'id' | 'stand' | 'land'>): { stand: LineupPoint; land: LineupPoint } | null {
+  const el = step.elements.find(e => e.id === lineup.id)
+  if (!el || el.kind !== 'ability') return null
+  const land = parseLineupPoint(el.at) ?? lineup.land
+  const stand = parseLineupPoint(el.from) ?? lineup.stand
+  return samePoint(land, lineup.land) && samePoint(stand, lineup.stand) ? null : { stand, land }
+}
+
+/** "1:23" or "83" as seconds; null for anything else. */
+export function parseClock(text: string): number | null {
+  const said = text.trim()
+  if (!said) return null
+  const parts = said.split(':')
+  if (parts.length > 3 || parts.some(p => !/^\d+$/.test(p))) return null
+  return parts.reduce((total, p) => total * 60 + Number(p), 0)
+}
+
+/** Seconds as "1:23". */
+export function formatClock(seconds: number | null): string {
+  if (seconds === null || !Number.isFinite(seconds) || seconds < 0) return ''
+  const whole = Math.floor(seconds)
+  return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, '0')}`
+}
+
+/** The clip as a YouTube embed that starts and stops where the line-up is; null when the link is not a YouTube video. */
+export function clipEmbedUrl(url: string | null, start: number | null, end: number | null): string | null {
+  const id = url ? extractYouTubeId(url) : null
+  if (!id) return null
+  const params = new URLSearchParams({ rel: '0' })
+  if (start !== null && start > 0) params.set('start', String(Math.floor(start)))
+  if (end !== null && end > (start ?? 0)) params.set('end', String(Math.ceil(end)))
+  return `https://www.youtube-nocookie.com/embed/${id}?${params}`
+}
+
+/** The recipe in one line, what is known of it: "Standing · Still · Left click · 1 bounce". */
+export function recipeLine(lineup: Pick<Lineup, 'stance' | 'movement' | 'click' | 'bounces' | 'charge'>): string {
+  const parts: string[] = []
+  if (lineup.stance) parts.push(STANCE_LABELS[lineup.stance])
+  if (lineup.movement) parts.push(MOVEMENT_LABELS[lineup.movement])
+  if (lineup.click) parts.push(CLICK_LABELS[lineup.click])
+  if (lineup.charge !== null) parts.push(`${lineup.charge} ${lineup.charge === 1 ? 'bar' : 'bars'}`)
+  if (lineup.bounces !== null) parts.push(lineup.bounces === 0 ? 'No bounce' : `${lineup.bounces} ${lineup.bounces === 1 ? 'bounce' : 'bounces'}`)
+  return parts.join(' · ')
+}
+
+const IMAGE_EXTENSIONS: Record<string, string> = { 'image/webp': 'webp', 'image/png': 'png', 'image/jpeg': 'jpg' }
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024
+
+/** Why a picture cannot be stored, or null when it can. */
+export function validateLineupImage(file: { size: number; type: string }): string | null {
+  if (!(file.type in IMAGE_EXTENSIONS)) return 'Use a WebP, PNG or JPEG image.'
+  if (file.size > MAX_IMAGE_BYTES) {
+    return `That image is ${(Math.ceil((file.size / 1024 / 1024) * 10) / 10).toFixed(1)} MB. The limit is 5 MB.`
+  }
+  return null
+}
+
+/** Where a picture is stored: the first folder is its owner, which the bucket's rules key on. */
+export function lineupImagePath(userId: string, lineupId: string, slot: LineupImageSlot, mimeType: string, now: number = Date.now()): string {
+  return `${userId}/${lineupId}/${slot}-${now}.${IMAGE_EXTENSIONS[mimeType] ?? 'webp'}`
+}
+
+/** How many of its three pictures a line-up has. */
+export function pictureCount(lineup: Pick<Lineup, 'stand_image' | 'aim_image' | 'result_image'>): number {
+  return LINEUP_IMAGE_SLOTS.filter(slot => lineup[imageColumn(slot)]).length
+}
