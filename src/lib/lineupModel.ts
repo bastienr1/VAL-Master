@@ -339,3 +339,83 @@ export function sharedLineColor(rows: ReadonlyArray<Pick<Lineup, 'line_color'>>)
   const first = rows[0].line_color
   return rows.every(row => row.line_color === first) ? first : undefined
 }
+
+/** An agent of a map in the library: how many line-ups they have there, and on each side. */
+export interface LibraryAgent {
+  agent: string
+  count: number
+  sides: Record<LineupSide, number>
+}
+
+/** A map of the library: how many line-ups it holds and whose they are. */
+export interface LibraryMap {
+  map: string
+  count: number
+  agents: LibraryAgent[]
+}
+
+/**
+ * The library as it is walked: the maps that hold line-ups, each map's
+ * agents, and each agent's count per side. Maps and agents by name.
+ */
+export function libraryTree(rows: ReadonlyArray<Pick<Lineup, 'map' | 'agent' | 'side'>>): LibraryMap[] {
+  const maps = new Map<string, Map<string, LibraryAgent>>()
+  for (const row of rows) {
+    const agents = maps.get(row.map) ?? new Map<string, LibraryAgent>()
+    const agent = agents.get(row.agent) ?? { agent: row.agent, count: 0, sides: { attack: 0, defense: 0 } }
+    agent.count += 1
+    agent.sides[row.side] += 1
+    agents.set(row.agent, agent)
+    maps.set(row.map, agents)
+  }
+  return [...maps.entries()]
+    .map(([map, agents]) => {
+      const list = [...agents.values()].sort((a, b) => a.agent.localeCompare(b.agent))
+      return { map, count: list.reduce((sum, a) => sum + a.count, 0), agents: list }
+    })
+    .sort((a, b) => a.map.localeCompare(b.map))
+}
+
+/** Where the library stands: a map, then one of its agents, then a side. */
+export interface LibraryPick {
+  map: string | null
+  agent: string | null
+  side: LineupSide | null
+}
+
+/**
+ * What the library shows for what was asked: a map or an agent with no
+ * line-up is not a place to stand; the only map, and a map's only agent, are
+ * picked without asking; and the side is the one asked for when the agent has
+ * line-ups on it, the side that has them otherwise (attack first).
+ */
+export function libraryPick(tree: readonly LibraryMap[], asked: { map?: string | null; agent?: string | null; side?: string | null }): LibraryPick {
+  const map = tree.find(m => m.map === asked.map) ?? (tree.length === 1 ? tree[0] : null)
+  if (!map) return { map: null, agent: null, side: null }
+  const agent = map.agents.find(a => a.agent === asked.agent) ?? (map.agents.length === 1 ? map.agents[0] : null)
+  if (!agent) return { map: map.map, agent: null, side: null }
+  const wanted: LineupSide | null = asked.side === 'attack' || asked.side === 'defense' ? asked.side : null
+  const side: LineupSide = wanted && agent.sides[wanted] > 0 ? wanted : agent.sides.attack > 0 ? 'attack' : 'defense'
+  return { map: map.map, agent: agent.agent, side }
+}
+
+/** The board's address for a place in the library: its map, side and agent, and whether to start a new line-up there. */
+export function boardLink(at: { map?: string | null; side?: LineupSide | null; agent?: string | null; fresh?: boolean } = {}): string {
+  const query = new URLSearchParams()
+  if (at.map) query.set('map', at.map)
+  if (at.side) query.set('side', at.side)
+  if (at.agent) query.set('agent', at.agent)
+  if (at.fresh) query.set('new', '1')
+  const text = query.toString()
+  return `/plays/lineups/board${text ? `?${text}` : ''}`
+}
+
+/** The library's address for a map, an agent on it and a side: the walk, as far as it is known. */
+export function libraryLink(at: { map?: string | null; agent?: string | null; side?: LineupSide | null } = {}): string {
+  const query = new URLSearchParams()
+  if (at.map) query.set('map', at.map)
+  if (at.map && at.agent) query.set('agent', at.agent)
+  if (at.map && at.agent && at.side) query.set('side', at.side)
+  const text = query.toString()
+  return `/plays/lineups${text ? `?${text}` : ''}`
+}
