@@ -3,8 +3,12 @@ import { test } from 'node:test'
 import {
   clipEmbedUrl,
   formatClock,
+  boardLink,
   groupByAbility,
   imageColumn,
+  libraryLink,
+  libraryPick,
+  libraryTree,
   lineupElement,
   lineupImagePath,
   lineupTitle,
@@ -215,4 +219,57 @@ test('a group has a colour when its line-ups agree on one', () => {
   assert.equal(sharedLineColor([{ line_color: '#FFCA3A' }, { line_color: null }]), undefined)
   assert.equal(sharedLineColor([{ line_color: '#FFCA3A' }, { line_color: '#FF4655' }]), undefined)
   assert.equal(sharedLineColor([]), undefined)
+})
+
+test('the library is walked map, then agent, then side', () => {
+  const row = (map: string, agent: string, side: 'attack' | 'defense') => ({ map, agent, side })
+  const tree = libraryTree([
+    row('Bind', 'Fade', 'defense'),
+    row('Abyss', 'Sova', 'attack'),
+    row('Bind', 'Fade', 'defense'),
+    row('Abyss', 'Sova', 'attack'),
+    row('Abyss', 'Brimstone', 'defense'),
+    row('Abyss', 'Sova', 'defense'),
+  ])
+  assert.deepEqual(tree, [
+    {
+      map: 'Abyss',
+      count: 4,
+      agents: [
+        { agent: 'Brimstone', count: 1, sides: { attack: 0, defense: 1 } },
+        { agent: 'Sova', count: 3, sides: { attack: 2, defense: 1 } },
+      ],
+    },
+    { map: 'Bind', count: 2, agents: [{ agent: 'Fade', count: 2, sides: { attack: 0, defense: 2 } }] },
+  ])
+  assert.deepEqual(libraryTree([]), [])
+
+  // Nothing asked: two maps, so the map is the first thing to pick.
+  assert.deepEqual(libraryPick(tree, {}), { map: null, agent: null, side: null })
+  // A map with two agents waits for the agent; a map with one takes it, and the side that has line-ups.
+  assert.deepEqual(libraryPick(tree, { map: 'Abyss' }), { map: 'Abyss', agent: null, side: null })
+  assert.deepEqual(libraryPick(tree, { map: 'Bind' }), { map: 'Bind', agent: 'Fade', side: 'defense' })
+  // The side asked for is kept when the agent has line-ups on it, and left when not.
+  assert.deepEqual(libraryPick(tree, { map: 'Abyss', agent: 'Sova' }), { map: 'Abyss', agent: 'Sova', side: 'attack' })
+  assert.deepEqual(libraryPick(tree, { map: 'Abyss', agent: 'Sova', side: 'defense' }), { map: 'Abyss', agent: 'Sova', side: 'defense' })
+  assert.deepEqual(libraryPick(tree, { map: 'Bind', agent: 'Fade', side: 'attack' }), { map: 'Bind', agent: 'Fade', side: 'defense' })
+  assert.deepEqual(libraryPick(tree, { map: 'Abyss', agent: 'Sova', side: 'sideways' }), { map: 'Abyss', agent: 'Sova', side: 'attack' })
+  // A map or an agent with no line-up is not a place to stand.
+  assert.deepEqual(libraryPick(tree, { map: 'Lotus', agent: 'Sova' }), { map: null, agent: null, side: null })
+  assert.deepEqual(libraryPick(tree, { map: 'Abyss', agent: 'Fade' }), { map: 'Abyss', agent: null, side: null })
+  // The only map of a library is picked without asking.
+  assert.deepEqual(libraryPick(libraryTree([row('Bind', 'Fade', 'defense')]), {}), { map: 'Bind', agent: 'Fade', side: 'defense' })
+  assert.deepEqual(libraryPick([], { map: 'Bind' }), { map: null, agent: null, side: null })
+})
+
+test('a place in the library and the board that draws it are links', () => {
+  assert.equal(boardLink(), '/plays/lineups/board')
+  assert.equal(boardLink({ map: 'Abyss', side: 'attack', agent: 'Sova' }), '/plays/lineups/board?map=Abyss&side=attack&agent=Sova')
+  assert.equal(boardLink({ map: 'Bind', fresh: true }), '/plays/lineups/board?map=Bind&new=1')
+  assert.equal(boardLink({ map: null, side: null, agent: null }), '/plays/lineups/board')
+  assert.equal(libraryLink(), '/plays/lineups')
+  assert.equal(libraryLink({ map: 'Abyss', agent: 'Sova', side: 'defense' }), '/plays/lineups?map=Abyss&agent=Sova&side=defense')
+  // The walk is map, then agent, then side: a later step without the earlier one is not an address.
+  assert.equal(libraryLink({ agent: 'Sova', side: 'attack' }), '/plays/lineups')
+  assert.equal(libraryLink({ map: 'Abyss', side: 'attack' }), '/plays/lineups?map=Abyss')
 })

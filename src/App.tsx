@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { BrowserRouter, Navigate, Routes, Route, useParams } from 'react-router-dom'
 import CheckIn from './pages/CheckIn'
 import Debrief from './pages/Debrief'
 import TacticalReads from './pages/TacticalReads'
@@ -14,6 +14,7 @@ import PlaybookIndex from './pages/PlaybookIndex'
 import PlaybookReader from './pages/PlaybookReader'
 import PlaysIndex from './pages/PlaysIndex'
 import PlayDesigner from './pages/PlayDesigner'
+import LineupLibrary from './pages/LineupLibrary'
 import Lineups from './pages/Lineups'
 import ProStudyLibrary from './pages/ProStudyLibrary'
 import SavedDrills from './pages/SavedDrills'
@@ -33,6 +34,12 @@ import { loadGameContent } from './lib/gameContent'
 loadGameContent().catch(err => {
   console.warn('[gameContent] initial load failed — images will fall back to placeholders', err)
 })
+
+/** `/plays/lineups/:id` was a line-up's address before the library took the root: it leads to the board. */
+function LineupLink() {
+  const { id } = useParams()
+  return <Navigate to={`/plays/lineups/board/${id ?? ''}`} replace />
+}
 
 function App() {
   const { user, loading } = useSession()
@@ -73,7 +80,10 @@ function App() {
           <Route path="/playbook/:slug" element={<PlaybookReader />} />
           <Route path="/plays" element={<PlaysIndex />} />
           {/* Static before the param route: /plays/new is the blank designer, not a play id. */}
-          <Route path="/plays/lineups/:id?" element={<Lineups />} />
+          <Route path="/plays/lineups" element={<LineupLibrary />} />
+          <Route path="/plays/lineups/board/:id?" element={<Lineups />} />
+          {/* A line-up's first address, before the library took the root. */}
+          <Route path="/plays/lineups/:id" element={<LineupLink />} />
           <Route path="/plays/new" element={<PlayDesigner />} />
           <Route path="/plays/:id" element={<PlayDesigner />} />
           <Route path="/study" element={<ProStudyLibrary />} />

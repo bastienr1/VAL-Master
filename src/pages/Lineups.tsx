@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { Clapperboard, Eye, EyeOff, Image as ImageIcon, Maximize2, Minimize2, Plus, X } from 'lucide-react'
 import EmptyLine from '../components/EmptyLine'
 import LineColorSwatches from '../components/LineColorSwatches'
@@ -13,6 +13,7 @@ import { agentIconUrl, type GameAgent } from '../lib/gameContent'
 import {
   groupByAbility,
   imageColumn,
+  libraryLink,
   lineupTitle,
   lineupsStep,
   movedLineup,
@@ -127,10 +128,13 @@ function AbilityPicker({ agents, agent, onAgent, onPick, onCancel }: {
 }
 
 /**
- * `/plays/lineups` and `/plays/lineups/:id`: the line-ups of one map and side
- * drawn on the plays board, each a throw from where you stand to where it
- * lands; the list beside it; and the open line-up's card (pictures, clip,
- * recipe). The address names the open line-up, so a line-up is a link.
+ * `/plays/lineups/board` and `/plays/lineups/board/:id`: the line-ups of one
+ * map and side drawn on the plays board, each a throw from where you stand to
+ * where it lands; the list beside it; and the open line-up's card (pictures,
+ * clip, recipe). The address names the open line-up, so a line-up is a link.
+ * The library (`/plays/lineups`) is the way in to the line-ups that exist: it
+ * sends the map, side and agent it stood on (`?map=&side=&agent=`), and
+ * `?new=1` to start a line-up at once.
  */
 export default function Lineups() {
   const { id: openId } = useParams()
@@ -139,11 +143,16 @@ export default function Lineups() {
 
   const [state, setState] = useState<LineupsState | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [mapChoice, setMapChoice] = useState(() => read(MAP_KEY) ?? '')
-  const [side, setSide] = useState<LineupSide>(() => (read(SIDE_KEY) === 'defense' ? 'defense' : 'attack'))
-  const [onlyAgent, setOnlyAgent] = useState<string | null>(null)
-  const [picking, setPicking] = useState(false)
-  const [pickAgent, setPickAgent] = useState<string | null>(() => read(AGENT_KEY))
+  // Where the library sent us, read once: after that the page's own switches decide.
+  const [asked] = useSearchParams()
+  const [mapChoice, setMapChoice] = useState(() => asked.get('map') ?? read(MAP_KEY) ?? '')
+  const [side, setSide] = useState<LineupSide>(() => {
+    const from = asked.get('side') ?? read(SIDE_KEY)
+    return from === 'defense' ? 'defense' : 'attack'
+  })
+  const [onlyAgent, setOnlyAgent] = useState<string | null>(() => (asked.has('new') ? null : asked.get('agent')))
+  const [picking, setPicking] = useState(() => asked.has('new'))
+  const [pickAgent, setPickAgent] = useState<string | null>(() => asked.get('agent') ?? read(AGENT_KEY))
   const [placing, setPlacing] = useState<Placing | null>(null)
   /** The ability whose colour row is open in the list, as `agent:slot`. */
   const [colouring, setColouring] = useState<string | null>(null)
@@ -216,7 +225,7 @@ export default function Lineups() {
     [agentOf],
   )
 
-  const select = useCallback((id: string | null) => navigate(id ? `/plays/lineups/${id}` : '/plays/lineups', { replace: true }), [navigate])
+  const select = useCallback((id: string | null) => navigate(id ? `/plays/lineups/board/${id}` : '/plays/lineups/board', { replace: true }), [navigate])
 
   // A line-up opened by its link brings its map and side with it.
   const [followed, setFollowed] = useState<string | null>(null)
@@ -229,8 +238,15 @@ export default function Lineups() {
   }
 
   const here = useMemo(() => rows.filter(row => gameMap && row.map === gameMap.name && row.side === side), [rows, gameMap, side])
-  const shown = useMemo(() => here.filter(row => !onlyAgent || row.agent === onlyAgent), [here, onlyAgent])
+  // An agent with no line-up here narrows nothing: the list would be empty with no way to say why.
+  const shown = useMemo(() => {
+    const narrowed = onlyAgent && here.some(row => row.agent === onlyAgent)
+    return narrowed ? here.filter(row => row.agent === onlyAgent) : here
+  }, [here, onlyAgent])
   const agentsHere = useMemo(() => [...new Set(here.map(row => row.agent))].sort(), [here])
+  /** The other side of this map, when the line-ups are there and not here. */
+  const otherSide: LineupSide = side === 'attack' ? 'defense' : 'attack'
+  const onOtherSide = useMemo(() => rows.filter(row => gameMap && row.map === gameMap.name && row.side === otherSide).length, [rows, gameMap, otherSide])
 
   const hiddenHere = shown.filter(row => hidden.has(row.id)).length
   const groups = useMemo(() => groupByAbility(shown), [shown])
@@ -426,8 +442,11 @@ export default function Lineups() {
     <div className={full ? '-mx-4 -my-6 h-[calc(100vh-57px)] flex flex-col bg-bg-primary' : 'max-w-[1500px] mx-auto space-y-4'} data-lineups-full={full}>
       <div className={full ? 'shrink-0 flex flex-wrap items-center justify-between gap-3 px-3 py-2 border-b border-bg-elevated' : 'flex flex-wrap items-end justify-between gap-3'}>
         <div className={full ? 'flex items-baseline gap-3' : ''}>
-          <Link to="/plays" className="text-sm text-text-secondary hover:text-val-cyan transition-colors">
-            ← Plays
+          <Link
+            to={libraryLink({ map: gameMap && here.length > 0 ? gameMap.name : null, agent: open?.agent ?? onlyAgent, side })}
+            className="text-sm text-text-secondary hover:text-val-cyan transition-colors"
+          >
+            ← Library
           </Link>
           <h1 className={`font-heading font-bold ${full ? 'text-xl' : 'text-3xl'}`}>Line-ups</h1>
           <div className="flex items-baseline gap-3">
@@ -699,6 +718,11 @@ export default function Lineups() {
                 <p>
                   No line-up on {gameMap?.name ?? 'this map'} for {side === 'attack' ? 'attack' : 'defense'} yet. Press New line-up, pick the ability, then click where you stand and where it lands.
                 </p>
+                {onOtherSide > 0 && (
+                  <button type="button" onClick={() => changeSide(otherSide)} className="mt-2 text-val-cyan hover:underline">
+                    {onOtherSide} on {otherSide === 'attack' ? 'attack' : 'defense'} →
+                  </button>
+                )}
               </EmptyLine>
             )
           )}
