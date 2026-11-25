@@ -707,7 +707,11 @@ export function frameStep(
     if (formed.length >= 2) el.path = formed
     const wire = plan.wireEnd.get(index)
     if (wire !== undefined) el.path = [posOf(effect), posOf(effects[wire])]
-    if (moved) el.trail = walked(moved, t - SCOUT_TRAIL_MS)
+    if (moved) {
+      el.trail = walked(moved, t - SCOUT_TRAIL_MS)
+      // The whole way it goes, with its times: for a scout drawn as the game draws it (the Prowler, §2.28).
+      el.course = moved.map(([at, x, y]) => ({ at: imagePos(transform, x, y), ago: t - at }))
+    }
     // Just landed: the way it came stays a moment.
     if (projectile && t - effect.start < ARC_KEPT_MS) {
       el.from = posOf(projectile)

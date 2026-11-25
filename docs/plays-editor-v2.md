@@ -1124,6 +1124,73 @@ thrown ability can use the same.
   exact place, which a tile centred on the point does not show. Line-ups use
   it for where to stand; it drags like any marker.
 
+### 2.28 Fade's Prowler, as in the game
+
+On a replay Fade's Prowler runs its real way as the game draws it: its head,
+its tail, its whiskers and its ink, in place of the scout's token and dashed
+way (§2.14). It is the first ability drawn from the game's 3D model. A
+prototype page in the vault (`VAL-Master-Plays/prototypes/prowler`) settled
+the look with Bastien before any of it was built here (2026-11-25).
+
+- **The head is a sprite rendered from the game's model.** The game's Prowler
+  is a head only (`AB_BountyHunter_S0_4_TrailCreature_Skelmesh`: two jaws,
+  ears, neck fins, 1.23 m long, scaled 1.5 by its pawn); the body behind it is
+  effects. The model, its idle loop (57 frames, 1.87 s) and its textures are
+  read from the game files (13.10) and rendered in Blender
+  (`VAL-Master-Replays\models\render_model.py`, with the exporter's `skel`
+  mode) into two sheets, `src/assets/prowler/ally.webp` and `enemy.webp`: 16
+  headings by 12 frames, 192 px tiles 3 m across.
+- **Tilted, not top-down.** Seen from straight above the Prowler is a blue
+  arrowhead: its jaws open up and down. The sheets are taken from 50° above
+  the ground, from the bottom of the map, so running down the map it shows
+  its face and running up it shows its back. Between two headings the nearest
+  picture is turned the last few degrees.
+- **Its colours.** The head's own textures at a third of their brightness
+  under little light (Bastien asked for a darker, moodier head), with the
+  masks its material reads: red eye slits (`EyeColorAlly`, `EyesColor`), the
+  red inside its mouth, the blend towards its tail. Along its outline the
+  light of the material's own tints: `Fresnel Ally Tint` (0.42, 0.61, 0.62)
+  for yours, `Fresnel Enemy Tint` (1, 0.025, 0) for the enemy's. The tail and
+  the ink take their colours from the game's tables, `Fade_Lut` and
+  `Fade_Foe_LUT`: navy for yours, red for the enemy's. Whose it is comes from
+  the ability's `team` (§2.22).
+- **Its real way.** A scout that moves now carries `course` (§2.26): its
+  whole way with how long ago each point was passed. The replay keeps a point
+  every 0.15 s; `prowlerAt` (`src/lib/prowler.ts`, pure, tested) lays a smooth
+  curve through them, or the tail would have a corner at every point. Its age
+  is the time since the first point; the tail is never longer than the run so
+  far, so it grows out of the place it was sent from.
+- **What hangs on it** (`src/lib/prowlerPaint.ts`, 2D canvas), from its pawn
+  `Pawn_BountyHunter_4_WolfHound` and its particle systems `BH_Cat_TailVFX`
+  and `BH_Cat_Wisker`: the hard tail with its dark red core line and the
+  near-black ribbon along its top (0.35 s); four red whiskers from the jaws
+  (0.2 s, a glow at each root); ink droplets, 25 a second, living 1.5 to 3 s,
+  5 to 15 cm, carried at 50 to 120 % of its speed with a drag of 0 to 2,
+  shaped by `BH_Trail_InkdropFlipbook`; smoke round the tail.
+- **With volume.** The game's effects are 3D and a map is flat, and drawn
+  flat they looked stuck to the floor. They are drawn from where the head's
+  picture was taken: the tail is a tube lit from above with a dark underside
+  and the head's rim light on its far edge, the game's smoke texture
+  (`BH_SmokeTexture`) streams along it, head and tail fly 85 cm over the
+  floor and throw a soft shadow on it, and the smoke is puffs with a lit
+  side, some behind the tube, some in front, the youngest over the back of
+  the head. The head's back is see-through over its last 0.9 m, so the tail,
+  which starts under it, shows through; right behind the head the effects are
+  foreshortened as the head is, then settle flat on the map.
+- **By how far the board is zoomed** (`prowlerLook`). At the board's 100 % a
+  1.85 m head is about 14 px long: it is drawn at least 30 px, and the widths
+  of its effects with it. Zoomed out there is no smoke and no ink, and the
+  tail covers half as much of its way again (about 9 m) and keeps its width
+  further back: asked for by Bastien at that size. From 30 px of real head
+  length to 70 px the smoke and ink come in and the tail returns to its 6 m.
+- **A reading, not the game's figures:** the tail's shape and length (the
+  tail meshes are bent by a compiled shader; its colours are read), how high
+  it flies, the light, the shadow, and how dark the head is. Not drawn: the
+  ink swirls, the bite, the spawn and the death.
+- **In a strat** a placed Prowler is the token it was: it has no way to run.
+  Until its pictures are in, and where they fail, a replay's is the token and
+  the dashed way. Under `prefers-reduced-motion` nothing weaves or loops.
+
 ## 3. Document v2 (`src/lib/playDoc.ts`)
 
 ```ts

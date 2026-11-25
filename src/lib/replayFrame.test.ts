@@ -612,6 +612,10 @@ test('a device has no clock; a scout is where it is now, with the way it went', 
   assert.equal(drone.family, 'scout')
   nearPos(drone.at, 0.5, 0.65, 'drone now')
   assert.ok((drone.trail?.length ?? 0) >= 2)
+  // Its whole way with how long ago each point was passed: 3 s and 1 s behind it, 1 s still ahead.
+  assert.deepEqual(drone.course?.map(p => p.ago), [3000, 1000, -1000])
+  assert.deepEqual(drone.course?.[0].at, { u: 0.5, v: 0.5 })
+  assert.equal(turret.course, undefined)
   near(drone.life, 0.5, 'drone life')
 })
 

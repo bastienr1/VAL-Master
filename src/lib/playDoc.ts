@@ -164,9 +164,10 @@ export interface AbilityElement {
   flyer?: PlayPos
   /**
    * A replay frame's: the whole track of a throw that lands, and where it
-   * lands, each point with how long ago it was passed (ms; negative for what
-   * is still ahead). For what draws its own flight on the game's clock (the
-   * Shock Bolt, §2.26). Not kept in a strat.
+   * lands, or the whole way of a scout that moves, each point with how long
+   * ago it was passed (ms; negative for what is still ahead). For what is
+   * drawn on the game's clock along its real way (the Shock Bolt, §2.26; the
+   * Prowler, §2.28). Not kept in a strat.
    */
   course?: CoursePoint[]
   /** A replay frame's wave: where its front is now, `at` being where it started. Not kept in a strat. */
