@@ -5,6 +5,7 @@ import EmptyLine from '../components/EmptyLine'
 import LineColorSwatches from '../components/LineColorSwatches'
 import LineupCard from '../components/LineupCard'
 import PlayCanvas from '../components/PlayCanvas'
+import PurposeChips from '../components/PurposeChips'
 import SaveBadge, { type SaveState } from '../components/SaveBadge'
 import SkinPicker from '../components/play/SkinPicker'
 import { useGameContent } from '../hooks/useGameContent'
@@ -18,9 +19,12 @@ import {
   lineupsStep,
   movedLineup,
   nearestCallout,
+  ofPurpose,
   parseHiddenIds,
   parseLineupPoint,
+  parsePurposeFilter,
   pictureCount,
+  purposePick,
   recipeLine,
   sharedLineColor,
   standPin,
@@ -30,6 +34,7 @@ import {
   type LineupInput,
   type LineupPoint,
   type LineupSide,
+  type PurposeFilter,
 } from '../lib/lineupModel'
 import { clearLineupImage, createLineup, deleteLineup, listLineups, setLineupImage, updateLineup, type LineupsState } from '../lib/lineups'
 import type { AbilitySlot, PlayStep } from '../lib/playDoc'
@@ -151,6 +156,8 @@ export default function Lineups() {
     return from === 'defense' ? 'defense' : 'attack'
   })
   const [onlyAgent, setOnlyAgent] = useState<string | null>(() => (asked.has('new') ? null : asked.get('agent')))
+  // The purpose looked for: a way of looking that stays through a change of map or side.
+  const [askedPurpose, setAskedPurpose] = useState<PurposeFilter | null>(() => parsePurposeFilter(asked.get('purpose')))
   const [picking, setPicking] = useState(() => asked.has('new'))
   const [pickAgent, setPickAgent] = useState<string | null>(() => asked.get('agent') ?? read(AGENT_KEY))
   const [placing, setPlacing] = useState<Placing | null>(null)
@@ -239,10 +246,14 @@ export default function Lineups() {
 
   const here = useMemo(() => rows.filter(row => gameMap && row.map === gameMap.name && row.side === side), [rows, gameMap, side])
   // An agent with no line-up here narrows nothing: the list would be empty with no way to say why.
-  const shown = useMemo(() => {
+  const byAgent = useMemo(() => {
     const narrowed = onlyAgent && here.some(row => row.agent === onlyAgent)
     return narrowed ? here.filter(row => row.agent === onlyAgent) : here
   }, [here, onlyAgent])
+  // The same holds for a purpose; and the open line-up stays listed while its purpose is being changed.
+  const purpose = useMemo(() => purposePick(byAgent, askedPurpose), [byAgent, askedPurpose])
+  const shown = useMemo(() => ofPurpose(byAgent, purpose, openId), [byAgent, purpose, openId])
+  const anyPurpose = byAgent.some(row => row.purpose)
   const agentsHere = useMemo(() => [...new Set(here.map(row => row.agent))].sort(), [here])
   /** The other side of this map, when the line-ups are there and not here. */
   const otherSide: LineupSide = side === 'attack' ? 'defense' : 'attack'
@@ -291,7 +302,8 @@ export default function Lineups() {
       line_color: sharedLineColor(here.filter(row => row.agent === agent && row.slot === slot)) ?? null,
       stand_callout: standName,
       land_callout: landName,
-      purpose: null,
+      // Made while looking at one purpose, it is one of those: it would leave the list otherwise.
+      purpose: purpose && purpose !== 'none' ? purpose : null,
       stance: null,
       movement: null,
       click: null,
@@ -443,7 +455,7 @@ export default function Lineups() {
       <div className={full ? 'shrink-0 flex flex-wrap items-center justify-between gap-3 px-3 py-2 border-b border-bg-elevated' : 'flex flex-wrap items-end justify-between gap-3'}>
         <div className={full ? 'flex items-baseline gap-3' : ''}>
           <Link
-            to={libraryLink({ map: gameMap && here.length > 0 ? gameMap.name : null, agent: open?.agent ?? onlyAgent, side })}
+            to={libraryLink({ map: gameMap && here.length > 0 ? gameMap.name : null, agent: open?.agent ?? onlyAgent, side, purpose })}
             className="text-sm text-text-secondary hover:text-val-cyan transition-colors"
           >
             ← Library
@@ -556,6 +568,8 @@ export default function Lineups() {
               })}
             </div>
           )}
+
+          {anyPurpose && <PurposeChips rows={byAgent} value={purpose} onPick={setAskedPurpose} />}
 
           {!state && !error ? (
             <div className="space-y-2" aria-hidden="true">

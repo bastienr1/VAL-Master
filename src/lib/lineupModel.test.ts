@@ -15,12 +15,17 @@ import {
   lineupsStep,
   movedLineup,
   nearestCallout,
+  ofPurpose,
   parseClock,
   parseHiddenIds,
   parseLineColor,
   parseLineupPoint,
   parseLineupVia,
+  parsePurposeFilter,
   pictureCount,
+  purposeCounts,
+  purposeFilterLabel,
+  purposePick,
   recipeLine,
   sharedLineColor,
   standPinId,
@@ -272,4 +277,46 @@ test('a place in the library and the board that draws it are links', () => {
   // The walk is map, then agent, then side: a later step without the earlier one is not an address.
   assert.equal(libraryLink({ agent: 'Sova', side: 'attack' }), '/plays/lineups')
   assert.equal(libraryLink({ map: 'Abyss', side: 'attack' }), '/plays/lineups?map=Abyss')
+  // The purpose looked for goes along, in the library at any step and to the board.
+  assert.equal(libraryLink({ purpose: 'post-plant' }), '/plays/lineups?purpose=post-plant')
+  assert.equal(libraryLink({ map: 'Abyss', agent: 'Sova', side: 'attack', purpose: 'none' }), '/plays/lineups?map=Abyss&agent=Sova&side=attack&purpose=none')
+  assert.equal(boardLink({ map: 'Abyss', side: 'attack', agent: 'Sova', purpose: 'execute' }), '/plays/lineups/board?map=Abyss&side=attack&agent=Sova&purpose=execute')
+  // One line-up, opened on the board with the purpose it was found under.
+  assert.equal(boardLink({ id: 'l1' }), '/plays/lineups/board/l1')
+  assert.equal(boardLink({ id: 'l1', purpose: 'retake' }), '/plays/lineups/board/l1?purpose=retake')
+})
+
+test('a list of line-ups is narrowed to one purpose', () => {
+  const row = (id: string, purpose: 'execute' | 'post-plant' | 'retake' | null) => ({ id, purpose })
+  const rows = [row('a', 'post-plant'), row('b', null), row('c', 'execute'), row('d', 'post-plant'), row('e', null)]
+
+  // The purposes there are, in the order the card offers them, those without one last.
+  assert.deepEqual(purposeCounts(rows), [
+    { purpose: 'execute', count: 1 },
+    { purpose: 'post-plant', count: 2 },
+    { purpose: 'none', count: 2 },
+  ])
+  assert.deepEqual(purposeCounts([]), [])
+  assert.deepEqual(purposeCounts([row('a', null)]), [{ purpose: 'none', count: 1 }])
+
+  assert.deepEqual(ofPurpose(rows, 'post-plant').map(r => r.id), ['a', 'd'])
+  assert.deepEqual(ofPurpose(rows, 'none').map(r => r.id), ['b', 'e'])
+  assert.deepEqual(ofPurpose(rows, null).map(r => r.id), ['a', 'b', 'c', 'd', 'e'])
+  // The open line-up stays in the list whatever its purpose.
+  assert.deepEqual(ofPurpose(rows, 'execute', 'b').map(r => r.id), ['b', 'c'])
+
+  // What an address says: a purpose, `none`, or nothing.
+  assert.equal(parsePurposeFilter('post-plant'), 'post-plant')
+  assert.equal(parsePurposeFilter('none'), 'none')
+  assert.equal(parsePurposeFilter('Execute'), null)
+  assert.equal(parsePurposeFilter(null), null)
+  // A purpose no line-up here has narrows nothing.
+  assert.equal(purposePick(rows, 'execute'), 'execute')
+  assert.equal(purposePick(rows, 'none'), 'none')
+  assert.equal(purposePick(rows, 'retake'), null)
+  assert.equal(purposePick(rows, 'sideways'), null)
+  assert.equal(purposePick([row('a', 'execute')], 'none'), null)
+
+  assert.equal(purposeFilterLabel('post-plant'), 'Post-plant')
+  assert.equal(purposeFilterLabel('none'), 'No purpose')
 })
