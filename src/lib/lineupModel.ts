@@ -340,6 +340,38 @@ export function sharedLineColor(rows: ReadonlyArray<Pick<Lineup, 'line_color'>>)
   return rows.every(row => row.line_color === first) ? first : undefined
 }
 
+/** What a list of line-ups is narrowed to: one purpose, or `none` for those not given one yet. */
+export type PurposeFilter = LineupPurpose | 'none'
+
+export const purposeFilterLabel = (filter: PurposeFilter) => (filter === 'none' ? 'No purpose' : PURPOSE_LABELS[filter])
+
+/** A purpose filter as an address keeps it, or null when it is not one. */
+export function parsePurposeFilter(raw: unknown): PurposeFilter | null {
+  return raw === 'none' || (LINEUP_PURPOSES as readonly unknown[]).includes(raw) ? (raw as PurposeFilter) : null
+}
+
+const hasPurpose = (row: Pick<Lineup, 'purpose'>, filter: PurposeFilter) => (filter === 'none' ? row.purpose === null : row.purpose === filter)
+
+/** The purposes among `rows` and how many line-ups each has, in the order the card offers them; those with no purpose last. */
+export function purposeCounts(rows: ReadonlyArray<Pick<Lineup, 'purpose'>>): { purpose: PurposeFilter; count: number }[] {
+  const all: readonly PurposeFilter[] = [...LINEUP_PURPOSES, 'none']
+  return all.map(purpose => ({ purpose, count: rows.filter(row => hasPurpose(row, purpose)).length })).filter(entry => entry.count > 0)
+}
+
+/**
+ * The purpose a list is narrowed to for what was asked: a purpose no line-up
+ * here has narrows nothing, as the list would be empty with no way to say why.
+ */
+export function purposePick(rows: ReadonlyArray<Pick<Lineup, 'purpose'>>, asked: unknown): PurposeFilter | null {
+  const filter = parsePurposeFilter(asked)
+  return filter && rows.some(row => hasPurpose(row, filter)) ? filter : null
+}
+
+/** `rows` of one purpose, all of them for null. `keep` stays whatever its purpose: the line-up that is open. */
+export function ofPurpose<T extends Pick<Lineup, 'id' | 'purpose'>>(rows: readonly T[], filter: PurposeFilter | null, keep: string | null = null): T[] {
+  return filter ? rows.filter(row => row.id === keep || hasPurpose(row, filter)) : [...rows]
+}
+
 /** An agent of a map in the library: how many line-ups they have there, and on each side. */
 export interface LibraryAgent {
   agent: string
@@ -399,23 +431,32 @@ export function libraryPick(tree: readonly LibraryMap[], asked: { map?: string |
   return { map: map.map, agent: agent.agent, side }
 }
 
-/** The board's address for a place in the library: its map, side and agent, and whether to start a new line-up there. */
-export function boardLink(at: { map?: string | null; side?: LineupSide | null; agent?: string | null; fresh?: boolean } = {}): string {
+/**
+ * The board's address for a place in the library: its map, side, agent and
+ * purpose, whether to start a new line-up there, or the one line-up to open.
+ */
+export function boardLink(at: { map?: string | null; side?: LineupSide | null; agent?: string | null; purpose?: PurposeFilter | null; fresh?: boolean; id?: string | null } = {}): string {
   const query = new URLSearchParams()
   if (at.map) query.set('map', at.map)
   if (at.side) query.set('side', at.side)
   if (at.agent) query.set('agent', at.agent)
+  if (at.purpose) query.set('purpose', at.purpose)
   if (at.fresh) query.set('new', '1')
   const text = query.toString()
-  return `/plays/lineups/board${text ? `?${text}` : ''}`
+  return `/plays/lineups/board${at.id ? `/${at.id}` : ''}${text ? `?${text}` : ''}`
 }
 
-/** The library's address for a map, an agent on it and a side: the walk, as far as it is known. */
-export function libraryLink(at: { map?: string | null; agent?: string | null; side?: LineupSide | null } = {}): string {
+/**
+ * The library's address for a map, an agent on it and a side: the walk, as far
+ * as it is known. The purpose looked for is not a step of it: it is kept from
+ * place to place.
+ */
+export function libraryLink(at: { map?: string | null; agent?: string | null; side?: LineupSide | null; purpose?: PurposeFilter | null } = {}): string {
   const query = new URLSearchParams()
   if (at.map) query.set('map', at.map)
   if (at.map && at.agent) query.set('agent', at.agent)
   if (at.map && at.agent && at.side) query.set('side', at.side)
+  if (at.purpose) query.set('purpose', at.purpose)
   const text = query.toString()
   return `/plays/lineups${text ? `?${text}` : ''}`
 }

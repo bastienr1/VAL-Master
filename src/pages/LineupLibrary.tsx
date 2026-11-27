@@ -3,6 +3,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { ChevronRight, Clapperboard, Image as ImageIcon, Map as MapIcon, Plus } from 'lucide-react'
 import ArtSlot from '../components/ArtSlot'
 import EmptyLine from '../components/EmptyLine'
+import PurposeChips from '../components/PurposeChips'
 import { useGameContent } from '../hooks/useGameContent'
 import { mapSlotKey } from '../lib/artSlots'
 import { agentIconUrl } from '../lib/gameContent'
@@ -13,10 +14,14 @@ import {
   libraryLink,
   libraryPick,
   libraryTree,
+  ofPurpose,
+  parsePurposeFilter,
   pictureCount,
+  purposePick,
   recipeLine,
   type Lineup,
   type LineupSide,
+  type PurposeFilter,
 } from '../lib/lineupModel'
 import { lineupImageUrl, listLineups, type LineupsState } from '../lib/lineups'
 import type { AbilitySlot } from '../lib/playDoc'
@@ -42,8 +47,8 @@ function StepTitle({ step, title, trail }: { step: number; title: string; trail?
   )
 }
 
-/** One line-up of the library: its best picture, its name, its recipe. Opens on the board. */
-function LineupTile({ lineup }: { lineup: Lineup }) {
+/** One line-up of the library: its best picture, its name, its recipe. Opens on the board, under the purpose it was found by. */
+function LineupTile({ lineup, purpose }: { lineup: Lineup; purpose: PurposeFilter | null }) {
   const picture = lineup.result_image ?? lineup.aim_image ?? lineup.stand_image
   const recipe = recipeLine(lineup)
   // Where from and where to, unless the name already says both (the name the board gives does).
@@ -51,7 +56,7 @@ function LineupTile({ lineup }: { lineup: Lineup }) {
   const way = lineup.stand_callout && lineup.land_callout && !named ? `${lineup.stand_callout} → ${lineup.land_callout}` : null
   return (
     <Link
-      to={`/plays/lineups/board/${lineup.id}`}
+      to={boardLink({ id: lineup.id, purpose })}
       className="group block rounded-xl overflow-hidden bg-bg-card border border-bg-elevated hover:border-val-cyan/50 focus-visible:border-val-cyan outline-none transition-colors"
     >
       <div className="relative aspect-video bg-bg-primary">
@@ -92,7 +97,8 @@ function LineupTile({ lineup }: { lineup: Lineup }) {
  * for. Maps first, then the map's agents, then the side; what is left is a
  * handful of line-ups, each a way into the board at `/plays/lineups/board`,
  * where line-ups are drawn and edited. The address holds the walk, so a place
- * in the library is a link and Back steps out of it.
+ * in the library is a link and Back steps out of it. At the last step the
+ * line-ups can be narrowed to one purpose, which is kept from place to place.
  */
 export default function LineupLibrary() {
   const { registry } = useGameContent()
@@ -123,13 +129,18 @@ export default function LineupLibrary() {
     return [...new Set([...drawable, ...tree.map(m => m.map)])].sort((a, b) => a.localeCompare(b))
   }, [gameMaps, tree])
 
-  const go = (next: { map?: string | null; agent?: string | null; side?: LineupSide | null }) => navigate(libraryLink(next))
+  // The purpose looked for goes along through the walk: it narrows the last step, wherever that is.
+  const askedPurpose = parsePurposeFilter(params.get('purpose'))
+  const go = (next: { map?: string | null; agent?: string | null; side?: LineupSide | null }) => navigate(libraryLink({ ...next, purpose: askedPurpose }))
 
-  const shown = useMemo(
+  const inPlace = useMemo(
     () => rows.filter(row => row.map === pick.map && row.agent === pick.agent && row.side === pick.side),
     [rows, pick],
   )
-  const groups = useMemo(() => groupByAbility(shown), [shown])
+  const purpose = purposePick(inPlace, askedPurpose)
+  const shown = ofPurpose(inPlace, purpose)
+  const anyPurpose = inPlace.some(row => row.purpose)
+  const groups = groupByAbility(shown)
   const agentOf = (name: string) => gameAgents.get(name) ?? null
   const abilityOf = (agent: string, slot: AbilitySlot) => {
     const found = agentOf(agent)?.abilities.find(a => a.slot === slot)
@@ -153,14 +164,14 @@ export default function LineupLibrary() {
         </div>
         <div className="flex items-center gap-2">
           <Link
-            to={boardLink(pick)}
+            to={boardLink({ ...pick, purpose })}
             className="inline-flex items-center gap-2 px-3 py-1.5 bg-bg-card text-text-primary border border-bg-elevated rounded-lg hover:border-val-cyan/50 hover:text-val-cyan transition-colors whitespace-nowrap"
           >
             <MapIcon className="w-4 h-4" />
             <span className="text-sm font-medium">{pick.map ? `Open ${pick.map} on the board` : 'Open the board'}</span>
           </Link>
           <Link
-            to={boardLink({ ...pick, fresh: true })}
+            to={boardLink({ ...pick, purpose, fresh: true })}
             className="inline-flex items-center gap-2 px-3 py-1.5 bg-val-cyan/10 text-val-cyan border border-val-cyan/25 rounded-lg hover:bg-val-cyan/20 transition-colors whitespace-nowrap"
           >
             <Plus className="w-4 h-4" />
@@ -301,6 +312,15 @@ export default function LineupLibrary() {
                 )
               })}
             </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs uppercase tracking-wider text-text-secondary font-semibold">Purpose</span>
+              {anyPurpose ? (
+                // A filter is a way of looking at this step, not a step: it does not add to Back.
+                <PurposeChips rows={inPlace} value={purpose} onPick={next => navigate(libraryLink({ ...pick, purpose: next }), { replace: true })} />
+              ) : (
+                <span className="text-xs text-text-muted">None set here yet. Give a line-up a purpose on its card to filter by it.</span>
+              )}
+            </div>
           </div>
 
           {groups.map(group => {
@@ -316,7 +336,7 @@ export default function LineupLibrary() {
                 </h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                   {group.rows.map(row => (
-                    <LineupTile key={row.id} lineup={row} />
+                    <LineupTile key={row.id} lineup={row} purpose={purpose} />
                   ))}
                 </div>
               </div>
