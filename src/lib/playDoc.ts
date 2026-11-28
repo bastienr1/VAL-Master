@@ -26,6 +26,7 @@
 
 import { ABILITY_VARIANTS, type AbilityFamily, type AbilityVariant } from './agentAbilities.ts'
 import { worldToImage, type MapTransform, type Viewport } from './replayScene.ts'
+import { parseStratCard, type StratCard } from './stratCard.ts'
 
 export const PLAY_DOC_VERSION = 2
 
@@ -247,6 +248,8 @@ export interface PlayDoc {
   assumptions: string[]
   /** The match whose replay this play was built from, so a saved strat can reopen it (§2.8). */
   replay?: ReplayOrigin
+  /** What makes the play a card to recall (§2.30): tags, "When you see…", the teammate read. Absent when blank. */
+  card?: StratCard
 }
 
 /** The page a strat was started from (§2.29), where its back link goes. */
@@ -483,11 +486,13 @@ function validate(raw: Raw): PlayDoc {
     const origin = parseOrigin(raw.replay)
     if (origin) doc.replay = origin
   }
+  const card = parseStratCard(raw.card)
+  if (card) doc.card = card
   return doc
 }
 
 /** A saved `replay`: the match, and the round, time and page when they are sound. Null without a match. */
-function parseOrigin(raw: Record<string, unknown>): ReplayOrigin | null {
+export function parseOrigin(raw: Record<string, unknown>): ReplayOrigin | null {
   const matchId = text(raw.matchId)
   if (!matchId) return null
   const origin: ReplayOrigin = { matchId }

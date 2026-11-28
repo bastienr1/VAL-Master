@@ -1243,6 +1243,70 @@ and its Strategize carried the same time with `strat=report`. Not checked: a
 save (it would write to the real account); the parser test covers the round
 trip.
 
+### 2.30 Strat cards: tags, "When you see…", the teammate read, and the library
+
+Step 2 of strategy mode (§2.29), asked for on 2026-11-28: a strat "becomes a
+card/bookmark I can recall anytime when I see a pattern". No database change:
+the card lives in the play document.
+
+**The card** (`src/lib/stratCard.ts`, pure, tested): `PlayDoc.card?:
+StratCard` = `{ tags, when, read }`.
+
+- `tags`: the situations, the user's own words. Up to 8, each up to 32
+  characters, spaces collapsed, unique ignoring case.
+- `when`: "When you see…", the pattern that should bring the strat to mind
+  (200 characters).
+- `read`: what a teammate tends to do (500 characters).
+- `parsePlayDoc` keeps the card only when it holds something, and drops bad
+  parts rather than the play. The editor removes `card` from the doc when it is
+  cleared.
+
+**In the editor**: `StratCardPanel` sits at the top of the right panel once
+something is drawn, above "This step".
+
+- Tags are chips with a remove button.
+- The tag box adds on Enter, comma or blur. Backspace in an empty box takes the
+  last tag off.
+- Under the box, up to six suggestions: the user's own tags, most used across
+  their plays first (`tagCounts` over `playsResource`), then the starter tags
+  (Default, Execute, Retake, Post-plant, Mid control, Lurk, Eco, Anti-eco).
+  Both lists are filtered by what is typed, without the card's own tags.
+- Two text boxes, "When you see…" and "Teammate read". Each one's typing is one
+  undo step (`card:when`, `card:read` keys).
+
+**The library** (`/plays`):
+
+- Filters, kept in the address so a filtered view can be linked:
+  - a map menu (`?map=`);
+  - Both / Attack / Defense (`?side=`);
+  - tag chips with counts (`?tag=`, repeated).
+- Picked tags must all be on a play (AND).
+- The chips count the plays on the picked map and side, so a chip never leads
+  to an empty page. A picked tag the map or side no longer has stays, at 0, so
+  it can be taken off.
+- A count ("2 of 5") and Clear filters; "No play matches these filters." when
+  nothing does.
+- Each card shows:
+  - the "When you see…" line in place of the summary;
+  - up to three tags and "+n";
+  - for a strat from a review, the round link (`R9 review ↗`, `originBack`).
+    The whole card is one link, with the round link above it.
+
+**Checked** (2026-11-28, signed in): on a fresh strat from Bind R9, a
+suggested tag, a typed one, a repeat refused ignoring case, and both lines
+filled (not saved). The library, with sample cards put into the plays the
+browser received (nothing written to the database):
+
+- the chips and counts;
+- Retake → 2;
+- Retake + Post-plant → 1;
+- Defense → 0 and the empty line, with Retake kept at 0;
+- Clear → 5;
+- the round link and the card each take their own click.
+
+Not checked: a saved card read back from the database. The parser test covers
+it.
+
 ## 3. Document v2 (`src/lib/playDoc.ts`)
 
 ```ts

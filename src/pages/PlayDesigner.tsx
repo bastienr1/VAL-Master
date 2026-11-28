@@ -50,7 +50,7 @@ import {
 } from '../lib/playDoc'
 import { canRedo, canUndo, historyOf, pushHistory, redoHistory, undoHistory, type History } from '../lib/playHistory'
 import { sceneTurns, sceneViewport, viewToImage } from '../lib/playScene'
-import { createPlay, deletePlay, getPlay, updatePlay, type PlayInput } from '../lib/plays'
+import { createPlay, deletePlay, getPlay, playsResource, updatePlay, type PlayInput } from '../lib/plays'
 import { bestAngles } from '../lib/replayAngles'
 import { isDeathmatchBundle, isDeathmatchRound, type ReplayBundle, type ReplayRound } from '../lib/replayBundle'
 import {
@@ -70,6 +70,8 @@ import { applyReplayTiming, replayAnchorMs, videoSecondsToReplayMs } from '../li
 import { getReplayReview, type ReplayReview } from '../lib/replayVod'
 import { fetchPlayerNames } from '../lib/replayNames'
 import { originBack, parseReplayTime, parseStratPage } from '../lib/strategyLink'
+import { EMPTY_CARD, isEmptyCard, parseStratCard, tagCounts, type StratCard } from '../lib/stratCard'
+import { useResource } from '../hooks/useResource'
 import type { ReplayPlay } from '../lib/replayToPlay'
 import type { PlaySide } from '../lib/types'
 import { formatTime } from '../lib/youtube'
@@ -677,6 +679,9 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
   const drawerSized = isLg && showDrawer
 
   const doc = history.present
+  // Tags on the user's plays, offered on the strat card (§2.30); this play's own included, which is harmless.
+  const { data: allPlays } = useResource(playsResource)
+  const tagPool = tagCounts((allPlays ?? []).map(p => parseStratCard(p.play?.card))).map(t => t.tag)
   const map = mapPick || (loadId ? '' : (mapNames[0] ?? ''))
   const gameMap = map ? registry?.maps.byName.get(map.trim().toLowerCase()) : undefined
   const mapDrawable = Boolean(gameMap?.transform && gameMap.callouts.length > 0)
@@ -758,6 +763,15 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
     setHistory(h => pushHistory(h, fn(h.present), key))
 
   const commit = (next: PlayDoc) => commitWith(() => next)
+
+  /** The strat card (§2.30): kept on the doc while it holds something, dropped when cleared. */
+  const setCard = (card: StratCard, key?: string) =>
+    commitWith(d => {
+      if (!isEmptyCard(card)) return { ...d, card }
+      const next = { ...d }
+      delete next.card
+      return next
+    }, key ?? null)
 
   /** The active step through `fn`, by id so playback moving on cannot hit the wrong one. */
   const editStep = (fn: (s: PlayStep) => PlayStep, key: string | null = null, prune = false) => {
@@ -2013,6 +2027,9 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
               onSpike={toggleSpike}
               onRemoveElement={removeElement}
               abilityName={abilityName}
+              card={doc.card ?? EMPTY_CARD}
+              onCard={setCard}
+              tagPool={tagPool}
             />
           )}
         </aside>

@@ -5,8 +5,10 @@ import { UTILITY_STYLE } from '../../lib/playScene'
 import type { ReplayBundle } from '../../lib/replayBundle'
 import type { ReplayPlay } from '../../lib/replayToPlay'
 import type { PlaySide } from '../../lib/types'
+import type { StratCard } from '../../lib/stratCard'
 import AgentIcon from './AgentIcon'
 import ReplayPicker from './ReplayPicker'
+import StratCardPanel from './StratCardPanel'
 
 interface StepDrawerProps {
   /** True while nothing is drawn on any step: the replay picker shows. */
@@ -30,6 +32,11 @@ interface StepDrawerProps {
   onRemoveElement(elementId: string): void
   /** The registry's name for an agent's ability, or null when it does not know it. */
   abilityName(agent: string, slot: AbilitySlot | null): string | null
+  /** The play's strat card (§2.30), shown once something is drawn. */
+  card: StratCard
+  onCard(card: StratCard, key?: string): void
+  /** Tags used on the user's other plays, most used first. */
+  tagPool: string[]
 }
 
 const label = 'text-[10px] uppercase tracking-widest text-text-secondary'
@@ -98,6 +105,8 @@ export default function StepDrawer(props: StepDrawerProps) {
           </button>
         </div>
       )}
+
+      {!props.isEmpty && <StratCardPanel card={props.card} onCard={props.onCard} tagPool={props.tagPool} />}
 
       {step && (
         <section className={sectionClass}>

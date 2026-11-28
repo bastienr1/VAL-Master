@@ -575,6 +575,15 @@ test('a strat started from a review keeps its round, time and page when they are
   assert.deepEqual(parsePlayDoc(JSON.stringify(linked)), linked)
 })
 
+test('a play keeps its strat card when it holds something, and drops a blank one (§2.30)', () => {
+  const card = { tags: ['Retake', 'B site'], when: 'Two hold B, one lurks', read: 'Jett always swings early' }
+  assert.deepEqual(parsePlayDoc({ ...VALID, card }).card, card)
+  assert.equal('card' in parsePlayDoc({ ...VALID, card: { tags: [], when: ' ', read: '' } }), false)
+  assert.equal('card' in parsePlayDoc({ ...VALID, card: 'card' }), false)
+  const carded: PlayDoc = { ...VALID, card }
+  assert.deepEqual(parsePlayDoc(JSON.stringify(carded)), carded)
+})
+
 test('an agent kept where the match had it stays seen; anything but true is dropped (§2.29)', () => {
   const enemy = { kind: 'agent', id: 'op', agent: 'Chamber', team: 'enemy', at: { callout: 'A Tree' } }
   const seenOf = (seen: unknown) => {
