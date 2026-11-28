@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { SplitterHandle, useSplitter } from '../components/ColumnSplitter'
 import MatchRecapHeader from '../components/MatchRecapHeader'
 import ReportSections, { type ReportNames } from '../components/report/ReportSections'
@@ -13,6 +13,7 @@ import { applyDuelTags } from '../lib/matchReportTagging'
 import { loadReportTrend, loadStoredReport, saveReportSummary, type StoredMatchReport, type TrendRow } from '../lib/matchReports'
 import { useReplayBundle } from '../lib/replays'
 import { replayMsToVideoSeconds, weaponLabel } from '../lib/replaySync'
+import { parseReplayTime } from '../lib/strategyLink'
 import { supabase } from '../lib/supabase'
 import type { Match, MatchRound } from '../lib/types'
 import { extractYouTubeId } from '../lib/youtube'
@@ -54,6 +55,9 @@ export default function MatchReport() {
   const [content, setContent] = useState<GameContentRegistry | null>(() => getLoadedGameContent())
   const replay = useReplayBundle(matchId)
   const stage = useRef<ReportStageHandle | null>(null)
+  // `?at=<replay ms>`: a strat's way back (docs/plays-editor-v2.md §2.29), the stage opens there, paused.
+  const [searchParams] = useSearchParams()
+  const startAt = parseReplayTime(searchParams.get('at'))
   const comms = useMatchComms(matchId)
   const isLg = useMediaQuery('(min-width: 1024px)')
   const { dragHandlers, panelProps } = useSplitter({
@@ -216,7 +220,7 @@ export default function MatchReport() {
             {...(isLg ? panelProps : null)}
             className="space-y-2 mb-4 lg:mb-0 lg:sticky lg:top-10 lg:max-h-[calc(100vh-3rem)] lg:overflow-y-auto"
           >
-            <ReportStage bundle={bundle} video={video} matchId={matchId} handleRef={stage} />
+            <ReportStage bundle={bundle} video={video} matchId={matchId} handleRef={stage} startAt={startAt} />
             {videoId && !video && (
               <p className="text-[11px] text-val-yellow px-1">
                 This match has a video that is not synced yet. Sync the round 1 barrier drop in the{' '}

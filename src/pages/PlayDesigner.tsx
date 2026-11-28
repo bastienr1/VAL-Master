@@ -45,11 +45,12 @@ import {
   type AgentElement,
   type PlayDoc,
   type PlayStep,
+  type ReplayOrigin,
   type Team,
 } from '../lib/playDoc'
 import { canRedo, canUndo, historyOf, pushHistory, redoHistory, undoHistory, type History } from '../lib/playHistory'
 import { sceneTurns, sceneViewport, viewToImage } from '../lib/playScene'
-import { createPlay, deletePlay, getPlay, updatePlay, type PlayInput } from '../lib/plays'
+import { createPlay, deletePlay, getPlay, playsResource, updatePlay, type PlayInput } from '../lib/plays'
 import { bestAngles } from '../lib/replayAngles'
 import { isDeathmatchBundle, isDeathmatchRound, type ReplayBundle, type ReplayRound } from '../lib/replayBundle'
 import {
@@ -68,6 +69,12 @@ import { getReplayBundle } from '../lib/replays'
 import { applyReplayTiming, replayAnchorMs, videoSecondsToReplayMs } from '../lib/replaySync'
 import { getReplayReview, type ReplayReview } from '../lib/replayVod'
 import { fetchPlayerNames } from '../lib/replayNames'
+import { originBack, parseReplayTime, parseStratPage } from '../lib/strategyLink'
+import { EMPTY_CARD, isEmptyCard, parseStratCard, tagCounts, type StratCard } from '../lib/stratCard'
+import { roundLinkBack, roundsOf } from '../lib/stratRecall'
+import { stratRoundsResource } from '../lib/stratRounds'
+import { replayMatchesResource } from '../lib/replayMatches'
+import { useResource } from '../hooks/useResource'
 import type { ReplayPlay } from '../lib/replayToPlay'
 import type { PlaySide } from '../lib/types'
 import { formatTime } from '../lib/youtube'
@@ -367,6 +374,10 @@ function roundFacts(round: ReplayRound): string {
  * over is dropped from the step: a saved play with an ally outside the comp
  * would not open again.
  */
+/** Strategy mode's two steps (§2.29): the match as it was, and the strat drawn on a copy of it. */
+const STRAT_FIRST = 'What happened'
+const STRAT_PLAN = 'The plan'
+
 function fitComp(comp: string[], step: PlayStep): { comp: string[]; step: PlayStep } {
   const next = [...comp]
   const inComp = (name: string) => next.some(c => sameName(c, name))
@@ -444,13 +455,16 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
   const { registry, status: registryStatus } = useGameContent()
   const { mapNames } = useGameContentNames()
   // `/plays/new?replay=<match id>` (the replay mode, at
-  // `&round=7`'s barrier when given; `&mode=steps` imports that round's snapshots instead),
+  // `&round=7`'s barrier when given; `&mode=steps` imports that round's snapshots instead;
+  // `&t=<replay ms>&strat=review|report` is strategy mode, §2.29, at that moment of the round),
   // read once: applied when the map (the registry, for a replay) is known, then cleared.
   const [searchParams, setSearchParams] = useSearchParams()
   const [deepLink] = useState(() => ({
     replay: searchParams.get('replay'),
     round: searchParams.get('round'),
     mode: searchParams.get('mode'),
+    t: searchParams.get('t'),
+    strat: searchParams.get('strat'),
   }))
   const deepLinked = useRef(false)
 
@@ -544,8 +558,13 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
   // Replay mode (§2.8). The replay time lives in `replayMsRef`; the page renders when the
   // mode, the view or the playing state changes, never per frame.
   const [replay, setReplay] = useState<OpenReplay | null>(null)
-  /** The match the play was built from (`doc.replay`): kept after Exit, so it saves and reopens. */
-  const [replayLink, setReplayLink] = useState<string | null>(null)
+  /**
+   * The match the play was built from (`doc.replay`): kept after Exit, so it saves and reopens.
+   * A strat started from a review (§2.29) keeps its round, moment and page with it, for its back link.
+   */
+  const [replayLink, setReplayLink] = useState<ReplayOrigin | null>(null)
+  /** A strategy link's start (§2.29), waiting for its replay to open. */
+  const pendingStrat = useRef<ReplayOrigin | null>(null)
   const [replayPlaying, setReplayPlaying] = useState(false)
   const [replaySpeed, setReplaySpeed] = useState(1)
   const [live, setLive] = useState<LiveFrame | null>(null)
@@ -663,6 +682,12 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
   const drawerSized = isLg && showDrawer
 
   const doc = history.present
+  // Tags on the user's plays, offered on the strat card (§2.30); this play's own included, which is harmless.
+  const { data: allPlays } = useResource(playsResource)
+  const tagPool = tagCounts((allPlays ?? []).map(p => parseStratCard(p.play?.card))).map(t => t.tag)
+  // The rounds this strat is marked as seen on (§2.31), named by their matches.
+  const { data: stratLinks, error: stratLinksError } = useResource(stratRoundsResource)
+  const { data: replayMatches } = useResource(replayMatchesResource)
   const map = mapPick || (loadId ? '' : (mapNames[0] ?? ''))
   const gameMap = map ? registry?.maps.byName.get(map.trim().toLowerCase()) : undefined
   const mapDrawable = Boolean(gameMap?.transform && gameMap.callouts.length > 0)
@@ -678,7 +703,7 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
   /** The canvas shows the replay rather than a step of the play. */
   const inReplay = replay !== null && view === 'replay'
 
-  /** A Deathmatch's best angles, for the Rounds panel (§2.20): the player's kills by spot and facing. */
+  /** A Deathmatch's best angles, for the Rounds panel (§2.29): the player's kills by spot and facing. */
   const replayAngles = useMemo(() => {
     if (!replay || !isDeathmatchBundle(replay.bundle)) return []
     const me = replay.bundle.players.find(p => p.isMe)
@@ -734,7 +759,7 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
   )
 
   /** What Save writes: the doc, with the match it was built from. */
-  const savedDoc: PlayDoc = replayLink ? { ...doc, replay: { matchId: replayLink } } : doc
+  const savedDoc: PlayDoc = replayLink ? { ...doc, replay: replayLink } : doc
   const dirty = snapshotOf({ title, map, side, doc: savedDoc }) !== snapshot
 
   // ── History ───────────────────────────────────────────────────────────────
@@ -744,6 +769,15 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
     setHistory(h => pushHistory(h, fn(h.present), key))
 
   const commit = (next: PlayDoc) => commitWith(() => next)
+
+  /** The strat card (§2.30): kept on the doc while it holds something, dropped when cleared. */
+  const setCard = (card: StratCard, key?: string) =>
+    commitWith(d => {
+      if (!isEmptyCard(card)) return { ...d, card }
+      const next = { ...d }
+      delete next.card
+      return next
+    }, key ?? null)
 
   /** The active step through `fn`, by id so playback moving on cannot hit the wrong one. */
   const editStep = (fn: (s: PlayStep) => PlayStep, key: string | null = null, prune = false) => {
@@ -793,7 +827,7 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
         setMapPick(play.map)
         setSide(play.side)
         setHistory(historyOf(loaded))
-        setReplayLink(loaded.replay?.matchId ?? null)
+        setReplayLink(loaded.replay ?? null)
         // A play with something drawn opens on the map; an empty one on its panel.
         setDrawerOpen(!hasElements(loaded))
         setSnapshot(snapshotOf({ title: play.title, map: play.map, side: play.side, doc: loaded }))
@@ -1131,23 +1165,17 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
   }
 
   /**
-   * The frame shown, edited or not, as a new step after the active one: named
-   * by its round clock, captioned by the nearest tick within 2 s (else the
-   * round's side and outcome), its allies joined to the comp, one undo step,
-   * selected in the rail. Into an untouched blank play it replaces the blank
-   * steps instead of landing among them. False when the play is full.
+   * The frame shown as a strat step: named by its round clock, captioned by the
+   * nearest tick within 2 s (else the round's side and outcome).
    */
-  const capture = (source: PlayStep | null = live?.step ?? frames.get()?.step ?? null): boolean => {
-    if (!replay || !source) return false
-    const pristine = isPristine(doc, side)
-    if (!pristine && stepCount >= MAX_STEPS) return false
+  const stepFromFrame = (open: OpenReplay, source: PlayStep): PlayStep => {
     const t = source.replayMs ?? replayMsRef.current
-    const round = currentRound(replay)
+    const round = currentRound(open)
     const name = formatRoundClock(round, t)
-    const near = roundTicks(replay.bundle, round, replay.nameOf)
+    const near = roundTicks(open.bundle, round, open.nameOf)
       .filter(tick => Math.abs(tick.t - t) <= TICK_NEAR_MS)
       .sort((a, b) => Math.abs(a.t - t) - Math.abs(b.t - t))[0]
-    const fitted = fitComp(pristine ? [] : doc.comp, {
+    return {
       ...source,
       // A throw caught mid-air is kept as thrown: the strat shows where it lands, not the frame.
       // A strat shows intent, not a frame: a throw in flight is kept landed, and no time-left ring.
@@ -1177,7 +1205,21 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
       name,
       caption: `${name} · ${near?.label ?? roundFacts(round)}`,
       replayMs: t,
-    })
+    }
+  }
+
+  /**
+   * The frame shown, edited or not, as a new step after the active one: named
+   * by its round clock, captioned by the nearest tick within 2 s (else the
+   * round's side and outcome), its allies joined to the comp, one undo step,
+   * selected in the rail. Into an untouched blank play it replaces the blank
+   * steps instead of landing among them. False when the play is full.
+   */
+  const capture = (source: PlayStep | null = live?.step ?? frames.get()?.step ?? null): boolean => {
+    if (!replay || !source) return false
+    const pristine = isPristine(doc, side)
+    if (!pristine && stepCount >= MAX_STEPS) return false
+    const fitted = fitComp(pristine ? [] : doc.comp, stepFromFrame(replay, source))
     const at = pristine ? 0 : stepAt + 1
     const steps = pristine ? [fitted.step] : [...doc.steps.slice(0, at), fitted.step, ...doc.steps.slice(at)]
     commit({ ...doc, comp: fitted.comp, steps })
@@ -1235,7 +1277,7 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
     // A strat started from a match is named after it until the user renames it.
     if (title === UNTITLED) setTitle(truncate(`${mapName ?? 'Match'} · ${bundle.match.recordedAt.slice(0, 10)} · from replay`, TITLE_MAX))
     setReplay(open)
-    setReplayLink(matchId)
+    setReplayLink(prev => (prev?.matchId === matchId ? prev : { matchId }))
     setDrawerOpen(true)
     setReplayPlaying(false)
     setPlaying(false)
@@ -1252,7 +1294,7 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
   /** **Open replay** on a play built from one: at the active step's moment, else round 1's barrier drop. */
   const openReplay = () => {
     if (!replayLink || openingReplay) return
-    const matchId = replayLink
+    const matchId = replayLink.matchId
     const at = step?.replayMs
     setOpeningReplay(true)
     getReplayBundle(matchId)
@@ -1338,6 +1380,34 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
     else setView('replay')
   }
 
+  /**
+   * Strategy mode (§2.29), once its replay is open: the frame the review was
+   * paused on becomes step 1, "What happened", with the enemies kept where
+   * they were (seen, drawn faded), and a copy of it step 2, "The plan", open
+   * in the steps view to draw on. It waits for the players' names, so the strat
+   * keeps who was where. Guarded by the ref, not by a dependency list.
+   */
+  useEffect(() => {
+    const origin = pendingStrat.current
+    if (!replay || !origin || replay.matchId !== origin.matchId) return
+    pendingStrat.current = null
+    const open = replay
+    void fetchPlayerNames(open.matchId, import.meta.env.VITE_HENRIK_API_KEY).then(() => {
+      const source = frames.get()?.step
+      if (!source) return
+      const shot = stepFromFrame(open, source)
+      const elements = shot.elements.map(el => (el.kind === 'agent' && el.team === 'enemy' ? { ...el, seen: true } : el))
+      const fitted = fitComp([], { ...shot, name: STRAT_FIRST, elements })
+      const plan = copyStep(fitted.step, STRAT_PLAN)
+      commitWith(d => ({ ...d, comp: fitted.comp, steps: [fitted.step, plan] }))
+      setStepIndex(1)
+      setPlaying(false)
+      setReplayPlaying(false)
+      setLive(null)
+      setView('steps')
+    })
+  })
+
   useEffect(() => {
     if (deepLinked.current || loadId !== undefined || !registry || !empty || !deepLink.replay) return
     deepLinked.current = true
@@ -1363,9 +1433,24 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
         if (snapshots && round === null) throw new Error('The replay link names no round.')
         const picked = round === null ? firstRound(bundle) : bundle.rounds.find(r => r.n === round)
         if (!picked) throw new Error(`The replay has no round ${round}.`)
-        // `&mode=steps` is the §2.7 snapshot import; otherwise the replay mode at the round's barrier, paused.
-        if (snapshots) loadReplayPlay(replayRoundToPlay(bundle, picked.n, registry))
-        else enterReplay(matchId, bundle, barrierOf(bundle, picked))
+        // `&mode=steps` is the §2.7 snapshot import; otherwise the replay mode at the round's barrier, paused,
+        // or at `&t` when it falls in the round; `&strat` makes that moment a strat's start (§2.29).
+        if (snapshots) {
+          loadReplayPlay(replayRoundToPlay(bundle, picked.n, registry))
+          return
+        }
+        const span = roundSpan(bundle, picked)
+        const asked = parseReplayTime(deepLink.t)
+        const at = asked !== null && asked >= span.start && asked <= span.end ? asked : barrierOf(bundle, picked)
+        const page = parseStratPage(deepLink.strat)
+        enterReplay(matchId, bundle, at)
+        if (page) {
+          const origin: ReplayOrigin = { matchId, round: picked.n, ms: at, page }
+          pendingStrat.current = origin
+          setReplayLink(origin)
+          const mapName = bundle.match.mapUuid ? registry.maps.byId.get(bundle.match.mapUuid)?.name : undefined
+          setTitle(truncate(`${mapName ?? 'Match'} · ${formatRoundClock(picked, at)} · strat`, TITLE_MAX))
+        }
       })
       .catch((e: unknown) => setError(messageOf(e)))
   })
@@ -1646,6 +1731,8 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
         onToggleDrawer={() => setDrawerOpen(o => !o)}
         drawerLabel={inReplay ? (replayTab === 'notes' ? 'Notes' : 'Rounds') : 'Step'}
         onOpenReplay={replayLink && !replay && registry ? openReplay : undefined}
+        origin={originBack(replayLink)}
+        unsaved={dirty}
         openingReplay={openingReplay}
         canSave={dirty && Boolean(map)}
         saving={saving}
@@ -1946,6 +2033,15 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
               onSpike={toggleSpike}
               onRemoveElement={removeElement}
               abilityName={abilityName}
+              card={doc.card ?? EMPTY_CARD}
+              onCard={setCard}
+              tagPool={tagPool}
+              seenIn={
+                savedId
+                  ? roundsOf(stratLinks ?? [], savedId).map(l => roundLinkBack(l, (replayMatches ?? []).find(m => m.matchId === l.match_id) ?? null))
+                  : []
+              }
+              seenProblem={stratLinksError}
             />
           )}
         </aside>

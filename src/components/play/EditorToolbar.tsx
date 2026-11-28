@@ -49,6 +49,10 @@ interface EditorToolbarProps {
   onOpenReplay?: () => void
   /** The replay's bundle is loading. */
   openingReplay?: boolean
+  /** A strat started from a review or a report (§2.29): the link back to that moment. */
+  origin?: { to: string; label: string; title: string } | null
+  /** Unsaved changes: leaving by the origin link asks first. */
+  unsaved?: boolean
   canSave: boolean
   saving: boolean
   /** True for the moment after a save, to show "Saved". */
@@ -106,6 +110,19 @@ export default function EditorToolbar(props: EditorToolbarProps) {
         {map && <span className={`${chip} text-text-secondary bg-bg-elevated`}>{map}</span>}
         <span className={`${chip} ${sideChip.className}`}>{sideChip.label}</span>
       </div>
+      {props.origin && (
+        <Link
+          to={props.origin.to}
+          title={props.origin.title}
+          onClick={e => {
+            if (props.unsaved && !window.confirm('Leave this strat without saving it?')) e.preventDefault()
+          }}
+          className="flex items-center gap-1 shrink-0 px-2 py-1 rounded-md text-xs font-medium text-val-cyan border border-val-cyan/25 bg-val-cyan/10 hover:bg-val-cyan/20 transition-colors whitespace-nowrap"
+        >
+          <ArrowLeft className="w-3.5 h-3.5" />
+          {props.origin.label}
+        </Link>
+      )}
 
       <div className="flex items-center gap-1 ml-auto shrink-0">
         <button type="button" onClick={props.onUndo} disabled={!props.canUndo} aria-label="Undo" title="Undo (Ctrl+Z)" className={iconButton}>

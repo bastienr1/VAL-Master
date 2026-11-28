@@ -1191,6 +1191,187 @@ the look with Bastien before any of it was built here (2026-11-25).
   Until its pictures are in, and where they fail, a replay's is the token and
   the dashed way. Under `prefers-reduced-motion` nothing weaves or loops.
 
+### 2.29 Strategy mode: a strat from the round being reviewed
+
+Asked for on 2026-11-28: "When I am reviewing a match, I'd like to be able to
+switch to strategy mode, so I can work on strategizing based on the existing
+positions of teammates in a real match." Step 1 of three; the strat cards
+(tags, a "When you see…" line, a library) and the recall on other rounds come
+after it.
+
+**Entry.** The review's and the report's map HUD has **Strategize** in place
+of "Open in Plays ↗". It reads the replay time the map last drew (the minimap's
+frame loop keeps it in a ref) and opens
+`/plays/new?replay=<match>&round=<n>&t=<replay ms>&strat=review|report`
+(`strategizeHref`, `src/lib/strategyLink.ts`).
+
+**The editor.** The replay mode (§2.8) opens at `&t` when it falls inside the
+round's span, else at the round's barrier as before. With `&strat`, once the
+replay is open and the players' names are in (the same cached Henrik call):
+
+- Step 1, **What happened**: the frame, captured as Capture step does it
+  (`stepFromFrame`, split out of `capture`), captioned with the round clock and
+  the nearest tick. Its enemies carry `seen: true`.
+- Step 2, **The plan**: a copy of step 1, selected, in the steps view, to draw
+  on. The replay stays loaded: Back to replay and the transport work as before.
+- The title is `<Map> · R9 · 0:06 · strat` until renamed.
+
+**Seen agents.** `AgentElement.seen` (kept by `parsePlayDoc` only when `true`;
+`PlacedAgent.seen`) is an enemy kept where the match had it: drawn at 0.5
+opacity, its label ends "where the match had them". It is a normal agent
+otherwise: it can be moved or removed.
+
+**What a strat keeps.** `PlayDoc.replay` is a `ReplayOrigin`:
+`{ matchId, round?, ms?, page? }`. `round` (a whole number from 1), `ms`
+(finite, at least 0) and `page` (`review` or `report`) are kept when sound and
+dropped otherwise; a play from the replay picker still saves `{ matchId }`.
+
+**The way back.** A play whose origin has a page and a time shows a cyan
+**← R9 review** (or report) chip after the side chip (`originBack`). It links to
+`/review/<match>?at=<ms>` or `/report/<match>?at=<ms>`; with unsaved changes it
+asks "Leave this strat without saving it?" first. The review reads `?at` once
+the bundle and the sync are known: it opens the Map tab and seeks the video to
+that replay time. The report's stage opens there paused (`startAt`): the clock
+seeks; the video seeks once the player is ready, then pauses, since a seek
+starts a video that never played.
+
+**Checked** (2026-11-28, signed in, Bind 14-12): Strategize at R9 0:06 on the
+review → Plays with both steps, five faded enemies with their names, the title
+and the chip; the chip asked before leaving, then returned to the review's Map
+tab at 15:33 (paused at 15:32). The report at `?at=` opened on round 9, paused,
+and its Strategize carried the same time with `strat=report`. Not checked: a
+save (it would write to the real account); the parser test covers the round
+trip.
+
+### 2.30 Strat cards: tags, "When you see…", the teammate read, and the library
+
+Step 2 of strategy mode (§2.29), asked for on 2026-11-28: a strat "becomes a
+card/bookmark I can recall anytime when I see a pattern". No database change:
+the card lives in the play document.
+
+**The card** (`src/lib/stratCard.ts`, pure, tested): `PlayDoc.card?:
+StratCard` = `{ tags, when, read }`.
+
+- `tags`: the situations, the user's own words. Up to 8, each up to 32
+  characters, spaces collapsed, unique ignoring case.
+- `when`: "When you see…", the pattern that should bring the strat to mind
+  (200 characters).
+- `read`: what a teammate tends to do (500 characters).
+- `parsePlayDoc` keeps the card only when it holds something, and drops bad
+  parts rather than the play. The editor removes `card` from the doc when it is
+  cleared.
+
+**In the editor**: `StratCardPanel` sits at the top of the right panel once
+something is drawn, above "This step".
+
+- Tags are chips with a remove button.
+- The tag box adds on Enter, comma or blur. Backspace in an empty box takes the
+  last tag off.
+- Under the box, up to six suggestions: the user's own tags, most used across
+  their plays first (`tagCounts` over `playsResource`), then the starter tags
+  (Default, Execute, Retake, Post-plant, Mid control, Lurk, Eco, Anti-eco).
+  Both lists are filtered by what is typed, without the card's own tags.
+- Two text boxes, "When you see…" and "Teammate read". Each one's typing is one
+  undo step (`card:when`, `card:read` keys).
+
+**The library** (`/plays`):
+
+- Filters, kept in the address so a filtered view can be linked:
+  - a map menu (`?map=`);
+  - Both / Attack / Defense (`?side=`);
+  - tag chips with counts (`?tag=`, repeated).
+- Picked tags must all be on a play (AND).
+- The chips count the plays on the picked map and side, so a chip never leads
+  to an empty page. A picked tag the map or side no longer has stays, at 0, so
+  it can be taken off.
+- A count ("2 of 5") and Clear filters; "No play matches these filters." when
+  nothing does.
+- Each card shows:
+  - the "When you see…" line in place of the summary;
+  - up to three tags and "+n";
+  - for a strat from a review, the round link (`R9 review ↗`, `originBack`).
+    The whole card is one link, with the round link above it.
+
+**Checked** (2026-11-28, signed in): on a fresh strat from Bind R9, a
+suggested tag, a typed one, a repeat refused ignoring case, and both lines
+filled (not saved). The library, with sample cards put into the plays the
+browser received (nothing written to the database):
+
+- the chips and counts;
+- Retake → 2;
+- Retake + Post-plant → 1;
+- Defense → 0 and the empty line, with Retake kept at 0;
+- Clear → 5;
+- the round link and the card each take their own click.
+
+Not checked: a saved card read back from the database. The parser test covers
+it.
+
+### 2.31 Strat recall: Strats under the review's map, drawn over the round, "Seen here"
+
+Step 3 of strategy mode (§2.29, §2.30): bring a strat back up on any round,
+compare it with what happens, and let it collect the rounds where its pattern
+came up.
+
+**The panel** (`StratRecallPanel`): under the map HUD of the review's Map tab
+and the report (`ReplayMinimap.recallPage`), above the round's kills. It is
+folded by default; its header reads "Strats · Bind attack 1".
+
+- **What it lists** (`recallStrats`, `src/lib/stratRecall.ts`, pure, tested):
+  - the user's plays on the same map (by Riot id, else by name) and the side the
+    owner played this round;
+  - only those carrying every picked tag, when tags are picked (the chips count
+    the candidates).
+- **Order:** marked seen on this round, then started from this round (`made
+  here`), then from this match (`this match`), then the most rounds seen, then
+  the latest edited.
+- **On each row:**
+  - the title, which opens the play;
+  - the badges;
+  - "n rounds";
+  - the "When you see…" line and the tags;
+  - **Show / Hide** and **Seen here**.
+
+**Show** draws the strat over the round as it plays. It uses the last step,
+which in a two-step strat is "The plan"; step chips pick another.
+
+- `PlayCanvas.overlay`: the step is built as its own scene, with ids prefixed
+  `recall:`. Its abilities, arrows, moves and agents are drawn inside the same
+  transformed svg, at 0.55 opacity, untouchable, under the round's own agents.
+  It follows the zoom and the pan.
+- To share their rendering, the arrows, moves and agent tiles became functions
+  of a list (`arrowsOf`, `pathsOf`, `tilesOf`).
+- Agents kept as seen in another match (§2.29) are left out (`recallOverlay`).
+- The overlay travels as `ReplayStage.setOverlay`, held by `usePlaysStage`. It
+  stays across rounds until hidden, and is cleared when the panel goes. A map
+  without the Plays stage (the old canvas) disables Show.
+
+**Seen here** writes a `strat_rounds` row: the play, the match, the round, the
+replay time on screen and the page (migration `20261128_strat_rounds.sql`).
+
+- The table is owner-only, and an insert has to name one of the owner's plays.
+- A row is unique per (play, match, round); deleting the play deletes its rows.
+- Pressing Seen here again removes the row.
+- While the table is missing, the panel, the editor's card and the library say
+  so (`MISSING_TABLE`) and Seen here is disabled.
+
+**Where it shows:**
+- **Editor:** the strat card gains **Seen in**: each round as a link to its page
+  at its moment, named by its match ("Bind · Nov 17 · R9", `roundLinkBack`, from
+  `replayMatchesResource`).
+- **Library:** each card shows "n rounds".
+
+**Checked** (2026-11-28, signed in, Bind 14-12, round 9, before the
+migration):
+- **The panel:** it listed the Bind attack strat as "this match" and showed the
+  missing-table line.
+- **Show:** drew 22 elements in a "Recalled strat" group at 0.55 opacity, step 3
+  "End" by default. Step chip 1 redrew it, Hide removed it, Show brought it back.
+- **The report:** the same panel, and no overlay left over from the review.
+- **The editor:** the card's Seen in showed the missing-table line.
+
+Not checked: a real Seen here (needs the table).
+
 ## 3. Document v2 (`src/lib/playDoc.ts`)
 
 ```ts

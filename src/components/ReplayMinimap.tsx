@@ -1,5 +1,5 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { agentIconUrl, loadGameContent, type GameMap } from '../lib/gameContent'
 import type { ReplayBundle, ReplayKill, ReplayPlayer } from '../lib/replayBundle'
 import {
@@ -28,6 +28,8 @@ import {
 
 import { LAYERS, readLayers, writeLayers, type LayerKey, type Layers } from '../lib/replayLayers'
 import type { ReplayStage } from './ReplayPlaysStage'
+import StratRecallPanel from './StratRecallPanel'
+import type { OriginPage } from '../lib/playDoc'
 
 interface ReplayMinimapProps {
   bundle: ReplayBundle
@@ -45,10 +47,16 @@ interface ReplayMinimapProps {
    */
   onNudge?: (deltaSeconds: number) => Promise<void>
   /**
-   * Where the Plays editor opens a round of this replay. When given, the HUD
-   * links the round it shows there. Keep it stable: this component is memoized.
+   * Where **Strategize** opens Plays (strategy mode, docs/plays-editor-v2.md
+   * §2.29): the round on screen and the replay time the map shows. When given,
+   * the HUD has the button. Keep it stable: this component is memoized.
    */
-  playsHref?: (round: number) => string
+  strategizeHref?: (round: number, replayMs: number) => string
+  /**
+   * The page the map is on: when given, the Strats panel lists the user's
+   * strats for this round, draws one over the map and marks it seen here (§2.31).
+   */
+  recallPage?: OriginPage
   /**
    * Draws the map in place of this component's own canvas (the Plays replay
    * map, `usePlaysStage`). The clock, the rounds, the kills and the layer
@@ -332,12 +340,16 @@ function ReplayMinimap({
   isPlaying,
   onSeek,
   onNudge,
-  playsHref,
+  strategizeHref,
+  recallPage,
   stage = null,
 }: ReplayMinimapProps) {
   const frameRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const phaseRef = useRef<HTMLSpanElement>(null)
+  const navigate = useNavigate()
+  /** The replay time the map last showed, for **Strategize**. Set by the frame loop. */
+  const shownMs = useRef<number | null>(null)
 
   const [map, setMap] = useState<GameMap | null>(null)
   const [agentNames, setAgentNames] = useState<Map<string, string>>(new Map())
@@ -447,6 +459,7 @@ function ReplayMinimap({
         t = videoSecondsToReplayMs(state.bundle, state.barrierOffset, reported + ahead)
         t = Math.max(0, Math.min(state.bundle.match.durationMs, t))
       }
+      shownMs.current = t
 
       if (state.stage) {
         // The stage draws the map: it is told the time and the layers when either changes.
@@ -557,14 +570,15 @@ function ReplayMinimap({
           <span className="text-text-muted">{round.side ?? ''}</span>
           <span className="font-stats text-text-secondary">{wonBefore}–{lostBefore}</span>
           <span ref={phaseRef} className="font-stats text-text-muted" />
-          {playsHref && (
-            <Link
-              to={playsHref(round.n)}
-              title={`Load round ${round.n} into the Plays editor`}
-              className="text-[10px] text-text-muted hover:text-val-cyan transition-colors whitespace-nowrap"
+          {strategizeHref && (
+            <button
+              type="button"
+              onClick={() => navigate(strategizeHref(round.n, shownMs.current ?? replayAnchorMs(bundle) ?? 0))}
+              title={`Plan this moment of round ${round.n} in Plays: where everyone is now stays as step 1`}
+              className="text-[10px] font-semibold text-val-cyan border border-val-cyan/25 bg-val-cyan/10 hover:bg-val-cyan/20 rounded px-1.5 py-0.5 transition-colors whitespace-nowrap"
             >
-              Open in Plays ↗
-            </Link>
+              Strategize
+            </button>
           )}
           <span className="ml-auto flex items-center gap-2 text-[10px]">
             {LAYERS.map(({ key, label: text, title }) => (
@@ -622,6 +636,18 @@ function ReplayMinimap({
         )}
         {nudgeProblem && <p className="text-[10px] text-val-red">{nudgeProblem}</p>}
       </div>
+
+      {recallPage && map && (
+        <StratRecallPanel
+          matchId={bundle.match.matchId}
+          round={round}
+          mapName={map.name}
+          mapUuid={bundle.match.mapUuid ?? null}
+          page={recallPage}
+          getMs={() => shownMs.current ?? replayAnchorMs(bundle) ?? 0}
+          onOverlay={stage?.setOverlay}
+        />
+      )}
 
       <div className="bg-bg-card border border-bg-elevated rounded-lg px-3 py-2">
         <div className="text-[10px] text-text-muted uppercase tracking-wider mb-1">Kills · round {round.n}</div>

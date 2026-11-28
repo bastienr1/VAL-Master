@@ -107,6 +107,7 @@ import {
   type ViewRect,
   type PlacedAbility,
   type PlacedAgent,
+  type PlacedArrow,
   type PlacedMarker,
   type Point,
 } from '../lib/playScene'
@@ -126,6 +127,11 @@ export interface PlayCanvasProps {
   step: PlayStep
   /** The previous step, when any: its agents are drawn as faint ghosts so a move reads. */
   previous: PlayStep | null
+  /**
+   * A saved strat's step drawn faded over this one, untouchable (recall,
+   * docs/plays-editor-v2.md §2.31): its abilities, arrows, moves and agents.
+   */
+  overlay?: PlayStep | null
   tool: Tool
   /** An ability waiting for a click on the map (from the strip popover). */
   pending: { agent: string; slot: AbilitySlot } | null
@@ -237,6 +243,10 @@ const HALF = TILE / 2
 const TILE_RX = 6
 const TILE_RING = 3
 const GHOST_OPACITY = 0.25
+/** An agent kept where the match had it (strategy mode, §2.29): there, but not part of the plan. */
+const SEEN_OPACITY = 0.5
+/** A recalled strat over the round (§2.31): readable, under the round's own agents. */
+const RECALL_OPACITY = 0.55
 
 /** Above this radius an area is an outline with a faint fill, so a map-wide ultimate buries nothing. */
 const HUGE_AREA_CM = 1500
@@ -616,6 +626,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
     side,
     step,
     previous,
+    overlay = null,
     tool,
     pending,
     selectedId,
@@ -718,6 +729,12 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [control, controlVersion, controlN, skin],
   )
+  // The recalled strat (§2.31), its ids kept apart from the step's so nothing collides.
+  const recall = useMemo(() => {
+    if (!overlay) return null
+    const elements = overlay.elements.map(el => ({ ...el, id: `recall:${el.id}` }))
+    return sceneForStep({ ...overlay, elements }, map, side, k)
+  }, [overlay, map, side, k])
   const previousScene = useMemo(
     () => (previous ? sceneForStep(previous, map, side, k) : null),
     [previous, map, side, k],
@@ -1774,45 +1791,49 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
     )
   }
 
-  const arrows = scene.arrows.map(arrow => {
-    const [fdx, fdy] = offsetOf(arrow.id, 'from')
-    const [tdx, tdy] = offsetOf(arrow.id, 'to')
-    const line = { x1: arrow.from[0] + fdx, y1: arrow.from[1] + fdy, x2: arrow.to[0] + tdx, y2: arrow.to[1] + tdy }
-    return (
-      <g key={arrow.id} {...interactive(arrow.id, 'Arrow')} style={{ cursor: elementCursor }}>
-        <line {...line} stroke="transparent" strokeWidth={24 * k} strokeLinecap="round" />
-        <line
-          {...line}
-          stroke={skinDrawColor(skin, arrow.color)}
-          strokeWidth={ARROW_WIDTH * k}
-          strokeLinecap="round"
-          markerEnd={`url(#${arrowHead(skinDrawColor(skin, arrow.color))})`}
-          pointerEvents="none"
-        />
-      </g>
-    )
-  })
+  const arrowsOf = (list: PlacedArrow[]) =>
+    list.map(arrow => {
+      const [fdx, fdy] = offsetOf(arrow.id, 'from')
+      const [tdx, tdy] = offsetOf(arrow.id, 'to')
+      const line = { x1: arrow.from[0] + fdx, y1: arrow.from[1] + fdy, x2: arrow.to[0] + tdx, y2: arrow.to[1] + tdy }
+      return (
+        <g key={arrow.id} {...interactive(arrow.id, 'Arrow')} style={{ cursor: elementCursor }}>
+          <line {...line} stroke="transparent" strokeWidth={24 * k} strokeLinecap="round" />
+          <line
+            {...line}
+            stroke={skinDrawColor(skin, arrow.color)}
+            strokeWidth={ARROW_WIDTH * k}
+            strokeLinecap="round"
+            markerEnd={`url(#${arrowHead(skinDrawColor(skin, arrow.color))})`}
+            pointerEvents="none"
+          />
+        </g>
+      )
+    })
+  const arrows = arrowsOf(scene.arrows)
 
   // Paths start under the agent; a dragged agent takes its path's start along.
-  const paths = scene.agents.flatMap(agent => {
-    if (!agent.path) return []
-    const [dx, dy] = offsetOf(agent.id)
-    const points = agent.path.map(([x, y], i): Point => (i === 0 ? [x + dx, y + dy] : [x, y]))
-    const color = agent.team === 'enemy' ? skin.enemy : skin.ally
-    return [
-      <polyline
-        key={`path:${agent.id}`}
-        points={pointsAttr(points)}
-        fill="none"
-        stroke={color}
-        strokeWidth={PATH_WIDTH * k}
-        strokeLinejoin="round"
-        strokeLinecap="round"
-        markerEnd={`url(#${arrowHead(color)})`}
-        pointerEvents="none"
-      />,
-    ]
-  })
+  const pathsOf = (list: PlacedAgent[]) =>
+    list.flatMap(agent => {
+      if (!agent.path) return []
+      const [dx, dy] = offsetOf(agent.id)
+      const points = agent.path.map(([x, y], i): Point => (i === 0 ? [x + dx, y + dy] : [x, y]))
+      const color = agent.team === 'enemy' ? skin.enemy : skin.ally
+      return [
+        <polyline
+          key={`path:${agent.id}`}
+          points={pointsAttr(points)}
+          fill="none"
+          stroke={color}
+          strokeWidth={PATH_WIDTH * k}
+          strokeLinejoin="round"
+          strokeLinecap="round"
+          markerEnd={`url(#${arrowHead(color)})`}
+          pointerEvents="none"
+        />,
+      ]
+    })
+  const paths = pathsOf(scene.agents)
 
   const renderMarker = (marker: PlacedMarker) => {
     const [dx, dy] = offsetOf(marker.id)
@@ -2208,44 +2229,47 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
     )
   }
 
-  const agentTiles = scene.agents.map(agent => {
-    const [dx, dy] = offsetOf(agent.id)
-    const label = `${agent.agent}${agent.player ? ` (${agent.player})` : ''}${agent.team === 'enemy' ? ' (enemy)' : ''}${
-      agent.spike ? ', spike carrier' : ''
-    }${agent.hp !== null ? `, ${agent.hp} health${agent.armor ? `, ${agent.armor} armour` : ''}` : ''}${agent.note ? `: ${agent.note}` : ''}`
-    // The hover / selection card already names the agent; the small name would sit under it.
-    const named = showNames && showLabels && agent.id !== hoverId && agent.id !== selectedId
-    return (
-      <g
-        key={agent.id}
-        {...interactive(agent.id, label)}
-        style={{ ...placement(agent.x + dx, agent.y + dy, true, live?.id === agent.id), cursor: elementCursor }}
-      >
-        {killerRing(agent.id, agent.team === 'enemy' ? skin.enemy : skin.ally)}
-        {agent.blind !== null && blindGlow(agent.blind)}
-        {tile(agent.agent, ringOf(agent))}
-        {agent.blind !== null && blindOver(agent.blind)}
-        {agent.hp !== null && vitalsOf(agent.hp, agent.armor ?? 0)}
-        {showKit && agent.kit && kitOf(agent.agent, agent.kit)}
-        {named && (
-          <g transform={`scale(${nameK})`}>
-            <text
-              y={(half * k) / nameK + 4 + nameSize}
-              textAnchor="middle"
-              fontFamily={FONT}
-              fontSize={nameSize}
-              fontWeight={600}
-              fill={agent.team === 'enemy' ? skin.enemyName : skin.allyName}
-              pointerEvents="none"
-              {...halo}
-            >
-              {truncate(agent.player || agent.agent, NAME_MAX)}
-            </text>
-          </g>
-        )}
-      </g>
-    )
-  })
+  const tilesOf = (list: PlacedAgent[]) =>
+    list.map(agent => {
+      const [dx, dy] = offsetOf(agent.id)
+      const label = `${agent.agent}${agent.player ? ` (${agent.player})` : ''}${agent.team === 'enemy' ? ' (enemy)' : ''}${
+        agent.spike ? ', spike carrier' : ''
+      }${agent.seen ? ', where the match had them' : ''}${agent.hp !== null ? `, ${agent.hp} health${agent.armor ? `, ${agent.armor} armour` : ''}` : ''}${agent.note ? `: ${agent.note}` : ''}`
+      // The hover / selection card already names the agent; the small name would sit under it.
+      const named = showNames && showLabels && agent.id !== hoverId && agent.id !== selectedId
+      return (
+        <g
+          key={agent.id}
+          {...interactive(agent.id, label)}
+          style={{ ...placement(agent.x + dx, agent.y + dy, true, live?.id === agent.id), cursor: elementCursor }}
+          opacity={agent.seen ? SEEN_OPACITY : undefined}
+        >
+          {killerRing(agent.id, agent.team === 'enemy' ? skin.enemy : skin.ally)}
+          {agent.blind !== null && blindGlow(agent.blind)}
+          {tile(agent.agent, ringOf(agent))}
+          {agent.blind !== null && blindOver(agent.blind)}
+          {agent.hp !== null && vitalsOf(agent.hp, agent.armor ?? 0)}
+          {showKit && agent.kit && kitOf(agent.agent, agent.kit)}
+          {named && (
+            <g transform={`scale(${nameK})`}>
+              <text
+                y={(half * k) / nameK + 4 + nameSize}
+                textAnchor="middle"
+                fontFamily={FONT}
+                fontSize={nameSize}
+                fontWeight={600}
+                fill={agent.team === 'enemy' ? skin.enemyName : skin.allyName}
+                pointerEvents="none"
+                {...halo}
+              >
+                {truncate(agent.player || agent.agent, NAME_MAX)}
+              </text>
+            </g>
+          )}
+        </g>
+      )
+    })
+  const agentTiles = tilesOf(scene.agents)
 
   // ── Selection ───────────────────────────────────────────────────────────
 
@@ -2755,6 +2779,14 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
           <g>{scene.markers.filter(m => m.type !== 'spike').map(renderMarker)}</g>
           <g>{texts}</g>
           <g pointerEvents="none">{ghostTiles}</g>
+          {recall && (
+            <g opacity={RECALL_OPACITY} pointerEvents="none" aria-label="Recalled strat">
+              {recall.abilities.map(renderAbility)}
+              {arrowsOf(recall.arrows)}
+              {pathsOf(recall.agents)}
+              {tilesOf(recall.agents)}
+            </g>
+          )}
           <g>{killLayer}</g>
           <g>{agentTiles}</g>
           <g>{popLayer}</g>

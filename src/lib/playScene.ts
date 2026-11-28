@@ -161,6 +161,8 @@ export interface PlacedAgent {
   armor: number | null
   /** How much of a flash on the agent is left, 1…0, on a replay frame; null when they can see. */
   blind: number | null
+  /** Kept where the match had them (strategy mode, §2.29): drawn faded. */
+  seen: boolean
   /** Where the agent is drawn: exactly the placed point, even over another agent. */
   x: number
   y: number
@@ -388,6 +390,7 @@ export function sceneForStep(
           hp: el.hp ?? null,
           armor: el.armor ?? null,
           blind: el.blind ?? null,
+          seen: el.seen === true,
           x: at[0],
           y: at[1],
           path: points.length >= 2 ? points : null,
