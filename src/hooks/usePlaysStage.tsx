@@ -5,6 +5,7 @@ import { useGameContent } from './useGameContent'
 import { canvasSkin, type CanvasSkinId } from '../lib/canvasSkins'
 import { isDeathmatchBundle, type ReplayBundle } from '../lib/replayBundle'
 import { createFrameIds, frameStep, roundAt } from '../lib/replayFrame'
+import type { PlayStep } from '../lib/playDoc'
 import type { Layers } from '../lib/replayLayers'
 import { replayContext } from '../lib/replayMatches'
 import { fetchPlayerNames } from '../lib/replayNames'
@@ -41,6 +42,8 @@ export function usePlaysStage(bundle: ReplayBundle | null | undefined): ReplaySt
   const [store] = useState(() => createValueStore<PlaysStageFrame | null>(null))
   const [named, setNamed] = useState<{ bundle: ReplayBundle; names: ReadonlyMap<string, string> } | null>(null)
   const [skin, setSkin] = useState<CanvasSkinId>(readSkin)
+  // A recalled strat over the round (§2.31), set from the Strats panel under the map.
+  const [overlay, setOverlay] = useState<PlayStep | null>(null)
   const pickSkin = useCallback((next: CanvasSkinId) => {
     setSkin(next)
     try {
@@ -87,10 +90,11 @@ export function usePlaysStage(bundle: ReplayBundle | null | undefined): ReplaySt
       open && bundle
         ? {
             show,
-            node: <ReplayPlaysStage bundle={bundle} open={open} names={names} store={store} skin={skin} />,
+            node: <ReplayPlaysStage bundle={bundle} open={open} names={names} store={store} skin={skin} overlay={overlay} />,
             controls: <SkinPicker skin={skin} onPick={pickSkin} buttonClass={SKIN_BUTTON} cycleKey={false} />,
+            setOverlay,
           }
         : null,
-    [open, show, bundle, names, store, skin, pickSkin],
+    [open, show, bundle, names, store, skin, pickSkin, overlay],
   )
 }

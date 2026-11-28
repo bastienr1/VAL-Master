@@ -1307,6 +1307,71 @@ browser received (nothing written to the database):
 Not checked: a saved card read back from the database. The parser test covers
 it.
 
+### 2.31 Strat recall: Strats under the review's map, drawn over the round, "Seen here"
+
+Step 3 of strategy mode (§2.29, §2.30): bring a strat back up on any round,
+compare it with what happens, and let it collect the rounds where its pattern
+came up.
+
+**The panel** (`StratRecallPanel`): under the map HUD of the review's Map tab
+and the report (`ReplayMinimap.recallPage`), above the round's kills. It is
+folded by default; its header reads "Strats · Bind attack 1".
+
+- **What it lists** (`recallStrats`, `src/lib/stratRecall.ts`, pure, tested):
+  - the user's plays on the same map (by Riot id, else by name) and the side the
+    owner played this round;
+  - only those carrying every picked tag, when tags are picked (the chips count
+    the candidates).
+- **Order:** marked seen on this round, then started from this round (`made
+  here`), then from this match (`this match`), then the most rounds seen, then
+  the latest edited.
+- **On each row:**
+  - the title, which opens the play;
+  - the badges;
+  - "n rounds";
+  - the "When you see…" line and the tags;
+  - **Show / Hide** and **Seen here**.
+
+**Show** draws the strat over the round as it plays. It uses the last step,
+which in a two-step strat is "The plan"; step chips pick another.
+
+- `PlayCanvas.overlay`: the step is built as its own scene, with ids prefixed
+  `recall:`. Its abilities, arrows, moves and agents are drawn inside the same
+  transformed svg, at 0.55 opacity, untouchable, under the round's own agents.
+  It follows the zoom and the pan.
+- To share their rendering, the arrows, moves and agent tiles became functions
+  of a list (`arrowsOf`, `pathsOf`, `tilesOf`).
+- Agents kept as seen in another match (§2.29) are left out (`recallOverlay`).
+- The overlay travels as `ReplayStage.setOverlay`, held by `usePlaysStage`. It
+  stays across rounds until hidden, and is cleared when the panel goes. A map
+  without the Plays stage (the old canvas) disables Show.
+
+**Seen here** writes a `strat_rounds` row: the play, the match, the round, the
+replay time on screen and the page (migration `20261128_strat_rounds.sql`).
+
+- The table is owner-only, and an insert has to name one of the owner's plays.
+- A row is unique per (play, match, round); deleting the play deletes its rows.
+- Pressing Seen here again removes the row.
+- While the table is missing, the panel, the editor's card and the library say
+  so (`MISSING_TABLE`) and Seen here is disabled.
+
+**Where it shows:**
+- **Editor:** the strat card gains **Seen in**: each round as a link to its page
+  at its moment, named by its match ("Bind · Nov 17 · R9", `roundLinkBack`, from
+  `replayMatchesResource`).
+- **Library:** each card shows "n rounds".
+
+**Checked** (2026-11-28, signed in, Bind 14-12, round 9, before the
+migration):
+- **The panel:** it listed the Bind attack strat as "this match" and showed the
+  missing-table line.
+- **Show:** drew 22 elements in a "Recalled strat" group at 0.55 opacity, step 3
+  "End" by default. Step chip 1 redrew it, Hide removed it, Show brought it back.
+- **The report:** the same panel, and no overlay left over from the review.
+- **The editor:** the card's Seen in showed the missing-table line.
+
+Not checked: a real Seen here (needs the table).
+
 ## 3. Document v2 (`src/lib/playDoc.ts`)
 
 ```ts

@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { Plus, X } from 'lucide-react'
 import { addTag, READ_MAX, removeTag, TAG_LENGTH, TAG_MAX, tagSuggestions, WHEN_MAX, type StratCard } from '../../lib/stratCard'
 
@@ -8,6 +9,10 @@ interface StratCardPanelProps {
   onCard(card: StratCard, key?: string): void
   /** Tags the user has used on other plays, most used first: offered while typing. */
   tagPool: string[]
+  /** The rounds this strat is marked as seen on (§2.31), as ways back. */
+  seenIn?: { to: string; label: string; title: string }[]
+  /** Why the rounds cannot be read (the table is missing), when they cannot. */
+  seenProblem?: string | null
 }
 
 const label = 'text-[10px] uppercase tracking-widest text-text-secondary'
@@ -19,7 +24,7 @@ const field = 'bg-bg-primary border border-bg-elevated rounded-lg text-sm focus:
  * that should bring it to mind, and what a teammate tends to do. The Plays
  * index filters on the tags and shows the line on the card.
  */
-export default function StratCardPanel({ card, onCard, tagPool }: StratCardPanelProps) {
+export default function StratCardPanel({ card, onCard, tagPool, seenIn = [], seenProblem = null }: StratCardPanelProps) {
   const [typed, setTyped] = useState('')
   const full = card.tags.length >= TAG_MAX
   const suggestions = full ? [] : tagSuggestions(tagPool, typed, card.tags)
@@ -112,6 +117,29 @@ export default function StratCardPanel({ card, onCard, tagPool }: StratCardPanel
           className={`${field} p-2.5 w-full`}
         />
       </label>
+
+      <div className="space-y-1">
+        <span className={label}>Seen in</span>
+        {seenIn.length > 0 ? (
+          <ul className="flex flex-wrap gap-1">
+            {seenIn.map(r => (
+              <li key={r.to}>
+                <Link
+                  to={r.to}
+                  title={r.title}
+                  className="inline-block text-[11px] px-1.5 py-0.5 rounded border border-bg-elevated text-text-secondary hover:text-val-cyan hover:border-val-cyan/40 transition-colors"
+                >
+                  {r.label} ↗
+                </Link>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-[11px] text-text-muted">
+            {seenProblem ?? 'No round yet. Mark it "Seen here" from the Strats list under a review’s map.'}
+          </p>
+        )}
+      </div>
     </section>
   )
 }

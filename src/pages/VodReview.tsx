@@ -911,6 +911,7 @@ export default function VodReview() {
               onSeek={seekToTimestamp}
               onNudge={handleNudgeSync}
               strategizeHref={strategizeHref}
+              recallPage="review"
               stage={playsStage}
             />
           )}

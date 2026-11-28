@@ -23,6 +23,8 @@ export interface ReplayStage {
   node: ReactNode
   controls?: ReactNode
   show: (replayMs: number, layers: Layers) => void
+  /** Draws a saved strat's step faded over the round (recall, docs/plays-editor-v2.md §2.31); null clears it. */
+  setOverlay?: (step: PlayStep | null) => void
 }
 
 /** What a bundle's frames are built from, made once per bundle. */
@@ -67,8 +69,10 @@ function readLook(): { sizes: CanvasSizes; showCallouts: boolean; showNames: boo
  * `store` (docs/plays-editor-v2.md §2.8). `usePlaysStage` owns the store and
  * hands this to the review minimap as its stage.
  */
-export default function ReplayPlaysStage({ bundle, open, names, store, skin }: {
+export default function ReplayPlaysStage({ bundle, open, names, store, skin, overlay = null }: {
   bundle: ReplayBundle
+  /** A recalled strat's step, drawn faded over the frame (§2.31). */
+  overlay?: PlayStep | null
   /** The canvas skin, picked under the map and shared with the Plays editor. */
   skin: CanvasSkinId
   open: PlaysStageSource
@@ -111,6 +115,7 @@ export default function ReplayPlaysStage({ bundle, open, names, store, skin }: {
         side={shown.layers.flip ? roundSide(shown.round) : 'attack'}
         step={shown.step}
         previous={null}
+        overlay={overlay}
         tool="select"
         pending={null}
         selectedId={null}

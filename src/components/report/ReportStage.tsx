@@ -158,6 +158,7 @@ function VideoStage({ bundle, video, matchId, handleRef, startAt = null }: Repor
             isPlaying={isPlaying}
             onSeek={onSeek}
             strategizeHref={playsHref}
+            recallPage="report"
             stage={playsStage}
           />
         </div>
@@ -250,6 +251,7 @@ function ClockStage({ bundle, matchId, handleRef, startAt = null }: ReportStageP
         isPlaying={clock.isPlaying}
         onSeek={clock.seekSeconds}
         strategizeHref={playsHref}
+        recallPage="report"
         stage={playsStage}
       />
     </div>

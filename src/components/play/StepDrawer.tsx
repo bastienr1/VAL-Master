@@ -37,6 +37,9 @@ interface StepDrawerProps {
   onCard(card: StratCard, key?: string): void
   /** Tags used on the user's other plays, most used first. */
   tagPool: string[]
+  /** The rounds the strat is marked as seen on (§2.31). */
+  seenIn: { to: string; label: string; title: string }[]
+  seenProblem: string | null
 }
 
 const label = 'text-[10px] uppercase tracking-widest text-text-secondary'
@@ -106,7 +109,7 @@ export default function StepDrawer(props: StepDrawerProps) {
         </div>
       )}
 
-      {!props.isEmpty && <StratCardPanel card={props.card} onCard={props.onCard} tagPool={props.tagPool} />}
+      {!props.isEmpty && <StratCardPanel card={props.card} onCard={props.onCard} tagPool={props.tagPool} seenIn={props.seenIn} seenProblem={props.seenProblem} />}
 
       {step && (
         <section className={sectionClass}>

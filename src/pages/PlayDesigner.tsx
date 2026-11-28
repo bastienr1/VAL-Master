@@ -71,6 +71,9 @@ import { getReplayReview, type ReplayReview } from '../lib/replayVod'
 import { fetchPlayerNames } from '../lib/replayNames'
 import { originBack, parseReplayTime, parseStratPage } from '../lib/strategyLink'
 import { EMPTY_CARD, isEmptyCard, parseStratCard, tagCounts, type StratCard } from '../lib/stratCard'
+import { roundLinkBack, roundsOf } from '../lib/stratRecall'
+import { stratRoundsResource } from '../lib/stratRounds'
+import { replayMatchesResource } from '../lib/replayMatches'
 import { useResource } from '../hooks/useResource'
 import type { ReplayPlay } from '../lib/replayToPlay'
 import type { PlaySide } from '../lib/types'
@@ -682,6 +685,9 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
   // Tags on the user's plays, offered on the strat card (§2.30); this play's own included, which is harmless.
   const { data: allPlays } = useResource(playsResource)
   const tagPool = tagCounts((allPlays ?? []).map(p => parseStratCard(p.play?.card))).map(t => t.tag)
+  // The rounds this strat is marked as seen on (§2.31), named by their matches.
+  const { data: stratLinks, error: stratLinksError } = useResource(stratRoundsResource)
+  const { data: replayMatches } = useResource(replayMatchesResource)
   const map = mapPick || (loadId ? '' : (mapNames[0] ?? ''))
   const gameMap = map ? registry?.maps.byName.get(map.trim().toLowerCase()) : undefined
   const mapDrawable = Boolean(gameMap?.transform && gameMap.callouts.length > 0)
@@ -2030,6 +2036,12 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
               card={doc.card ?? EMPTY_CARD}
               onCard={setCard}
               tagPool={tagPool}
+              seenIn={
+                savedId
+                  ? roundsOf(stratLinks ?? [], savedId).map(l => roundLinkBack(l, (replayMatches ?? []).find(m => m.matchId === l.match_id) ?? null))
+                  : []
+              }
+              seenProblem={stratLinksError}
             />
           )}
         </aside>

@@ -9,6 +9,7 @@ import { parseOrigin } from '../lib/playDoc'
 import { playsResource } from '../lib/plays'
 import { originBack } from '../lib/strategyLink'
 import { hasTags, parseStratCard, tagCounts, type StratCard } from '../lib/stratCard'
+import { stratRoundsResource } from '../lib/stratRounds'
 import type { Play, PlaySide } from '../lib/types'
 
 const SIDE_CHIPS: Record<PlaySide, { label: string; className: string }> = {
@@ -44,7 +45,7 @@ function originOf(play: Play) {
  * behind a scrim, the "When you see…" line, its tags, and the round it came
  * from. The whole card opens the play; the round link sits above it.
  */
-function PlayCard({ play, card }: { play: Play; card: StratCard | null }) {
+function PlayCard({ play, card, rounds }: { play: Play; card: StratCard | null; rounds: number }) {
   const image = mapImageFor({ map_id: play.map_uuid, map: play.map })
   const side = SIDE_CHIPS[play.side]
   // Names the registry does not know are skipped: no broken icon for a typo.
@@ -113,7 +114,12 @@ function PlayCard({ play, card }: { play: Play; card: StratCard | null }) {
             </span>
           ))}
           {tags.length > CARD_TAGS && <span className="text-[10px] text-text-muted">+{tags.length - CARD_TAGS}</span>}
-          <span className="font-stats text-[11px] text-text-muted ml-auto shrink-0">{shortDate(play.updated_at)}</span>
+          {rounds > 0 && (
+            <span className="text-[11px] text-text-secondary ml-auto shrink-0" title="Rounds it is marked as seen on">
+              {rounds} round{rounds === 1 ? '' : 's'}
+            </span>
+          )}
+          <span className={`font-stats text-[11px] text-text-muted shrink-0 ${rounds > 0 ? '' : 'ml-auto'}`}>{shortDate(play.updated_at)}</span>
           {back && (
             <Link
               to={back.to}
@@ -160,6 +166,10 @@ export default function PlaysIndex() {
   const tagPicks = params.getAll('tag')
 
   const all = useMemo(() => data ?? [], [data])
+  // How many rounds each strat is marked as seen on (§2.31); none while the table is missing.
+  const { data: links } = useResource(stratRoundsResource)
+  const roundCounts = new Map<string, number>()
+  for (const l of links ?? []) roundCounts.set(l.play_id, (roundCounts.get(l.play_id) ?? 0) + 1)
   const cards = useMemo(() => new Map(all.map(p => [p.id, parseStratCard(p.play?.card)])), [all])
   const maps = useMemo(() => [...new Set(all.map(p => p.map))].sort((a, b) => a.localeCompare(b)), [all])
   const onMapAndSide = all.filter(p => (!mapPick || p.map === mapPick) && (!sidePick || p.side === sidePick))
@@ -288,7 +298,7 @@ export default function PlaysIndex() {
             <h2 className="font-heading text-xl font-bold">{map}</h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {plays.map(p => (
-                <PlayCard key={p.id} play={p} card={cards.get(p.id) ?? null} />
+                <PlayCard key={p.id} play={p} card={cards.get(p.id) ?? null} rounds={roundCounts.get(p.id) ?? 0} />
               ))}
             </div>
           </section>

@@ -28,6 +28,8 @@ import {
 
 import { LAYERS, readLayers, writeLayers, type LayerKey, type Layers } from '../lib/replayLayers'
 import type { ReplayStage } from './ReplayPlaysStage'
+import StratRecallPanel from './StratRecallPanel'
+import type { OriginPage } from '../lib/playDoc'
 
 interface ReplayMinimapProps {
   bundle: ReplayBundle
@@ -50,6 +52,11 @@ interface ReplayMinimapProps {
    * the HUD has the button. Keep it stable: this component is memoized.
    */
   strategizeHref?: (round: number, replayMs: number) => string
+  /**
+   * The page the map is on: when given, the Strats panel lists the user's
+   * strats for this round, draws one over the map and marks it seen here (§2.31).
+   */
+  recallPage?: OriginPage
   /**
    * Draws the map in place of this component's own canvas (the Plays replay
    * map, `usePlaysStage`). The clock, the rounds, the kills and the layer
@@ -334,6 +341,7 @@ function ReplayMinimap({
   onSeek,
   onNudge,
   strategizeHref,
+  recallPage,
   stage = null,
 }: ReplayMinimapProps) {
   const frameRef = useRef<HTMLDivElement>(null)
@@ -628,6 +636,18 @@ function ReplayMinimap({
         )}
         {nudgeProblem && <p className="text-[10px] text-val-red">{nudgeProblem}</p>}
       </div>
+
+      {recallPage && map && (
+        <StratRecallPanel
+          matchId={bundle.match.matchId}
+          round={round}
+          mapName={map.name}
+          mapUuid={bundle.match.mapUuid ?? null}
+          page={recallPage}
+          getMs={() => shownMs.current ?? replayAnchorMs(bundle) ?? 0}
+          onOverlay={stage?.setOverlay}
+        />
+      )}
 
       <div className="bg-bg-card border border-bg-elevated rounded-lg px-3 py-2">
         <div className="text-[10px] text-text-muted uppercase tracking-wider mb-1">Kills · round {round.n}</div>
