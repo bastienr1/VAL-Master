@@ -3,6 +3,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { ChevronRight, Clapperboard, Image as ImageIcon, Map as MapIcon, Plus } from 'lucide-react'
 import ArtSlot from '../components/ArtSlot'
 import EmptyLine from '../components/EmptyLine'
+import LineupsHeader from '../components/lineups/LineupsHeader'
 import PurposeChips from '../components/PurposeChips'
 import { useGameContent } from '../hooks/useGameContent'
 import { mapSlotKey } from '../lib/artSlots'
@@ -151,34 +152,31 @@ export default function LineupLibrary() {
   const empty = !!state && !state.tableMissing && rows.length === 0
 
   return (
-    <div className="max-w-6xl mx-auto space-y-6">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <Link to="/plays" className="text-sm text-text-secondary hover:text-val-cyan transition-colors">
-            ← Plays
-          </Link>
-          <h1 className="font-heading text-3xl font-bold">Line-ups</h1>
-          <p className="text-text-secondary text-sm">
-            {rows.length > 0 ? `${count(rows.length)} on ${tree.length} ${tree.length === 1 ? 'map' : 'maps'}. Pick a map, then an agent, then a side.` : 'Your library: by map, by agent, by side'}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Link
-            to={boardLink({ ...pick, purpose })}
-            className="inline-flex items-center gap-2 px-3 py-1.5 bg-bg-card text-text-primary border border-bg-elevated rounded-lg hover:border-val-cyan/50 hover:text-val-cyan transition-colors whitespace-nowrap"
-          >
-            <MapIcon className="w-4 h-4" />
-            <span className="text-sm font-medium">{pick.map ? `Open ${pick.map} on the board` : 'Open the board'}</span>
-          </Link>
-          <Link
-            to={boardLink({ ...pick, purpose, fresh: true })}
-            className="inline-flex items-center gap-2 px-3 py-1.5 bg-val-cyan/10 text-val-cyan border border-val-cyan/25 rounded-lg hover:bg-val-cyan/20 transition-colors whitespace-nowrap"
-          >
-            <Plus className="w-4 h-4" />
-            <span className="text-sm font-medium">New line-up</span>
-          </Link>
-        </div>
-      </div>
+    <div className="max-w-[1600px] mx-auto space-y-6">
+      <LineupsHeader
+        back={{ to: '/plays', label: '← Plays' }}
+        right={
+          <>
+            <span className="text-text-secondary text-sm mr-1">
+              {rows.length > 0 ? `${count(rows.length)} on ${tree.length} ${tree.length === 1 ? 'map' : 'maps'}` : 'By map, by agent, by side'}
+            </span>
+            <Link
+              to={boardLink({ ...pick, purpose })}
+              className="inline-flex items-center gap-2 px-3 py-1.5 bg-bg-card text-text-primary border border-bg-elevated rounded-lg hover:border-val-cyan/50 hover:text-val-cyan transition-colors whitespace-nowrap"
+            >
+              <MapIcon className="w-4 h-4" />
+              <span className="text-sm font-medium">{pick.map ? `Open ${pick.map} on the board` : 'Open the board'}</span>
+            </Link>
+            <Link
+              to={boardLink({ ...pick, purpose, fresh: true })}
+              className="inline-flex items-center gap-2 px-3 py-1.5 bg-val-cyan/10 text-val-cyan border border-val-cyan/25 rounded-lg hover:bg-val-cyan/20 transition-colors whitespace-nowrap"
+            >
+              <Plus className="w-4 h-4" />
+              <span className="text-sm font-medium">New line-up</span>
+            </Link>
+          </>
+        }
+      />
 
       {state?.tableMissing && (
         <div className="border border-val-yellow/30 bg-val-yellow/10 text-sm rounded-md px-3 py-2">

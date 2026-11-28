@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
-import { ImagePlus, Trash2, X } from 'lucide-react'
+import { CalendarCheck, Check, Crosshair, Ellipsis, ImagePlus, Layers, MousePointerClick, Move, Pencil, PersonStanding, Trash2, X } from 'lucide-react'
 import {
   CLICK_LABELS,
   IMAGE_SLOT_LABELS,
@@ -66,15 +66,17 @@ function DraftField({ value, onCommit, placeholder, area, label }: {
 }
 
 /** One choice of a few, or none: pressing the chosen one again clears it. */
-function Chips<T extends string | number>({ label, options, value, onPick }: {
+function Chips<T extends string | number>({ label, options, value, onPick, bare = false }: {
   label: string
+  /** Without its label above: the section's title already says it. */
+  bare?: boolean
   options: ReadonlyArray<{ value: T; label: string }>
   value: T | null
   onPick(value: T | null): void
 }) {
   return (
     <div className="space-y-1">
-      <div className={LABEL}>{label}</div>
+      {!bare && <div className={LABEL}>{label}</div>}
       <div className="flex flex-wrap gap-1" role="group" aria-label={label}>
         {options.map(option => {
           const on = option.value === value
@@ -115,13 +117,43 @@ export interface LineupCardProps {
   onClose(): void
   /** How the last save went, shown beside the line-up's facts: there is no Save button. */
   status?: ReactNode
+  /** Open with the fields to fill in rather than as a read view: a line-up just made. */
+  startEditing?: boolean
+}
+
+/** A date as the table keeps it (YYYY-MM-DD), the way this browser writes dates. */
+const shownDate = (iso: string | null) => {
+  const m = iso ? /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso) : null
+  return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])).toLocaleDateString() : null
+}
+
+/** One part of the recipe in the read view: what it is, and what it is for this line-up. */
+function RecipeTile({ icon: Icon, label, value }: { icon: typeof Move; label: string; value: string | null }) {
+  return (
+    <div className="rounded-lg border border-bg-elevated bg-bg-primary/60 p-2.5 space-y-2 min-w-0">
+      <div className="flex items-center gap-1.5 text-xs text-text-secondary">
+        <Icon className="w-4 h-4 shrink-0" aria-hidden="true" />
+        <span className="truncate">{label}</span>
+      </div>
+      <div
+        className={`text-center text-xs rounded-md border px-2 py-1 truncate ${
+          value ? 'border-val-cyan/50 bg-val-cyan/10 text-val-cyan' : 'border-bg-elevated text-text-muted'
+        }`}
+      >
+        {value ?? 'Not set'}
+      </div>
+    </div>
+  )
 }
 
 /**
  * One line-up, open: its three pictures (paste, drop or pick), its clip, how
  * it is thrown and what it is for. Every field saves as it is left.
  */
-export default function LineupCard({ lineup, ability, agentIcon, onPatch, onImage, onClearImage, onDelete, onClose, status }: LineupCardProps) {
+export default function LineupCard({ lineup, ability, agentIcon, onPatch, onImage, onClearImage, onDelete, onClose, status, startEditing = false }: LineupCardProps) {
+  /** The card reads as the line-up; Edit opens its fields. */
+  const [editing, setEditing] = useState(startEditing)
+  const [menu, setMenu] = useState(false)
   const paths = LINEUP_IMAGE_SLOTS.map(slot => lineup[imageColumn(slot)])
   const firstEmpty = LINEUP_IMAGE_SLOTS.find((_, i) => !paths[i]) ?? null
   /** The slot a pasted picture goes to: the one last pressed, else the first empty one. */
@@ -154,13 +186,13 @@ export default function LineupCard({ lineup, ability, agentIcon, onPatch, onImag
   useEffect(() => {
     const onPaste = (e: ClipboardEvent) => {
       const file = [...(e.clipboardData?.files ?? [])].find(f => f.type.startsWith('image/'))
-      if (!file || !target) return
+      if (!file || !target || !editing) return
       e.preventDefault()
       void store(target, file)
     }
     window.addEventListener('paste', onPaste)
     return () => window.removeEventListener('paste', onPaste)
-  }, [store, target])
+  }, [store, target, editing])
 
   // The big picture: arrows step through the three, Escape closes it.
   useEffect(() => {
@@ -180,6 +212,26 @@ export default function LineupCard({ lineup, ability, agentIcon, onPatch, onImag
     return () => window.removeEventListener('keydown', onKey, true)
   }, [viewing, lineup])
 
+  const menuBox = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!menu) return
+    const onDown = (e: PointerEvent) => {
+      if (menuBox.current && !menuBox.current.contains(e.target as Node)) setMenu(false)
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation()
+        setMenu(false)
+      }
+    }
+    window.addEventListener('pointerdown', onDown)
+    window.addEventListener('keydown', onKey, true)
+    return () => {
+      window.removeEventListener('pointerdown', onDown)
+      window.removeEventListener('keydown', onKey, true)
+    }
+  }, [menu])
+
   const browse = (slot: LineupImageSlot) => {
     pickFor.current = slot
     picker.current?.click()
@@ -195,15 +247,37 @@ export default function LineupCard({ lineup, ability, agentIcon, onPatch, onImag
     </section>
   )
 
+  const recipeExtra = [
+    lineup.bounces !== null ? (lineup.bounces === 0 ? 'No bounce' : `${lineup.bounces} ${lineup.bounces === 1 ? 'bounce' : 'bounces'}`) : null,
+    lineup.charge !== null ? `${lineup.charge} ${lineup.charge === 1 ? 'charge bar' : 'charge bars'}` : null,
+  ].filter(Boolean)
+
   return (
-    <div className="bg-bg-card border border-bg-elevated rounded-xl p-4 space-y-5" data-lineup-card={lineup.id}>
+    <div data-lineup-card={lineup.id} data-editing={editing}>
+      {/* The card's tabs: the line-up's details, and (not built yet) its flashcards. */}
+      <div className="flex">
+        <span className="inline-flex items-center gap-2 px-4 py-2 rounded-t-xl border border-b-0 border-val-red/50 bg-val-red/10 font-heading font-semibold">
+          <Crosshair className="w-4 h-4 text-val-red" aria-hidden="true" />
+          Details
+        </span>
+        <span aria-disabled="true" title="Not built yet" className="inline-flex items-center gap-2 px-4 py-2 font-heading font-semibold text-text-muted cursor-default">
+          <Layers className="w-4 h-4" aria-hidden="true" />
+          Flashcards
+          <span className="text-[10px] font-sans font-normal uppercase tracking-wider opacity-70">Soon</span>
+        </span>
+      </div>
+    <div className="bg-bg-card border border-bg-elevated rounded-xl rounded-tl-none p-4 space-y-5">
       <div className="flex items-start gap-3">
-        <div className="relative shrink-0 w-11 h-11 rounded-lg bg-bg-elevated flex items-center justify-center">
+        <div className="relative shrink-0 w-12 h-12 rounded-lg bg-bg-elevated flex items-center justify-center">
           {ability.icon ? <img src={ability.icon} alt="" className="w-7 h-7 object-contain" /> : null}
           {agentIcon && <img src={agentIcon} alt="" className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-bg-primary border border-bg-elevated object-cover" />}
         </div>
         <div className="min-w-0 flex-1 space-y-1">
-          <DraftField key={lineup.id} label="Name" value={lineup.title} onCommit={title => title.trim() && onPatch({ title: title.trim() })} />
+          {editing ? (
+            <DraftField key={lineup.id} label="Name" value={lineup.title} onCommit={title => title.trim() && onPatch({ title: title.trim() })} />
+          ) : (
+            <h2 className="font-heading font-bold text-xl leading-tight">{lineup.title}</h2>
+          )}
           <div className="flex items-center justify-between gap-2 text-xs text-text-muted">
             <span className="min-w-0 truncate">
               {lineup.agent} · {ability.name} · {lineup.map} · {lineup.side === 'attack' ? 'Attack' : 'Defense'}
@@ -211,10 +285,62 @@ export default function LineupCard({ lineup, ability, agentIcon, onPatch, onImag
             {status}
           </div>
         </div>
+        <div ref={menuBox} className="relative shrink-0">
+          <button
+            type="button"
+            aria-label="More"
+            aria-haspopup="menu"
+            aria-expanded={menu}
+            onClick={() => setMenu(m => !m)}
+            className="p-1.5 rounded-md text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors"
+          >
+            <Ellipsis className="w-4 h-4" />
+          </button>
+          {menu && (
+            <div role="menu" className="absolute z-30 right-0 mt-1 w-44 rounded-lg border border-bg-elevated bg-bg-card shadow-xl p-1">
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setEditing(e => !e)
+                  setMenu(false)
+                }}
+                className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-sm text-left hover:bg-bg-elevated transition-colors"
+              >
+                {editing ? <Check className="w-4 h-4" /> : <Pencil className="w-4 h-4" />}
+                {editing ? 'Done editing' : 'Edit'}
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setConfirming(true)
+                  setMenu(false)
+                }}
+                className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-sm text-left text-val-red hover:bg-val-red/10 transition-colors"
+              >
+                <Trash2 className="w-4 h-4" />
+                Delete…
+              </button>
+            </div>
+          )}
+        </div>
         <button type="button" onClick={onClose} aria-label="Close" className="shrink-0 p-1.5 rounded-md text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors">
           <X className="w-4 h-4" />
         </button>
       </div>
+
+      {confirming && (
+        <div className="flex flex-wrap items-center gap-2 text-xs rounded-lg border border-val-red/30 bg-val-red/10 px-3 py-2">
+          <span className="text-text-secondary">Delete this line-up and its pictures?</span>
+          <button type="button" onClick={onDelete} className="px-2 py-1 rounded-md bg-val-red/15 text-val-red border border-val-red/30 hover:bg-val-red/25 transition-colors">
+            Delete
+          </button>
+          <button type="button" onClick={() => setConfirming(false)} className="px-2 py-1 rounded-md text-text-secondary hover:text-text-primary transition-colors">
+            Keep
+          </button>
+        </div>
+      )}
 
       {section(
         'Pictures',
@@ -222,12 +348,12 @@ export default function LineupCard({ lineup, ability, agentIcon, onPatch, onImag
           <div className="grid grid-cols-3 gap-2">
             {LINEUP_IMAGE_SLOTS.map((slot, i) => {
               const path = paths[i]
-              const isTarget = target === slot
+              const isTarget = editing && target === slot
               return (
                 <div key={slot} className="space-y-1 min-w-0">
                   <div className="flex items-baseline justify-between gap-1">
                     <span className={LABEL}>{IMAGE_SLOT_LABELS[slot].title}</span>
-                    {path && (
+                    {path && editing && (
                       <button type="button" onClick={() => void onClearImage(slot).catch(err => setProblem(err instanceof Error ? err.message : 'Could not remove it.'))} className="text-[10px] text-text-muted hover:text-val-red transition-colors">
                         Remove
                       </button>
@@ -236,11 +362,12 @@ export default function LineupCard({ lineup, ability, agentIcon, onPatch, onImag
                   <button
                     type="button"
                     aria-label={path ? `${IMAGE_SLOT_LABELS[slot].title} picture: open` : `${IMAGE_SLOT_LABELS[slot].title} picture: empty`}
-                    onClick={() => (path ? setViewing(slot) : setArmed(slot))}
-                    onDoubleClick={() => !path && browse(slot)}
+                    onClick={() => (path ? setViewing(slot) : editing && setArmed(slot))}
+                    onDoubleClick={() => !path && editing && browse(slot)}
                     onDragOver={e => e.preventDefault()}
                     onDrop={e => {
                       e.preventDefault()
+                      if (!editing) return
                       const file = [...e.dataTransfer.files].find(f => f.type.startsWith('image/'))
                       if (file) void store(slot, file)
                     }}
@@ -253,19 +380,21 @@ export default function LineupCard({ lineup, ability, agentIcon, onPatch, onImag
                     ) : (
                       <span className="absolute inset-0 flex flex-col items-center justify-center gap-1 px-1 text-center text-[10px] leading-tight text-text-muted">
                         <ImagePlus className="w-4 h-4" aria-hidden="true" />
-                        {busy === slot ? 'Saving…' : isTarget ? 'Ctrl+V to paste here' : IMAGE_SLOT_LABELS[slot].hint}
+                        {busy === slot ? 'Saving…' : !editing ? 'No picture' : isTarget ? 'Ctrl+V to paste here' : IMAGE_SLOT_LABELS[slot].hint}
                       </span>
                     )}
                     {busy === slot && path && <span className="absolute inset-0 bg-bg-primary/70 flex items-center justify-center text-[10px] text-text-secondary">Saving…</span>}
                   </button>
-                  <button type="button" onClick={() => browse(slot)} className="text-[10px] text-text-muted hover:text-val-cyan transition-colors">
-                    {path ? 'Replace' : 'Browse'}
-                  </button>
+                  {editing && (
+                    <button type="button" onClick={() => browse(slot)} className="text-[10px] text-text-muted hover:text-val-cyan transition-colors">
+                      {path ? 'Replace' : 'Browse'}
+                    </button>
+                  )}
                 </div>
               )
             })}
           </div>
-          <p className="text-[11px] text-text-muted">Paste a screenshot with Ctrl+V: it goes to the highlighted slot. You can also drop a file on a slot.</p>
+          {editing && <p className="text-[11px] text-text-muted">Paste a screenshot with Ctrl+V: it goes to the highlighted slot. You can also drop a file on a slot.</p>}
           {problem && <p className="text-xs text-val-red">{problem}</p>}
           <input
             ref={picker}
@@ -281,6 +410,53 @@ export default function LineupCard({ lineup, ability, agentIcon, onPatch, onImag
         </>,
       )}
 
+      {!editing && (
+        <>
+          {section(
+            'How to throw it',
+            <div className="space-y-2">
+              <div className="grid grid-cols-3 gap-2">
+                <RecipeTile icon={PersonStanding} label="Stance" value={lineup.stance ? STANCE_LABELS[lineup.stance] : null} />
+                <RecipeTile icon={Move} label="Movement" value={lineup.movement ? MOVEMENT_LABELS[lineup.movement] : null} />
+                <RecipeTile icon={MousePointerClick} label="Click" value={lineup.click ? CLICK_LABELS[lineup.click] : null} />
+              </div>
+              {recipeExtra.length > 0 && <p className="text-xs text-text-secondary">{recipeExtra.join(' · ')}</p>}
+            </div>,
+          )}
+          {section(
+            'Purpose',
+            <div className="space-y-3">
+              <Chips bare label="Purpose" options={LINEUP_PURPOSES.map(value => ({ value, label: PURPOSE_LABELS[value] }))} value={lineup.purpose} onPick={purpose => onPatch({ purpose })} />
+              {lineup.note.trim() && <p className="rounded-lg border border-bg-elevated bg-bg-primary/60 px-3 py-2.5 text-sm text-text-secondary whitespace-pre-line">{lineup.note}</p>}
+            </div>,
+          )}
+          {clip && section(
+            'Clip',
+            <div className="aspect-video rounded-lg overflow-hidden border border-bg-elevated bg-black">
+              <iframe key={clip} src={clip} title={`${lineup.title}: clip`} allow="accelerometer; encrypted-media; picture-in-picture" allowFullScreen className="w-full h-full" />
+            </div>,
+          )}
+          <div className="grid grid-cols-2 border-t border-bg-elevated pt-3">
+            <div className="flex items-center gap-2.5 pr-3">
+              <Crosshair className="w-5 h-5 text-text-secondary shrink-0" aria-hidden="true" />
+              <div className="leading-tight">
+                <div className={LABEL}>Patch</div>
+                <div className="font-stats text-sm">{lineup.patch ?? '—'}</div>
+              </div>
+            </div>
+            <div className="flex items-center gap-2.5 pl-3 border-l border-bg-elevated">
+              <CalendarCheck className="w-5 h-5 text-text-secondary shrink-0" aria-hidden="true" />
+              <div className="leading-tight">
+                <div className={LABEL}>Checked</div>
+                <div className="font-stats text-sm">{shownDate(lineup.verified_on) ?? '—'}</div>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
+      {editing && (
+        <>
       {section(
         'How to throw it',
         <div className="space-y-3">
@@ -350,24 +526,19 @@ export default function LineupCard({ lineup, ability, agentIcon, onPatch, onImag
         </div>,
       )}
 
-      <div className="pt-1 border-t border-bg-elevated flex items-center justify-between gap-2">
-        {confirming ? (
-          <div className="flex items-center gap-2 text-xs">
-            <span className="text-text-secondary">Delete this line-up and its pictures?</span>
-            <button type="button" onClick={onDelete} className="px-2 py-1 rounded-md bg-val-red/15 text-val-red border border-val-red/30 hover:bg-val-red/25 transition-colors">
-              Delete
-            </button>
-            <button type="button" onClick={() => setConfirming(false)} className="px-2 py-1 rounded-md text-text-secondary hover:text-text-primary transition-colors">
-              Keep
-            </button>
-          </div>
-        ) : (
-          <button type="button" onClick={() => setConfirming(true)} className="inline-flex items-center gap-1.5 text-xs text-text-muted hover:text-val-red transition-colors mt-2">
-            <Trash2 className="w-3.5 h-3.5" />
-            Delete
-          </button>
-        )}
-      </div>
+        </>
+      )}
+
+      <button
+        type="button"
+        onClick={() => setEditing(e => !e)}
+        className={`w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg font-heading font-bold text-lg transition-colors ${
+          editing ? 'bg-bg-elevated text-text-primary hover:bg-bg-elevated/70' : 'bg-val-cyan text-bg-primary hover:bg-val-cyan/85'
+        }`}
+      >
+        {editing ? <Check className="w-5 h-5" /> : <Pencil className="w-5 h-5" />}
+        {editing ? 'Done' : 'Edit'}
+      </button>
 
       {viewing && viewingPath && (
         <div role="dialog" aria-label={`${IMAGE_SLOT_LABELS[viewing].title} picture`} onClick={() => setViewing(null)} className="fixed inset-0 z-50 bg-black/90 flex flex-col items-center justify-center gap-3 p-6 cursor-zoom-out">
@@ -377,6 +548,7 @@ export default function LineupCard({ lineup, ability, agentIcon, onPatch, onImag
           </div>
         </div>
       )}
+    </div>
     </div>
   )
 }
