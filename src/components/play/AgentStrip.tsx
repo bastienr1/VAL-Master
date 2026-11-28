@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, type ReactNode } from 'react'
 import { agentGradientCss, type GameAgent } from '../../lib/gameContent'
 import type { Team } from '../../lib/playDoc'
 
@@ -22,6 +22,8 @@ interface AgentStripProps {
   hint: string | null
   /** False while there is no map to place on. */
   enabled: boolean
+  /** Beside the team switch: the Line-ups button (§2.32). */
+  extra?: ReactNode
 }
 
 const ROLES: AgentRole[] = ['Duelist', 'Initiator', 'Controller', 'Sentinel']
@@ -116,6 +118,7 @@ export default function AgentStrip(props: AgentStripProps) {
 
       <div className="flex items-center gap-2 shrink-0">
         {hint && <span role="status" className="text-[11px] text-val-yellow whitespace-nowrap">{hint}</span>}
+        {props.extra}
         <div role="group" aria-label="Team" className="inline-flex rounded-md border border-bg-elevated p-0.5">
           {TEAMS.map(t => (
             <button

@@ -26,7 +26,7 @@ function NewPlayButton() {
       className="inline-flex items-center gap-2 px-3 py-1.5 bg-val-cyan/10 text-val-cyan border border-val-cyan/25 rounded-lg hover:bg-val-cyan/20 transition-colors whitespace-nowrap"
     >
       <Plus className="w-4 h-4" />
-      <span className="text-sm font-medium">New play</span>
+      <span className="text-sm font-medium">New strat</span>
     </Link>
   )
 }
@@ -204,9 +204,9 @@ export default function PlaysIndex() {
     <div className="max-w-6xl mx-auto space-y-6">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="font-heading text-3xl font-bold">Plays</h1>
+          <h1 className="font-heading text-3xl font-bold">Strategizer</h1>
           <div className="flex items-baseline gap-3">
-            <p className="text-text-secondary text-sm">Your set plays and strats, drawn on the map</p>
+            <p className="text-text-secondary text-sm">Your strats, drawn on the map</p>
             <Link to="/playbook" className="text-sm text-text-secondary hover:text-val-cyan transition-colors">
               Guides →
             </Link>
@@ -226,12 +226,12 @@ export default function PlaysIndex() {
 
       {error && (
         <div className="border border-val-red/25 bg-val-red/10 text-val-red text-sm rounded-md px-3 py-2">
-          Couldn't load plays: {error}
+          Couldn't load your strats: {error}
         </div>
       )}
 
       {all.length > 0 && (
-        <div className="space-y-2" role="search" aria-label="Filter the plays">
+        <div className="space-y-2" role="search" aria-label="Filter the strats">
           <div className="flex flex-wrap items-center gap-2">
             <select
               value={mapPick ?? ''}
@@ -305,12 +305,12 @@ export default function PlaysIndex() {
         ))
       ) : filtered ? (
         <EmptyLine>
-          <p>No play matches these filters.</p>
+          <p>No strat matches these filters.</p>
         </EmptyLine>
       ) : (
         !error && (
           <EmptyLine>
-            <p>Build your first play: place agents and abilities on the map, or start from one of your replays.</p>
+            <p>Build your first strat: place agents and abilities on the map, or start from one of your replays.</p>
             <div className="mt-4">
               <NewPlayButton />
             </div>

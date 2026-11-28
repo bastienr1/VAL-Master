@@ -574,7 +574,7 @@ function ReplayMinimap({
             <button
               type="button"
               onClick={() => navigate(strategizeHref(round.n, shownMs.current ?? replayAnchorMs(bundle) ?? 0))}
-              title={`Plan this moment of round ${round.n} in Plays: where everyone is now stays as step 1`}
+              title={`Plan this moment of round ${round.n} in the Strategizer: where everyone is now stays as step 1`}
               className="text-[10px] font-semibold text-val-cyan border border-val-cyan/25 bg-val-cyan/10 hover:bg-val-cyan/20 rounded px-1.5 py-0.5 transition-colors whitespace-nowrap"
             >
               Strategize
@@ -686,7 +686,7 @@ function ReplayMinimap({
 
       <p className="text-[10px] text-text-muted px-1">
         {stage
-          ? 'The wheel zooms the map and a drag moves it. The skin you pick here is the one Plays uses too.'
+          ? 'The wheel zooms the map and a drag moves it. The skin you pick here is the one the Strategizer uses too.'
           : 'Smoke and utility sizes are approximate: the replay records where and how long, not how big.'}
       </p>
     </div>

@@ -93,8 +93,8 @@ export default function EditorToolbar(props: EditorToolbarProps) {
     <div className="h-11 shrink-0 flex items-center gap-2 px-3 border-b border-bg-elevated bg-bg-secondary min-w-0">
       <Link
         to="/plays"
-        aria-label="Back to plays"
-        title="Back to plays"
+        aria-label="Back to the Strategizer"
+        title="Back to the Strategizer"
         className="text-text-secondary hover:text-val-cyan transition-colors shrink-0"
       >
         <ArrowLeft className="w-4 h-4" />
@@ -103,7 +103,7 @@ export default function EditorToolbar(props: EditorToolbarProps) {
         value={title}
         onChange={e => props.onTitle(e.target.value)}
         onFocus={e => e.target.select()}
-        aria-label="Play title"
+        aria-label="Strat title"
         className="font-heading text-lg font-bold bg-transparent border-b border-transparent focus:border-val-cyan outline-none min-w-0 flex-1 max-w-md truncate"
       />
       <div className="hidden sm:flex items-center gap-1.5 shrink-0">
@@ -149,7 +149,7 @@ export default function EditorToolbar(props: EditorToolbarProps) {
             type="button"
             onClick={props.onOpenReplay}
             disabled={props.openingReplay}
-            title="Open the match this play was captured from"
+            title="Open the match this strat was captured from"
             className={`${toggle(false)} disabled:opacity-50 disabled:pointer-events-none`}
           >
             {props.openingReplay ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Film className="w-3.5 h-3.5" />}
@@ -288,7 +288,7 @@ function OverflowMenu({ onDelete }: { onDelete(): Promise<boolean> }) {
         <div className="absolute right-0 top-full mt-1 z-30 w-52 rounded-lg border border-bg-elevated bg-bg-card shadow-lg p-1">
           {confirming ? (
             <div className="px-2 py-1.5 space-y-2">
-              <p className="text-sm text-text-secondary">Delete this play?</p>
+              <p className="text-sm text-text-secondary">Delete this strat?</p>
               <div className="flex items-center gap-2">
                 <button
                   type="button"

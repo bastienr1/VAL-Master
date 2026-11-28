@@ -154,7 +154,7 @@ export default function LineupLibrary() {
   return (
     <div className="max-w-[1600px] mx-auto space-y-6">
       <LineupsHeader
-        back={{ to: '/plays', label: '← Plays' }}
+        back={{ to: '/plays', label: '← Strategizer' }}
         right={
           <>
             <span className="text-text-secondary text-sm mr-1">

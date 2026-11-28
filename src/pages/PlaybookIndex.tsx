@@ -75,7 +75,7 @@ export default function PlaybookIndex() {
           <div className="flex items-baseline gap-3">
             <p className="text-text-secondary text-sm">Structured knowledge indexed to your VODs</p>
             <Link to="/plays" className="text-sm text-text-secondary hover:text-val-cyan transition-colors">
-              Set plays →
+              Strategizer →
             </Link>
           </div>
         </div>

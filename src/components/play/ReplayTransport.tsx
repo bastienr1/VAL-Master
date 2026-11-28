@@ -306,7 +306,7 @@ export default function ReplayTransport(props: ReplayTransportProps) {
               ? 'Back to the replay to capture a moment'
               : props.canCapture
                 ? 'Keep this moment as a step'
-                : 'A play holds at most 10 steps'
+                : 'A strat holds at most 10 steps'
           }
           className={`${button} text-val-cyan border-val-cyan/25 bg-val-cyan/10 hover:bg-val-cyan/20`}
         >
