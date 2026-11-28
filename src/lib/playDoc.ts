@@ -145,6 +145,11 @@ export interface AbilityElement {
   curved?: boolean
   /** The colour of the throw's line, `#RRGGBB`; not given, the ability's own colour. */
   lineColor?: string
+  /**
+   * The line-up it was added from (§2.32), by id: the strat keeps its own copy
+   * of the throw, and this finds the line-up's pictures and recipe.
+   */
+  lineup?: string
   /** World cm radius for area utility; the renderer has defaults per shape. */
   radius?: number
   /** "Heaven smoke", "Flash over A Main". */
@@ -601,6 +606,8 @@ function parseElements(
         if (radius !== null && radius > 0) el.radius = radius
         const label = text(e.label)
         if (label) el.label = label
+        const lineup = text(e.lineup)
+        if (lineup) el.lineup = lineup
         const progress = finite(e.progress)
         if (progress !== null && progress >= 0 && progress <= 1) el.progress = progress
         const path = list(e.path).map(parsePos).filter((pos): pos is PlayPos => pos !== null)

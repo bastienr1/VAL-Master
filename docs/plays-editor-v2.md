@@ -1372,6 +1372,71 @@ migration):
 
 Not checked: a real Seen here (needs the table).
 
+### 2.32 The Strategizer: the name, and line-ups in a strat
+
+**The name.** Plays is called the Strategizer on screen: the page title, the
+Improve card, the Playbook's link, the line-up library's back link and the
+editor's back button. What it holds is called a strat ("New strat", "Untitled
+strat", "Delete this strat?"). The addresses stay under `/plays`, and the
+table and the code keep their names; `/strategizer` leads to `/plays`.
+
+**Line-ups in a strat.** The agent strip gains a **Line-ups** button (with the
+count for the strat's map and side). It opens `LineupPicker` over the map's
+bottom-right corner:
+
+- **What it lists** (`lineupsForStrat`, `src/lib/lineupRecall.ts`, pure,
+  tested): the user's line-ups on the strat's map (by Riot id when both carry
+  one, else by name) and side. The comp's agents come first, in the comp's
+  order, then the others by name; within an agent, by title.
+- **Purpose chips** narrow it, when more than one purpose is present.
+- **Each row:** the agent, the ability's icon, the title, the purpose and the
+  recipe line. A tick and a count show the ones already on the step.
+- It stays open, so several can be added; Escape or × closes it.
+- No line-ups there: a link to the board to make one. A link to the library
+  sits at the foot.
+
+**Adding one** (`placeLineup`) adds the throw to the step and sends that agent
+there:
+
+- **The throw:** `lineupElement` (the board's own drawing), with a new id and
+  `lineup` set to the line-up's id. The strat keeps its own copy of the points,
+  so editing or deleting the line-up later does not move the strat.
+- **The agent:** the ally of that agent already on the step is moved to where
+  they stand (their move arrow is kept). Without one, an ally is added there,
+  joining the comp while it has room. With a full comp, only the throw is
+  added.
+- A toast says which happened, and the throw is selected.
+
+**The card** (`LineupGlance`): selecting a throw that came from a line-up
+shows it over the map's top-left corner. It holds:
+
+- the title, the purpose and the callouts;
+- the three pictures, each opening full size;
+- "How to throw it" (the recipe line) and the note;
+- the clip, and **Open line-up ↗** to its card on the board.
+
+It is read only; a line-up gone from the library says so, and the throw stays.
+
+**Where the line-ups come from.** `lineupsResource` (`src/lib/lineups.ts`) is
+a shared, cached list, invalidated by every write there. A recalled strat
+(§2.31) draws its line-up throws like any other ability.
+
+**Document:** `AbilityElement.lineup?: string`, read when it is a non-empty
+string.
+
+**Checked** (2026-11-28, signed in, a new Abyss attack strat, not saved):
+- **The picker:** listed the 9 Sova line-ups with Execute, Post-plant,
+  Retake, Info and Other chips.
+- **The first line-up** ("A Bridge from A Main") added Sova where they stand,
+  with the toast "Sova added where they stand" and the throw selected.
+- **The second** ("A Site from A Main") moved that Sova instead of adding a
+  second one ("Sova moved to where they stand").
+- **The card** showed its three pictures, loaded, and the recipe.
+- **The rename:** `/strategizer` led to `/plays`, titled Strategizer with
+  "New strat".
+- No console errors.
+
+
 ## 3. Document v2 (`src/lib/playDoc.ts`)
 
 ```ts

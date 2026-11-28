@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type Ref } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, Crosshair } from 'lucide-react'
 import PlayCanvas, { type PlayCanvasHandle, type PlayCanvasProps, type Tool } from '../components/PlayCanvas'
 import AbilityPopover from '../components/play/AbilityPopover'
 import AgentStrip, { type AgentRole } from '../components/play/AgentStrip'
+import LineupGlance from '../components/play/LineupGlance'
+import LineupPicker from '../components/play/LineupPicker'
 import { SplitterHandle, useSplitter } from '../components/ColumnSplitter'
 import StepDrawer from '../components/play/StepDrawer'
 import EditorRail from '../components/play/EditorRail'
@@ -73,6 +75,9 @@ import { originBack, parseReplayTime, parseStratPage } from '../lib/strategyLink
 import { EMPTY_CARD, isEmptyCard, parseStratCard, tagCounts, type StratCard } from '../lib/stratCard'
 import { roundLinkBack, roundsOf } from '../lib/stratRecall'
 import { stratRoundsResource } from '../lib/stratRounds'
+import { boardLink, libraryLink, type Lineup } from '../lib/lineupModel'
+import { lineupCounts, lineupsForStrat, placeLineup } from '../lib/lineupRecall'
+import { lineupsResource } from '../lib/lineups'
 import { replayMatchesResource } from '../lib/replayMatches'
 import { useResource } from '../hooks/useResource'
 import type { ReplayPlay } from '../lib/replayToPlay'
@@ -572,6 +577,8 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
   const [openingReplay, setOpeningReplay] = useState(false)
   /** "Step captured", over the canvas for a moment. */
   const [toast, setToast] = useState<string | null>(null)
+  /** The line-up picker over the map (§2.32). */
+  const [lineupsOpen, setLineupsOpen] = useState(false)
 
   const [replayTab, setReplayTabState] = useState<ReplayTab>(readReplayTab)
   const setReplayTab = (next: ReplayTab) => {
@@ -688,6 +695,8 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
   // The rounds this strat is marked as seen on (§2.31), named by their matches.
   const { data: stratLinks, error: stratLinksError } = useResource(stratRoundsResource)
   const { data: replayMatches } = useResource(replayMatchesResource)
+  // The user's line-ups, to add to a step (§2.32).
+  const { data: lineupState, error: lineupsError, loading: lineupsLoading } = useResource(lineupsResource)
   const map = mapPick || (loadId ? '' : (mapNames[0] ?? ''))
   const gameMap = map ? registry?.maps.byName.get(map.trim().toLowerCase()) : undefined
   const mapDrawable = Boolean(gameMap?.transform && gameMap.callouts.length > 0)
@@ -1043,6 +1052,30 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
    * with an ally outside the comp would not open again. On a paused replay
    * frame the agent joins the frame, and the comp when the frame is captured.
    */
+  // ── Line-ups (§2.32) ──────────────────────────────────────────────────────
+
+  /**
+   * Adds a line-up to the step: its throw, linked back to it, and that
+   * agent's ally sent to where they stand (moved, or added while the comp has
+   * room). The throw is selected, so its card shows.
+   */
+  const addLineup = (lineup: Lineup) => {
+    if (!step || inReplay) return
+    const stepId = step.id
+    const ids = { ability: newId(), agent: newId() }
+    const placed = placeLineup(step, doc.comp, lineup, ids)
+    commitWith(d => {
+      const at = d.steps.find(s => s.id === stepId)
+      if (!at) return d
+      const next = placeLineup(at, d.comp, lineup, ids)
+      return { ...d, comp: next.comp, steps: d.steps.map(s => (s.id === stepId ? next.step : s)) }
+    })
+    setSelectedId(placed.ability.id)
+    setPending(null)
+    setPopoverAgent(null)
+    setToast(placed.agent === 'moved' ? `${lineup.agent} moved to where they stand` : placed.agent === 'added' ? `${lineup.agent} added where they stand` : 'Comp is full: only the throw was added')
+  }
+
   const pickAgent = (agent: GameAgent) => {
     const shown = shownStep()
     if (!shown || !gameMap || (inReplay && replayPlaying)) return
@@ -1536,6 +1569,7 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
         setPending(null)
         setSelectedId(null)
         setPopoverAgent(null)
+        setLineupsOpen(false)
       } else if (key === 'f') {
         setTheatre(t => !t)
       } else if (key === 'k') {
@@ -1613,6 +1647,17 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
   }, [step])
 
   const popoverGameAgent = popoverAgent ? agentByName(popoverAgent) : undefined
+  const abilityIcon = (agent: string, slot: AbilitySlot | null) =>
+    slot ? (agentByName(agent)?.abilities.find(a => a.slot === slot)?.icon ?? undefined) : undefined
+  // Line-ups (§2.32): the strat's map and side, the comp's agents first; the one behind the selected throw.
+  const stratLineups = lineupsForStrat(lineupState?.rows ?? [], { map, mapUuid: gameMap?.uuid ?? null, side }, doc.comp)
+  const lineupsProblem = lineupState?.tableMissing
+    ? 'Line-ups need the lineups table: run supabase/migrations/20261124_lineups.sql.'
+    : lineupsError
+  const sideLabel = side === 'attack' ? 'attack' : 'defense'
+  const selectedThrow = !inReplay && step && selectedId ? step.elements.find(e => e.id === selectedId) : undefined
+  const selectedLineupId = selectedThrow?.kind === 'ability' ? selectedThrow.lineup : undefined
+  const selectedLineup = selectedLineupId ? (lineupState?.rows.find(l => l.id === selectedLineupId) ?? null) : null
   const abilityCounts: Partial<Record<AbilitySlot, number>> = {}
   if (popoverAgent && step) {
     for (const e of step.elements) {
@@ -1889,6 +1934,35 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
             </div>
           )}
 
+          {!inReplay && !theatre && selectedThrow?.kind === 'ability' && selectedLineupId && (
+            <div className={`absolute left-2 z-10 ${unresolved.length > 0 ? 'top-10' : 'top-2'}`}>
+              <LineupGlance
+                lineup={selectedLineup}
+                label={selectedThrow.label ?? 'Line-up'}
+                loading={lineupsLoading}
+                abilityIcon={abilityIcon(selectedThrow.agent, selectedThrow.slot)}
+                onClose={() => setSelectedId(null)}
+              />
+            </div>
+          )}
+
+          {!inReplay && !theatre && lineupsOpen && map && (
+            <div className="absolute bottom-3 right-3 z-20">
+              <LineupPicker
+                rows={stratLineups}
+                loading={lineupsLoading}
+                problem={lineupsProblem}
+                where={`${map} ${sideLabel}`}
+                counts={lineupCounts(step ?? null)}
+                abilityIcon={abilityIcon}
+                onAdd={addLineup}
+                onClose={() => setLineupsOpen(false)}
+                libraryHref={libraryLink({ map })}
+                boardHref={boardLink({ map, side, fresh: true })}
+              />
+            </div>
+          )}
+
           {popoverGameAgent && (
             <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-10">
               <AbilityPopover
@@ -2066,6 +2140,22 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
             onPick={pickAgent}
             hint={hint}
             enabled={Boolean(gameMap && mapDrawable) && !(inReplay && replayPlaying)}
+            extra={
+              <button
+                type="button"
+                onClick={() => setLineupsOpen(o => !o)}
+                disabled={!gameMap || !mapDrawable}
+                aria-pressed={lineupsOpen}
+                title={`Your line-ups for ${map || 'this map'} ${sideLabel}: add one to this step`}
+                className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-md border text-[11px] font-semibold transition-colors whitespace-nowrap disabled:opacity-40 ${
+                  lineupsOpen ? 'border-val-cyan/50 bg-val-cyan/15 text-val-cyan' : 'border-bg-elevated text-text-secondary hover:text-val-cyan hover:border-val-cyan/40'
+                }`}
+              >
+                <Crosshair className="w-3.5 h-3.5" />
+                Line-ups
+                {stratLineups.length > 0 && <span className="font-stats text-text-muted">{stratLineups.length}</span>}
+              </button>
+            }
           />
           </div>
           )}

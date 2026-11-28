@@ -7,6 +7,8 @@
  * defaults to `auth.uid()` on insert.
  */
 
+import { createResource } from './resourceStore'
+import { scopeToUser } from './sessionScope'
 import { supabase } from './supabase'
 import {
   LINEUP_IMAGE_SLOTS,
@@ -52,9 +54,13 @@ export async function listLineups(): Promise<LineupsState> {
   return { rows, tableMissing: false }
 }
 
+/** Every line-up, shared by the pages that only read them (the Strategizer); invalidated by each write here. */
+export const lineupsResource = scopeToUser(createResource(listLineups))
+
 export async function createLineup(input: LineupInput): Promise<Lineup> {
   const { data, error } = await supabase.from('lineups').insert(input).select('*').single()
   if (error) throw new Error(error.message)
+  lineupsResource.invalidate()
   const row = fromRow(data)
   if (!row) throw new Error('The line-up was saved but could not be read back.')
   return row
@@ -69,6 +75,7 @@ export async function updateLineup(id: string, patch: Partial<LineupInput>): Pro
     .select('*')
     .single()
   if (error) throw new Error(error.message)
+  lineupsResource.invalidate()
   const row = fromRow(data)
   if (!row) throw new Error('The line-up was saved but could not be read back.')
   return row
@@ -78,6 +85,7 @@ export async function updateLineup(id: string, patch: Partial<LineupInput>): Pro
 export async function deleteLineup(lineup: Lineup): Promise<void> {
   const { error } = await supabase.from('lineups').delete().eq('id', lineup.id)
   if (error) throw new Error(error.message)
+  lineupsResource.invalidate()
   // Row first: a file with no row is invisible, a row with no file is a broken picture.
   const paths = LINEUP_IMAGE_SLOTS.map(slot => lineup[imageColumn(slot)]).filter((path): path is string => Boolean(path))
   if (paths.length > 0) {
