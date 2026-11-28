@@ -66,6 +66,7 @@ export const SLOT_KEYS = {
   tileGoals: 'tile.goals',
   banner: 'cta.banner',
   improveHero: 'improve.hero',
+  lineupsHero: 'lineups.hero',
 } as const
 
 const TILE_COMPOSITION = 'Bottom-left kept clear for title + subline'
@@ -134,6 +135,15 @@ export const STATIC_SLOTS: SlotSpec[] = [
     composition: 'Subject in the right third. Left 45% calm for the headline',
     scrim: 'left',
     sample: { title: 'Improve', sub: 'What to practice, and how the week is going.' },
+  },
+  {
+    key: SLOT_KEYS.lineupsHero,
+    label: 'Line-ups banner',
+    width: 2400,
+    height: 400,
+    composition: 'Subject in the right half. Left 40% calm for the title',
+    scrim: 'left',
+    sample: { title: 'Line-ups', sub: 'Master throwable line-ups for every map, agent and situation.' },
   },
 ]
 
