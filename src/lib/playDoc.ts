@@ -109,6 +109,12 @@ export interface AgentElement {
   armor?: number
   /** A replay frame's: how much of a flash on this agent is left, 1…0. Not kept in a strat. */
   blind?: number
+  /**
+   * Where the match really had them: an enemy of a strat built from a review
+   * (strategy mode, §2.29), kept as seen so the plan answers real positions.
+   * Drawn faded.
+   */
+  seen?: boolean
 }
 
 /** One point of a thrown thing's track on a replay frame. */
@@ -240,7 +246,22 @@ export interface PlayDoc {
   /** Kept on plays made while the composer existed; nothing writes or shows them now. */
   assumptions: string[]
   /** The match whose replay this play was built from, so a saved strat can reopen it (§2.8). */
-  replay?: { matchId: string }
+  replay?: ReplayOrigin
+}
+
+/** The page a strat was started from (§2.29), where its back link goes. */
+export type OriginPage = 'review' | 'report'
+
+/**
+ * The match a play came from (§2.8) and, for a strat started from a review
+ * (strategy mode, §2.29), the round and the replay time it was started at and
+ * the page it came from.
+ */
+export interface ReplayOrigin {
+  matchId: string
+  round?: number
+  ms?: number
+  page?: OriginPage
 }
 
 // ── Version 1, read only ────────────────────────────────────────────────────
@@ -458,9 +479,24 @@ function validate(raw: Raw): PlayDoc {
     steps,
     assumptions: list(raw.assumptions).map(text).filter(Boolean),
   }
-  const matchId = isObject(raw.replay) ? text(raw.replay.matchId) : ''
-  if (matchId) doc.replay = { matchId }
+  if (isObject(raw.replay)) {
+    const origin = parseOrigin(raw.replay)
+    if (origin) doc.replay = origin
+  }
   return doc
+}
+
+/** A saved `replay`: the match, and the round, time and page when they are sound. Null without a match. */
+function parseOrigin(raw: Record<string, unknown>): ReplayOrigin | null {
+  const matchId = text(raw.matchId)
+  if (!matchId) return null
+  const origin: ReplayOrigin = { matchId }
+  const round = finite(raw.round)
+  if (round !== null && Number.isInteger(round) && round >= 1) origin.round = round
+  const ms = finite(raw.ms)
+  if (ms !== null && ms >= 0) origin.ms = ms
+  if (raw.page === 'review' || raw.page === 'report') origin.page = raw.page
+  return origin
 }
 
 /** The elements of one step, in order, each with an id unique within the step. */
@@ -518,6 +554,7 @@ function parseElements(
         if (e.spike === true) el.spike = true
         const player = text(e.player)
         if (player) el.player = player
+        if (e.seen === true) el.seen = true
         const kit = list(e.kit).flatMap((raw): KitSlot[] => {
           if (typeof raw !== 'object' || raw === null) return []
           const k = raw as Record<string, unknown>

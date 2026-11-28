@@ -563,6 +563,29 @@ test('a play keeps the match of its replay when the match id is a non-empty stri
   assert.deepEqual(parsePlayDoc(JSON.stringify(linked)), linked)
 })
 
+test('a strat started from a review keeps its round, time and page when they are sound (§2.29)', () => {
+  const replayOf = (replay: unknown) => parsePlayDoc({ ...VALID, replay }).replay
+  const origin = { matchId: 'm-1', round: 7, ms: 61235, page: 'review' as const }
+  assert.deepEqual(replayOf(origin), origin)
+  assert.deepEqual(replayOf({ ...origin, page: 'report' }), { ...origin, page: 'report' })
+  assert.deepEqual(replayOf({ matchId: 'm-1', round: 0, ms: -1, page: 'plays' }), { matchId: 'm-1' })
+  assert.deepEqual(replayOf({ matchId: 'm-1', round: 2.5, ms: '100' }), { matchId: 'm-1' })
+  assert.equal(replayOf({ round: 7, ms: 100, page: 'review' }), undefined)
+  const linked: PlayDoc = { ...VALID, replay: origin }
+  assert.deepEqual(parsePlayDoc(JSON.stringify(linked)), linked)
+})
+
+test('an agent kept where the match had it stays seen; anything but true is dropped (§2.29)', () => {
+  const enemy = { kind: 'agent', id: 'op', agent: 'Chamber', team: 'enemy', at: { callout: 'A Tree' } }
+  const seenOf = (seen: unknown) => {
+    const step = parsePlayDoc({ ...VALID, steps: [{ ...VALID.steps[0], elements: [{ ...enemy, seen }] }] }).steps[0]
+    const el = step.elements[0]
+    return el.kind === 'agent' ? el.seen : 'not an agent'
+  }
+  assert.equal(seenOf(true), true)
+  for (const bad of [false, 'true', 1, null, undefined]) assert.equal(seenOf(bad), undefined, String(bad))
+})
+
 test('copyStep keeps the replay time', () => {
   assert.equal(copyStep({ ...VALID.steps[0], replayMs: 61000 }, 'Copy').replayMs, 61000)
   assert.equal('replayMs' in copyStep(VALID.steps[0], 'Copy'), false)

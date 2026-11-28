@@ -1191,6 +1191,58 @@ the look with Bastien before any of it was built here (2026-11-25).
   Until its pictures are in, and where they fail, a replay's is the token and
   the dashed way. Under `prefers-reduced-motion` nothing weaves or loops.
 
+### 2.29 Strategy mode: a strat from the round being reviewed
+
+Asked for on 2026-11-28: "When I am reviewing a match, I'd like to be able to
+switch to strategy mode, so I can work on strategizing based on the existing
+positions of teammates in a real match." Step 1 of three; the strat cards
+(tags, a "When you see…" line, a library) and the recall on other rounds come
+after it.
+
+**Entry.** The review's and the report's map HUD has **Strategize** in place
+of "Open in Plays ↗". It reads the replay time the map last drew (the minimap's
+frame loop keeps it in a ref) and opens
+`/plays/new?replay=<match>&round=<n>&t=<replay ms>&strat=review|report`
+(`strategizeHref`, `src/lib/strategyLink.ts`).
+
+**The editor.** The replay mode (§2.8) opens at `&t` when it falls inside the
+round's span, else at the round's barrier as before. With `&strat`, once the
+replay is open and the players' names are in (the same cached Henrik call):
+
+- Step 1, **What happened**: the frame, captured as Capture step does it
+  (`stepFromFrame`, split out of `capture`), captioned with the round clock and
+  the nearest tick. Its enemies carry `seen: true`.
+- Step 2, **The plan**: a copy of step 1, selected, in the steps view, to draw
+  on. The replay stays loaded: Back to replay and the transport work as before.
+- The title is `<Map> · R9 · 0:06 · strat` until renamed.
+
+**Seen agents.** `AgentElement.seen` (kept by `parsePlayDoc` only when `true`;
+`PlacedAgent.seen`) is an enemy kept where the match had it: drawn at 0.5
+opacity, its label ends "where the match had them". It is a normal agent
+otherwise: it can be moved or removed.
+
+**What a strat keeps.** `PlayDoc.replay` is a `ReplayOrigin`:
+`{ matchId, round?, ms?, page? }`. `round` (a whole number from 1), `ms`
+(finite, at least 0) and `page` (`review` or `report`) are kept when sound and
+dropped otherwise; a play from the replay picker still saves `{ matchId }`.
+
+**The way back.** A play whose origin has a page and a time shows a cyan
+**← R9 review** (or report) chip after the side chip (`originBack`). It links to
+`/review/<match>?at=<ms>` or `/report/<match>?at=<ms>`; with unsaved changes it
+asks "Leave this strat without saving it?" first. The review reads `?at` once
+the bundle and the sync are known: it opens the Map tab and seeks the video to
+that replay time. The report's stage opens there paused (`startAt`): the clock
+seeks; the video seeks once the player is ready, then pauses, since a seek
+starts a video that never played.
+
+**Checked** (2026-11-28, signed in, Bind 14-12): Strategize at R9 0:06 on the
+review → Plays with both steps, five faded enemies with their names, the title
+and the chip; the chip asked before leaving, then returned to the review's Map
+tab at 15:33 (paused at 15:32). The report at `?at=` opened on round 9, paused,
+and its Strategize carried the same time with `strat=report`. Not checked: a
+save (it would write to the real account); the parser test covers the round
+trip.
+
 ## 3. Document v2 (`src/lib/playDoc.ts`)
 
 ```ts

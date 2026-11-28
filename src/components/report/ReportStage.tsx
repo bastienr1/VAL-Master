@@ -6,6 +6,7 @@ import { useReplayClock } from '../../hooks/useReplayClock'
 import { useYouTubePlayer } from '../../hooks/useYouTubePlayer'
 import type { ReplayBundle } from '../../lib/replayBundle'
 import { replayMsToVideoSeconds, roundAtReplayMs } from '../../lib/replaySync'
+import { strategizeHref } from '../../lib/strategyLink'
 import { formatTime } from '../../lib/youtube'
 
 /** What the report's text can ask of the stage beside it. */
@@ -26,6 +27,8 @@ interface ReportStageProps {
   video: ReportVideo | null
   matchId: string
   handleRef: RefObject<ReportStageHandle | null>
+  /** A replay time to open on, paused: a strat's way back to where it was started (docs/plays-editor-v2.md §2.29). */
+  startAt?: number | null
 }
 
 const SPEEDS = [1, 2, 4]
@@ -66,13 +69,23 @@ export default function ReportStage(props: ReportStageProps) {
   return props.video ? <VideoStage {...props} video={props.video} /> : <ClockStage {...props} />
 }
 
-function usePlaysHref(matchId: string) {
-  return useCallback((n: number) => `/plays/new?replay=${matchId}&round=${n}`, [matchId])
+/** The minimap's Strategize link (strategy mode, docs/plays-editor-v2.md §2.29); stable, since the minimap is memoized. */
+function useStrategizeHref(matchId: string) {
+  return useCallback((n: number, replayMs: number) => strategizeHref(matchId, n, replayMs, 'report'), [matchId])
 }
 
-function VideoStage({ bundle, video, matchId, handleRef }: ReportStageProps & { video: ReportVideo }) {
-  const { containerRef, embedBlocked, isPlaying, getCurrentTime, seekTo, play } = useYouTubePlayer(video.videoId)
-  const playsHref = usePlaysHref(matchId)
+function VideoStage({ bundle, video, matchId, handleRef, startAt = null }: ReportStageProps & { video: ReportVideo }) {
+  const { containerRef, embedBlocked, isPlaying, getCurrentTime, seekTo, play, pause, ready } = useYouTubePlayer(video.videoId)
+  // `startAt` once the player can seek; once, so it never fights the user. A seek starts a video
+  // that never played, so it is paused again: the moment is shown, not played.
+  const started = useRef(false)
+  useEffect(() => {
+    if (started.current || !ready || startAt === null) return
+    started.current = true
+    seekTo(Math.max(0, replayMsToVideoSeconds(bundle, video.barrierOffset, startAt)))
+    pause()
+  }, [ready, startAt, bundle, video.barrierOffset, seekTo, pause])
+  const playsHref = useStrategizeHref(matchId)
   const playsStage = usePlaysStage(bundle)
   const [view, setViewState] = useState<StageView>(readView)
   const setView = (next: StageView) => {
@@ -144,7 +157,7 @@ function VideoStage({ bundle, video, matchId, handleRef }: ReportStageProps & { 
             getPlaybackRate={getPlaybackRate}
             isPlaying={isPlaying}
             onSeek={onSeek}
-            playsHref={playsHref}
+            strategizeHref={playsHref}
             stage={playsStage}
           />
         </div>
@@ -153,9 +166,16 @@ function VideoStage({ bundle, video, matchId, handleRef }: ReportStageProps & { 
   )
 }
 
-function ClockStage({ bundle, matchId, handleRef }: ReportStageProps) {
+function ClockStage({ bundle, matchId, handleRef, startAt = null }: ReportStageProps) {
   const clock = useReplayClock(bundle)
-  const playsHref = usePlaysHref(matchId)
+  const started = useRef(false)
+  const { seekMs: seekClock } = clock
+  useEffect(() => {
+    if (started.current || startAt === null) return
+    started.current = true
+    seekClock(startAt)
+  }, [startAt, seekClock])
+  const playsHref = useStrategizeHref(matchId)
   const playsStage = usePlaysStage(bundle)
   const { seekMs, play } = clock
 
@@ -229,7 +249,7 @@ function ClockStage({ bundle, matchId, handleRef }: ReportStageProps) {
         getPlaybackRate={clock.getRate}
         isPlaying={clock.isPlaying}
         onSeek={clock.seekSeconds}
-        playsHref={playsHref}
+        strategizeHref={playsHref}
         stage={playsStage}
       />
     </div>

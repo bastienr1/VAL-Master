@@ -237,6 +237,8 @@ const HALF = TILE / 2
 const TILE_RX = 6
 const TILE_RING = 3
 const GHOST_OPACITY = 0.25
+/** An agent kept where the match had it (strategy mode, §2.29): there, but not part of the plan. */
+const SEEN_OPACITY = 0.5
 
 /** Above this radius an area is an outline with a faint fill, so a map-wide ultimate buries nothing. */
 const HUGE_AREA_CM = 1500
@@ -2212,7 +2214,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
     const [dx, dy] = offsetOf(agent.id)
     const label = `${agent.agent}${agent.player ? ` (${agent.player})` : ''}${agent.team === 'enemy' ? ' (enemy)' : ''}${
       agent.spike ? ', spike carrier' : ''
-    }${agent.hp !== null ? `, ${agent.hp} health${agent.armor ? `, ${agent.armor} armour` : ''}` : ''}${agent.note ? `: ${agent.note}` : ''}`
+    }${agent.seen ? ', where the match had them' : ''}${agent.hp !== null ? `, ${agent.hp} health${agent.armor ? `, ${agent.armor} armour` : ''}` : ''}${agent.note ? `: ${agent.note}` : ''}`
     // The hover / selection card already names the agent; the small name would sit under it.
     const named = showNames && showLabels && agent.id !== hoverId && agent.id !== selectedId
     return (
@@ -2220,6 +2222,7 @@ const PlayCanvas = forwardRef<PlayCanvasHandle, PlayCanvasProps>(function PlayCa
         key={agent.id}
         {...interactive(agent.id, label)}
         style={{ ...placement(agent.x + dx, agent.y + dy, true, live?.id === agent.id), cursor: elementCursor }}
+        opacity={agent.seen ? SEEN_OPACITY : undefined}
       >
         {killerRing(agent.id, agent.team === 'enemy' ? skin.enemy : skin.ally)}
         {agent.blind !== null && blindGlow(agent.blind)}

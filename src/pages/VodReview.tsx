@@ -15,7 +15,8 @@ import { useMatchNotes } from '../hooks/useMatchNotes'
 import { useProfile, profileToPlayer } from '../lib/profile'
 import { useReplayBundle } from '../lib/replays'
 import { usePlaysStage } from '../hooks/usePlaysStage'
-import { applyReplayTiming } from '../lib/replaySync'
+import { applyReplayTiming, replayMsToVideoSeconds } from '../lib/replaySync'
+import { parseReplayTime, strategizeHref as strategizeLink } from '../lib/strategyLink'
 import { getLoadedGameContent, loadGameContent } from '../lib/gameContent'
 import InlineDebrief from '../components/InlineDebrief'
 import MatchRecapHeader from '../components/MatchRecapHeader'
@@ -350,9 +351,12 @@ export default function VodReview() {
     const player = playerRef.current
     return typeof player?.getPlaybackRate === 'function' ? player.getPlaybackRate() : 1
   }, [])
-  // The minimap's "Open in Plays" link; stable, since the minimap is memoized.
+  // The minimap's Strategize link (strategy mode, docs/plays-editor-v2.md §2.29); stable, since the minimap is memoized.
   const replayMatchId = match?.match_id
-  const playsHref = useCallback((n: number) => `/plays/new?replay=${replayMatchId}&round=${n}`, [replayMatchId])
+  const strategizeHref = useCallback(
+    (n: number, replayMs: number) => (replayMatchId ? strategizeLink(replayMatchId, n, replayMs, 'review') : '/plays'),
+    [replayMatchId],
+  )
 
   // Save YouTube URL
   const handleSaveUrl = async () => {
@@ -515,6 +519,16 @@ export default function VodReview() {
   const deepLinkDone = useRef(false)
   useEffect(() => {
     if (deepLinkDone.current || !playerReady) return
+    // `?at=<replay ms>`: a strat's way back (§2.29), on the replay's clock; it waits for the bundle and the sync.
+    const at = parseReplayTime(searchParams.get('at'))
+    if (at !== null) {
+      const offset = vodReview?.barrier_drop_offset
+      if (!replay.bundle || offset == null) return
+      deepLinkDone.current = true
+      setRailTab('map')
+      seekToTimestamp(Math.max(0, replayMsToVideoSeconds(replay.bundle, offset, at)))
+      return
+    }
     const raw = searchParams.get('t')
     if (!raw) return
     const seconds = Number.parseInt(raw, 10)
@@ -522,7 +536,7 @@ export default function VodReview() {
       deepLinkDone.current = true
       seekToTimestamp(seconds)
     }
-  }, [playerReady, searchParams, seekToTimestamp])
+  }, [playerReady, searchParams, seekToTimestamp, replay.bundle, vodReview?.barrier_drop_offset])
 
   const reviewRef = useMemo<ReviewRef | null>(
     () => (match?.match_id ? { type: 'vod', id: match.match_id } : null),
@@ -896,7 +910,7 @@ export default function VodReview() {
               isPlaying={isPlaying}
               onSeek={seekToTimestamp}
               onNudge={handleNudgeSync}
-              playsHref={playsHref}
+              strategizeHref={strategizeHref}
               stage={playsStage}
             />
           )}
