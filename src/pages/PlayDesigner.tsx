@@ -174,7 +174,7 @@ function writeFlag(key: string, value: boolean) {
   }
 }
 
-const UNTITLED = 'Untitled play'
+const UNTITLED = 'Untitled strat'
 const DEFAULT_SPEED_MS = 1800
 const SAVED_FLASH_MS = 1500
 const HINT_MS = 2500
@@ -945,7 +945,7 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
   /** The Study layout's button: a new step after this one, named after the guide's chapter. */
   const newStepAtChapter = (title: string, seconds: number) => {
     if (!step || stepCount >= MAX_STEPS) {
-      setToast(`A play holds at most ${MAX_STEPS} steps`)
+      setToast(`A strat holds at most ${MAX_STEPS} steps`)
       return
     }
     const at = stepAt + 1
@@ -1231,7 +1231,7 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
 
   /** Before the replay time moves: an edited frame not captured yet becomes a step (with a toast), then the live frame goes. */
   const settleLive = () => {
-    if (live && !live.captured) setToast(capture(live.step) ? 'Step captured' : 'The play is full: the edit was not captured')
+    if (live && !live.captured) setToast(capture(live.step) ? 'Step captured' : 'The strat is full: the edit was not captured')
     setLive(null)
   }
 
@@ -1299,7 +1299,7 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
     setOpeningReplay(true)
     getReplayBundle(matchId)
       .then(bundle => {
-        if (!bundle) throw new Error('The match this play came from has no replay attached any more.')
+        if (!bundle) throw new Error('The match this strat came from has no replay attached any more.')
         enterReplay(matchId, bundle, at ?? barrierOf(bundle, firstRound(bundle)))
       })
       .catch((e: unknown) => setError(messageOf(e)))
@@ -1638,9 +1638,9 @@ function Designer({ loadId, onCreated }: { loadId: string | undefined; onCreated
       <div className="max-w-6xl mx-auto">
         <div className={card}>
           {load === 'missing' ? (
-            <p className="text-sm text-text-secondary">This play does not exist or is not yours.</p>
+            <p className="text-sm text-text-secondary">This strat does not exist or is not yours.</p>
           ) : (
-            <div className={errorBox}>Couldn't load this play: {error}</div>
+            <div className={errorBox}>Couldn't load this strat: {error}</div>
           )}
           <Link to="/plays" className="inline-flex items-center gap-1.5 text-sm text-val-cyan hover:underline">
             <ArrowLeft className="w-4 h-4" />

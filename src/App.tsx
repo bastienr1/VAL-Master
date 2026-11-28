@@ -79,6 +79,8 @@ function App() {
           <Route path="/playbook" element={<PlaybookIndex />} />
           <Route path="/playbook/:slug" element={<PlaybookReader />} />
           <Route path="/plays" element={<PlaysIndex />} />
+          {/* The page is called the Strategizer; its addresses stay under /plays. */}
+          <Route path="/strategizer" element={<Navigate to="/plays" replace />} />
           {/* Static before the param route: /plays/new is the blank designer, not a play id. */}
           <Route path="/plays/lineups" element={<LineupLibrary />} />
           <Route path="/plays/lineups/board/:id?" element={<Lineups />} />

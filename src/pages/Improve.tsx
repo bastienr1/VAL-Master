@@ -127,13 +127,13 @@ export default function Improve() {
 
         <section className="space-y-5">
           <SectionHeader
-            title="Plays"
+            title="Strategizer"
             link={{ to: '/plays', label: playsLoading ? 'View all' : `View all ${playCount}` }}
           />
           {playsLoading ? (
             <RowSkeleton />
           ) : plays.length > 0 ? (
-            <CardRow label="Plays">
+            <CardRow label="Strats">
               {plays.map(play => (
                 <HubCard
                   key={play.id}
@@ -146,7 +146,7 @@ export default function Improve() {
               ))}
             </CardRow>
           ) : (
-            <EmptyLine>No plays yet. Write one at Plays → New play.</EmptyLine>
+            <EmptyLine>No strats yet. Write one at Strategizer → New strat.</EmptyLine>
           )}
         </section>
 

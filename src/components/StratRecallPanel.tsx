@@ -142,7 +142,7 @@ export default function StratRecallPanel({ matchId, round, mapName, mapUuid, pag
                 return (
                   <li key={item.play.id} className={`rounded-md border px-2 py-1.5 space-y-1 ${isShown ? 'border-val-cyan/40 bg-val-cyan/5' : 'border-bg-elevated'}`}>
                     <div className="flex items-center gap-1.5 min-w-0">
-                      <Link to={`/plays/${item.play.id}`} className="text-xs font-semibold text-text-primary hover:text-val-cyan truncate" title="Open in Plays">
+                      <Link to={`/plays/${item.play.id}`} className="text-xs font-semibold text-text-primary hover:text-val-cyan truncate" title="Open in the Strategizer">
                         {item.play.title}
                       </Link>
                       {item.fromRound ? (
